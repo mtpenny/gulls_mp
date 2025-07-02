@@ -324,7 +324,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
             {
 		t=Event->epoch[i];
 		obsidx=Event->obsidx[i];
-          	fprintf(lcdatafile_ptr, "%.11g %.11g %.12g %.12g %g\n ",
+          	fprintf(lcdatafile_ptr, "%.11g %.11g %.12g %.12g %.12g\n ",
                   Event->epoch[i], Event->Atrue[i], Event->vbm_rootaccuracy[i], Event->vbm_squarecheck[i], Event->vbm_therr[i]);//0, 1, 2, 3,4
 	    }
 	    fclose(lcdatafile_ptr);
