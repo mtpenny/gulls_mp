@@ -10,11 +10,12 @@
 
 #define DEBUGVAR 0
 
-//Helper functions for VBMicrolensing astrometry
+//Helper functions for VBMicrolensing astrometry parameter conversion
 void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Event, 
                               struct slcat *Sources, double t0_abs, double* pr) {
-  // Binary Astro parameters for BinaryAstroLightCurveOrbital (20 params)
-  // Based on VBM guide and existing GULLS parameters
+  // Non-orbital Binary Astro parameters for BinaryAstroLightCurve (13 params)
+  // pr[0..8]: standard binary parameters
+  // pr[9..12]: astrometric parameters (muS_Dec, muS_RA, piS, thetaE)
   
   double s = Event->params[SS];  // separation in Einstein radii
   double q = Event->params[QQ];  // mass ratio
@@ -24,25 +25,15 @@ void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Eve
   double tE = Event->tE_r;  // reference frame Einstein time
   
   // For Step 1, we'll use simple placeholders for astrometric parameters
-  // These will be properly implemented in Steps 2-3
-  double piN = 0.0;  // parallax North component (will implement conversion later)
-  double piE = 0.0;  // parallax East component (will implement conversion later)
-  double muS_Dec = 0.0;  // source proper motion Dec (will implement conversion later)
-  double muS_RA = 0.0;   // source proper motion RA (will implement conversion later)
+  // These will be properly implemented in Steps 2-3 with coordinate conversions
+  double piN = 0.0;  // parallax North component (placeholder)
+  double piE = 0.0;  // parallax East component (placeholder)
+  double muS_Dec = 0.0;  // source proper motion Dec (placeholder)
+  double muS_RA = 0.0;   // source proper motion RA (placeholder)
   double piS = 0.1;      // source parallax in mas (placeholder)
   double thetaE = Event->thE;  // Einstein angle in mas
   
-  // Orbital parameters
-  double period = Event->params[TT] * DAYINYR;  // period in days
-  double a_orb = Event->params[AA];  // semimajor axis
-  double inc = Event->params[INC];   // inclination
-  double phase0 = Event->params[PHASE]; // initial phase
-  double t_per = t0_abs;  // time of periastron (placeholder)
-  double eccentricity = 0.0;  // assume circular orbit for now
-  double omega = 0.0;  // argument of periastron
-  double Omega = 0.0;  // longitude of ascending node
-  
-  // Fill parameter array for BinaryAstroLightCurveOrbital
+  // Fill parameter array for BinaryAstroLightCurve (non-orbital)
   pr[0] = log(s);
   pr[1] = log(q);
   pr[2] = u0;
@@ -50,20 +41,12 @@ void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Eve
   pr[4] = log(rho);
   pr[5] = log(tE);
   pr[6] = t0_abs;
-  pr[7] = log(period);
-  pr[8] = log(a_orb);
-  pr[9] = inc;
-  pr[10] = phase0;
-  pr[11] = t_per;
-  pr[12] = eccentricity;
-  pr[13] = omega;
-  pr[14] = Omega;
-  pr[15] = piN;
-  pr[16] = piE;
-  pr[17] = muS_Dec;
-  pr[18] = muS_RA;
-  pr[19] = piS;
-  pr[20] = thetaE;
+  pr[7] = piN;
+  pr[8] = piE;
+  pr[9] = muS_Dec;
+  pr[10] = muS_RA;
+  pr[11] = piS;
+  pr[12] = thetaE;
 }
 
 //extern "C"
@@ -145,6 +128,43 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
             Event->vbm_squarecheck.resize(Event->nepochs);
             Event->vbm_therr.resize(Event->nepochs);
     }  
+    
+  // Precompute astrometric centroids for each observatory using VBM Astro API
+  vector<vector<double> > centroid_N_obs; // [obsidx][epoch] - North centroids in mas
+  vector<vector<double> > centroid_E_obs; // [obsidx][epoch] - East centroids in mas
+  
+  if(Event->vbm->astrometry) {
+    centroid_N_obs.resize(Paramfile->numobservatories);
+    centroid_E_obs.resize(Paramfile->numobservatories);
+    
+    // Build binary astrometry parameters (non-orbital for Step 1)
+    double pr[13]; // 13 parameters for BinaryAstroLightCurve
+    double t0_abs = Event->t0 + SIMULATION_ZERO_TIME; // convert to absolute JD
+    build_binary_astro_params(Paramfile, Event, Sources, t0_abs, pr);
+    
+    for(int obs=0;obs<Paramfile->numobservatories;obs++) {
+      int nobs = Event->nepochsvec[obs+1] - Event->nepochsvec[obs];
+      if(nobs <= 0) continue;
+      
+      // Prepare time arrays for this observatory
+      vector<double> times(nobs);
+      for(int i=0; i<nobs; i++) {
+        int idx = Event->nepochsvec[obs] + i;
+        times[i] = Event->jdepoch[idx]; // Use JD times for VBM
+      }
+      
+      // Allocate result arrays
+      vector<double> mag(nobs), c1s(nobs), c2s(nobs), c1l(nobs), c2l(nobs);
+      
+      // Call VBM astrometry function
+      Event->vbm->BinaryAstroLightCurve(&times[0], pr, nobs, &mag[0], &c1s[0], &c2s[0], &c1l[0], &c2l[0]);
+      
+      // Store the sky centroids (already in mas)
+      centroid_N_obs[obs] = c1s; // North component
+      centroid_E_obs[obs] = c2s; // East component
+    }
+  }
+  
   vector<int> idxshift;
   for(obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
     idxshift.push_back(Event->nepochsvec[obsidx]);
@@ -161,9 +181,15 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	{
 	  //lightcurve is identical from observatory to observatory
 	  amp = Event->Atrue[shiftedidx];
-	  // Copy centroid values from the corresponding epoch
-	  Event->centroid_x[idx] = Event->centroid_x[shiftedidx];
-	  Event->centroid_y[idx] = Event->centroid_y[shiftedidx];
+	  // Copy centroid values from the first observatory (assuming identical observing sequences)
+	  if(Event->vbm->astrometry && centroid_N_obs.size() > 0 && 
+	     shiftedidx < centroid_N_obs[0].size()) {
+	    Event->centroid_N_mas[idx] = centroid_N_obs[0][shiftedidx];
+	    Event->centroid_E_mas[idx] = centroid_E_obs[0][shiftedidx];
+	  } else {
+	    Event->centroid_N_mas[idx] = 0.0;
+	    Event->centroid_E_mas[idx] = 0.0;
+	  }
 	}
       else
 	{
@@ -216,17 +242,15 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  
 	  amp = Event->vbm->BinaryMag2(s,q,xsrot,ysrot,rs);
 	  
-	  // For Step 1: Compute astrometric centroids if astrometry is enabled
-	  if(Event->vbm->astrometry) {
-	    // Store the current astrometric centroids (VBM computes them during BinaryMag2)
-	    // For Step 1, we'll use the source-plane coordinates as placeholders
-	    // These are in Einstein units relative to the lens
-	    Event->centroid_x[idx] = Event->vbm->astrox1 + xsrot;  // blend source and lens centroid
-	    Event->centroid_y[idx] = Event->vbm->astrox2 + ysrot;  // placeholder blending
+	  // Retrieve precomputed astrometric centroids
+	  if(Event->vbm->astrometry && obsidx < centroid_N_obs.size() && 
+	     shiftedidx < centroid_N_obs[obsidx].size()) {
+	    Event->centroid_N_mas[idx] = centroid_N_obs[obsidx][shiftedidx];
+	    Event->centroid_E_mas[idx] = centroid_E_obs[obsidx][shiftedidx];
 	  } else {
-	    // If astrometry disabled, set to source position
-	    Event->centroid_x[idx] = xsrot;
-	    Event->centroid_y[idx] = ysrot;
+	    // Fallback: set to zero if astrometry not available
+	    Event->centroid_N_mas[idx] = 0.0;
+	    Event->centroid_E_mas[idx] = 0.0;
 	  }
 	  
           if(Paramfile->verbosity>=4)

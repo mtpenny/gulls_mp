@@ -205,6 +205,12 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   VBM.astrometry = true;
   cout << "VBM astrometry enabled: " << (VBM.astrometry ? "yes" : "no") << endl;
   
+  // Load Sun ephemeris table for parallax calculations
+  char sun_table_path[200];
+  sprintf(sun_table_path, "%ssrc/SunEphemeris.txt", Paramfile.basedir.c_str());
+  VBM.LoadSunTable(sun_table_path);
+  cout << "VBM Sun ephemeris table loaded from: " << sun_table_path << endl;
+  
   Event.vbm = &VBM;
   /* Initialise and warmup random number generator */
   idum = &var;        

@@ -300,8 +300,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       "parallax_shift_u",    "BJD",                         "source_x",
       "source_y",            "source2_x", "source2_y", "lens1_x",                     "lens1_y",
       "lens2_x",             "lens2_y",                     "parallax_shift_x",
-      "parallax_shift_y",    "parallax_shift_z",            "centroid_x",
-      "centroid_y"
+      "parallax_shift_y",    "parallax_shift_z",            "centroid_N_mas",
+      "centroid_E_mas"
     };
     int nBase = sizeof(baseCols) / sizeof(baseCols[0]);
     for(int i = 0; i < nBase; ++i) {
@@ -376,7 +376,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 		  Event->pllx[obsidx].sslocation[shiftedidx][0], //17
 		  Event->pllx[obsidx].sslocation[shiftedidx][1], //18
 		  Event->pllx[obsidx].sslocation[shiftedidx][2], //19
-		  Event->centroid_x[i], Event->centroid_y[i]); //20, 21
+		  Event->centroid_N_mas[i], Event->centroid_E_mas[i]); //20, 21
 		    
 	  
 	  if(ndF>0)

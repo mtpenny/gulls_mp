@@ -237,8 +237,8 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
   Event->yl1.resize(Event->nepochs);
   Event->xl2.resize(Event->nepochs);
   Event->yl2.resize(Event->nepochs);
-  Event->centroid_x.resize(Event->nepochs);
-  Event->centroid_y.resize(Event->nepochs);
+  Event->centroid_N_mas.resize(Event->nepochs);
+  Event->centroid_E_mas.resize(Event->nepochs);
   Event->vbm_rootaccuracy.resize(Event->nepochs);
   Event->vbm_squarecheck.resize(Event->nepochs);
   Event->vbm_therr.resize(Event->nepochs);

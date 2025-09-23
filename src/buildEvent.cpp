@@ -382,7 +382,27 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   if(Event->ra<0) Event->ra += 2*PI;
   
   // Set coordinates for VBM astrometry calculation
-  Event->vbm->SetObjectCoordinates("Eq", Event->ra, Event->dec);
+  // Convert RA/Dec from radians to sexagesimal string format required by VBM
+  double ra_deg = Event->ra * TO_DEG;
+  double dec_deg = Event->dec * TO_DEG;
+  
+  // Convert to hours for RA (RA in degrees / 15)
+  double ra_hours = ra_deg / 15.0;
+  int ra_h = (int)ra_hours;
+  int ra_m = (int)((ra_hours - ra_h) * 60.0);
+  double ra_s = ((ra_hours - ra_h) * 60.0 - ra_m) * 60.0;
+  
+  // Dec stays in degrees
+  int dec_d = (int)abs(dec_deg);
+  int dec_arcm = (int)((abs(dec_deg) - dec_d) * 60.0);
+  double dec_arcs = ((abs(dec_deg) - dec_d) * 60.0 - dec_arcm) * 60.0;
+  char dec_sign = (dec_deg >= 0) ? '+' : '-';
+  
+  char coord_str[100];
+  sprintf(coord_str, "%02d:%02d:%06.3f %c%02d:%02d:%05.2f", 
+          ra_h, ra_m, ra_s, dec_sign, dec_d, dec_arcm, dec_arcs);
+  
+  Event->vbm->SetObjectCoordinates(coord_str);
 
   //Handle multiplicity
   Event->scompanions.clear();

@@ -369,8 +369,10 @@ struct event{
   vector<double> yl1;
   vector<double> xl2; //lens 2 position
   vector<double> yl2;
-  vector<double> centroid_x; //blended centroid x position (Einstein units)
-  vector<double> centroid_y; //blended centroid y position (Einstein units)
+
+  //Astrometric centroids in sky coordinates (mas)
+  vector<double> centroid_N_mas; //blended centroid North position (mas)
+  vector<double> centroid_E_mas; //blended centroid East position (mas)
 
   vector<double> data; //generic data to be output
   vector<string> dataheader;
