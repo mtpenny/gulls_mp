@@ -56,54 +56,51 @@ Supporting scripts (not C++):
 
 ## Reference frames and conventions (important)
 
-Understand these before changing kinematics, parallax, or photometry:
+Understand these before changing kinematics, parallax, or photometry. The notes below reflect the current source code behavior.
 
 Coordinates and positions:
-- Galactic (l, b) in degrees: primary frame for event rates, kinematics, and catalog selection.
-- Equatorial (RA, Dec): used for sky localization and some outputs; conversion typically originates from the catalogs.
-- Field centers are provided per observatory; events are placed within each field’s footprint.
+- Galactic (l, b) in degrees: primary frame for event rates, kinematics, and catalog selection. Stored and output in degrees (`structures.h`, `buildEvent.cpp:377`).
+- Equatorial (RA, Dec): used for sky localization and outputs. Internally in radians; written to outputs in degrees as `ra_deg`, `dec_deg` (`info.cpp:72`, `:214`).
+- Conversions use `eq2gal`/`eq2horiz` in radians; in code the `'g'` flag to `eq2gal` converts Galactic → Equatorial (`timeSequencer.cpp:25`).
 
 Distances and scales:
-- Distances: Ds (source), Dl (lens) in kpc (from catalogs).
-- Einstein radius: rE (projected physical scale; see outputs), theta_E (angular, mas).
-- Source radius in Einstein units: rhos (dimensionless).
+- Distances: Ds (source), Dl (lens) in kpc (from catalogs; see indices in `structures.h:404+`).
+- Einstein radius rE in AU and thetaE in mas. Specifically: `rE = rEsun * sqrt(M⋅Ds⋅x(1−x))` with `rEsun=2.85412 AU` (M in Msun, Ds in kpc), and `thetaE = rE / Dl` (mas because AU/kpc = mas) (`headers/constants.h:26`, `buildEvent.cpp:512–516`).
+- Source size in Einstein units: `rho` stored as `rs` (dimensionless) (`buildEvent.cpp:545`).
 
 Velocities and proper motions:
-- Proper motions provided in Galactic components:
-  - Source: smu_l, smu_b (mas/yr)
-  - Lens: lmu_l, lmu_b (mas/yr)
-- Relative proper motion murel (mas/yr); transverse speed vt (km/s) derived consistently with Ds, Dl.
-- Event trajectory angle alpha (radians) defined in the lens plane (check the executable’s convention before changing).
+- Catalog proper motions are Galactic components in mas/yr: `MUL`, `MUB` for each star (`structures.h:404+`).
+- Event stores the heliocentric relative proper motion magnitude `murel` and components `murel_l`, `murel_b` in mas/yr (`buildEvent.cpp:526–540`).
+- Transverse speed: `vt = 4.74047 × murel(mas/yr) × Dl(kpc)` km/s is implemented equivalently as `murel * Dl * AU / 1000 / SECINYR` (`buildEvent.cpp:536`).
+- Trajectory angle `alpha` is in degrees (converted to radians where needed) (`buildEvent.cpp:500`, `fisher.cpp:46,109`).
 
 Time and ephemerides:
-- Times in Julian Days (JD): t0 is peak time, tE is Einstein timescale (days).
-- SIMULATION_ZERO_TIME and SIMULATION_LENGTH govern absolute scheduling.
-- Weather is sampled every 0.25 day; cadence is set by the .sequence file.
-- Parallax:
-  - pi_E (dimensionless microlens parallax) optionally enabled via PARALLAX=1.
-  - Platform/observer geometry is governed by SPACE and ORBIT in .observatory and (implicitly) by the cadence.
+- Epoch arrays (`jdtimes`) are in JD; however `t0` is stored and output in days relative to `SIMULATION_ZERO_TIME` (not an absolute JD) (`info.cpp:280`, `structures.h:117`).
+- `tE_r` is the reference-frame Einstein timescale (days) and `tE_h` is heliocentric (days) (`info.cpp:291`, `classes/parallax.cpp:246,283`).
+- Weather is sampled every 0.25 day; cadence comes from the `.sequence` file (`timeSequencer.cpp`).
+
+Parallax:
+- `piE` is dimensionless. The code tracks components `piEN`, `piEE` in the event’s reference frame using the ecliptic North/East basis; `piEll` and `piErp` are components // to and ⟂ to the Sun’s acceleration vector (`info.cpp:95–101`, `classes/parallax.cpp:312–334`).
+- Parallax calculation and light-curve shifts are enabled when `pllxMultiplyer > 0` (commonly 1) and disabled when 0. This governs inclusion of `piEN/piEE` in fitting and shift application (`structures.h:143`, `fisher.cpp:70–100`).
 
 Photometric system:
 - Magnitudes are Vega unless specified.
-- Zeropoint: DETECTOR ZEROMAG and ZEROFLUX define the instrument flux scale.
-- Background in mag/arcsec^2 (BACKGROUND or SKY_BACKGROUND).
-- Filters are enumerated integers that map to columns in the star catalogs (NFILTERS must match).
+- Zeropoint: detector `ZEROMAG`/`ZEROFLUX` define flux scale.
+- Background in mag/arcsec^2 (`SKY_BACKGROUND` and zodiacal model).
+- Filters are enumerated and mapped to catalog columns; `NFILTERS` must match.
 
 Detector/PSF:
-- PIXELSCALE (arcsec/pixel), PSFFWHM (arcsec), PSFFILE kernel with subpixel placement (SUBPIX).
+- `PIXELSCALE` (arcsec/pixel), `PSFFWHM` (arcsec), optional PSF kernel with subpixel placement.
 - Full-well, gain, read noise, dark current, and systematics affect SNR and saturation.
-- PRETTY_PICS toggles image generation for diagnostics.
+- `PRETTY_PICS` toggles image generation for diagnostics.
 
-Units summary (typical; verify per output schema):
-- l, b, RA, Dec: degrees
-- Ds, Dl: kpc
-- proper motions: mas/yr
-- vt: km/s
-- t0, tE: days (t0 in JD; tE duration)
-- theta_E: mas
-- rhos, u0, pi_E, q, s: dimensionless
-- magnitudes: Vega
-- fluxes: instrument-dependent counts/sec
+Units summary (outputs; verify per schema):
+- l, b: degrees; RA, Dec: degrees (internal radians)
+- Ds, Dl: kpc; rE: AU; thetaE: mas; rho (`rs`): dimensionless
+- Proper motions (murel, components): mas/yr; vt: km/s
+- t0, tE: days (`t0` relative to `SIMULATION_ZERO_TIME`)
+- u0, piE, q, s: dimensionless
+- Magnitudes: Vega; Fluxes: instrument-dependent counts/sec
 
 ---
 
@@ -161,6 +158,60 @@ Units summary (typical; verify per output schema):
 Use final weight (w) for statistical analyses.
 
 ---
+
+## Output Columns & Units (appendix)
+
+Key columns written by the event catalog (see `gulls_mp/src/info.cpp`). Units and frames reflect the code’s current behavior.
+
+- Position
+  - `galactic_l`, `galactic_b` [deg]
+  - `ra_deg`, `dec_deg` [deg] (internal RA/Dec are radians)
+
+- Microlensing geometry
+  - `u0lens1` [—]
+  - `alpha` [deg] (converted to radians in computations)
+  - `t0lens1` [days] relative to `SIMULATION_ZERO_TIME`
+  - `tref` [days] reference epoch for parallax
+  - `tcroin` [days], `ucroin` [—], `rcroin` [Einstein radii] (binary-lens parametrization; present when used)
+  - `tE_ref`, `tE_helio` [days] (reference-frame vs heliocentric)
+  - `rE` [AU]
+  - `thetaE` [mas]
+  - `rho` (aka `rs`) [—]
+
+- Parallax
+  - `piE` [—]
+  - `piEN`, `piEE` [—] (components in ecliptic North/East of the reference frame)
+  - `piEll`, `piErp` [—] (// and ⟂ to Sun acceleration in the reference frame)
+
+- Proper motion (relative lens–source)
+  - Heliocentric components: `murel_helio_alpha`, `murel_helio_delta` [mas/yr] (equatorial), `murel_helio_l`, `murel_helio_b` [mas/yr] (Galactic), `murel_helio_lambda`, `murel_helio_beta` [mas/yr] (ecliptic), `murel_helio` [mas/yr]
+  - Reference-frame components: `murel_ref_alpha`, `murel_ref_delta`, `murel_ref_l`, `murel_ref_b`, `murel_ref_lambda`, `murel_ref_beta` [mas/yr], `murel_ref` [mas/yr]
+
+- Velocities
+  - `vtilde_helio`, `vtilde_ref`, `v_ref` [km/s] (projected lens, reference frame)
+  - Component velocities: `vtilde_helio_N`, `vtilde_helio_E`, `vtilde_ref_N`, `vtilde_ref_E`, `v_ref_N`, `v_ref_E` [km/s]
+  - `vt` [km/s] (lens transverse speed)
+
+- Limb darkening
+  - `LDgamma` [—]
+
+- Planet parameters
+  - `Planet_*` columns: names originate from the planet module; typical derived values include mass ratio `q` [—], separation `s` [Einstein radii], and period [days] when available.
+
+- Weights and controls
+  - `u0max` [—], `t0range` [days], `weight_scale` [—]
+  - `raw_weight`, `weight` [—]
+
+- Photometry and blending
+  - Source and lens magnitudes per filter: `Source_<FILTER>`, `Lens_<FILTER>` [mag, Vega]
+  - Blending per observatory: `Obs_<i>_fs` [—]
+  - For multiple sources: `Source2_rho` [—], `Source2_s` [Einstein radii], `Source2_alpha` [deg], `Source2_inc` [deg], `Source2_phase` [—]; `Obs_<i>_fs2ofs1` [—]
+
+- Diagnostics and groups
+  - `NumObsGroups` [int], `ErrorFlag` [int]
+  - Per group: `ObsGroup_<g>_flatlc` [int], `ObsGroup_<g>_flatchi2` [—], `ObsGroup_<g>_FiniteSourceflag` [int], `ObsGroup_<g>_chi2` [—] plus group-specific metrics
+  - Optional error scaling: `scale_factor_300`, `scale_factor_n3sig3`, `scale_factor_n3sig6` [—]
+  - `LCOutput` [0/1]
 
 ## Build and run (macOS quickstart)
 
