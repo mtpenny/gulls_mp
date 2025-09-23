@@ -24,14 +24,24 @@ void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Eve
   double rho = Event->rs;  // source size
   double tE = Event->tE_r;  // reference frame Einstein time
   
-  // For Step 1, we'll use simple placeholders for astrometric parameters
-  // These will be properly implemented in Steps 2-3 with coordinate conversions
-  double piN = 0.0;  // parallax North component (placeholder)
-  double piE = 0.0;  // parallax East component (placeholder)
-  double muS_Dec = 0.0;  // source proper motion Dec (placeholder)
-  double muS_RA = 0.0;   // source proper motion RA (placeholder)
-  double piS = 0.1;      // source parallax in mas (placeholder)
-  double thetaE = Event->thE;  // Einstein angle in mas
+  // Get source catalog data
+  int sn = Event->source;
+  
+  // Convert parallax from ecliptic (piEN,piEE) to equatorial (piN,piE)
+  // For Step 1, use simple approximation - will implement full conversion in Step 2
+  double piN = Event->piEN;  // North component (simplified)
+  double piE = Event->piEE;  // East component (simplified)
+  
+  // Convert source proper motion from Galactic (MUL/MUB) to equatorial (RA/Dec)
+  // For Step 1, use simple approximation - will implement full conversion in Step 2
+  double muS_Dec = Sources->data[sn][Sources->MUB];  // mas/yr (simplified)
+  double muS_RA = Sources->data[sn][Sources->MUL];   // mas/yr (simplified)
+  
+  // Source parallax from distance
+  double piS = 1000.0 / Sources->data[sn][Sources->DIST]; // mas from kpc
+  
+  // Einstein angle
+  double thetaE = Event->thE;  // mas
   
   // Fill parameter array for BinaryAstroLightCurve (non-orbital)
   pr[0] = log(s);
@@ -47,6 +57,14 @@ void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Eve
   pr[10] = muS_RA;
   pr[11] = piS;
   pr[12] = thetaE;
+  
+  // Warn about simplified coordinate conversions in Step 1
+  static bool warning_shown = false;
+  if(!warning_shown && (piS > 0)) {
+    cout << "Warning: Using simplified coordinate conversions for Step 1. " 
+         << "Full Galactic<->Equatorial conversion will be implemented in Step 2." << endl;
+    warning_shown = true;
+  }
 }
 
 //extern "C"
@@ -139,25 +157,24 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     
     // Build binary astrometry parameters (non-orbital for Step 1)
     double pr[13]; // 13 parameters for BinaryAstroLightCurve
-    double t0_abs = Event->t0 + SIMULATION_ZERO_TIME; // convert to absolute JD
+    double t0_abs = Paramfile->simulation_zerotime + Event->t0; // convert to absolute JD
     build_binary_astro_params(Paramfile, Event, Sources, t0_abs, pr);
     
     for(int obs=0;obs<Paramfile->numobservatories;obs++) {
-      int nobs = Event->nepochsvec[obs+1] - Event->nepochsvec[obs];
-      if(nobs <= 0) continue;
+      if(Event->jdtimes[obs].size() == 0) continue;
       
-      // Prepare time arrays for this observatory
-      vector<double> times(nobs);
-      for(int i=0; i<nobs; i++) {
-        int idx = Event->nepochsvec[obs] + i;
-        times[i] = Event->jdepoch[idx]; // Use JD times for VBM
-      }
+      // Use the per-observatory absolute JD times
+      const vector<double>& times = Event->jdtimes[obs];
+      int nobs = static_cast<int>(times.size());
       
-      // Allocate result arrays
-      vector<double> mag(nobs), c1s(nobs), c2s(nobs), c1l(nobs), c2l(nobs);
+      // Allocate result arrays (all required by VBM API)
+      vector<double> mag(nobs), c1s(nobs), c2s(nobs), c1l(nobs), c2l(nobs), y1(nobs), y2(nobs);
       
-      // Call VBM astrometry function
-      Event->vbm->BinaryAstroLightCurve(&times[0], pr, nobs, &mag[0], &c1s[0], &c2s[0], &c1l[0], &c2l[0]);
+      // Call VBM astrometry function with correct signature
+      Event->vbm->BinaryAstroLightCurve(
+        pr, const_cast<double*>(times.data()),
+        mag.data(), c1s.data(), c2s.data(), c1l.data(), c2l.data(),
+        y1.data(), y2.data(), nobs);
       
       // Store the sky centroids (already in mas)
       centroid_N_obs[obs] = c1s; // North component
@@ -243,10 +260,16 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  amp = Event->vbm->BinaryMag2(s,q,xsrot,ysrot,rs);
 	  
 	  // Retrieve precomputed astrometric centroids
-	  if(Event->vbm->astrometry && obsidx < centroid_N_obs.size() && 
-	     shiftedidx < centroid_N_obs[obsidx].size()) {
-	    Event->centroid_N_mas[idx] = centroid_N_obs[obsidx][shiftedidx];
-	    Event->centroid_E_mas[idx] = centroid_E_obs[obsidx][shiftedidx];
+	  if(Event->vbm->astrometry && obsidx < centroid_N_obs.size()) {
+	    // Find the index in the observatory-specific time array
+	    int obs_epoch_idx = shiftedidx; // This should correspond to jdtimes[obsidx] index
+	    if(obs_epoch_idx < centroid_N_obs[obsidx].size()) {
+	      Event->centroid_N_mas[idx] = centroid_N_obs[obsidx][obs_epoch_idx];
+	      Event->centroid_E_mas[idx] = centroid_E_obs[obsidx][obs_epoch_idx];
+	    } else {
+	      Event->centroid_N_mas[idx] = 0.0;
+	      Event->centroid_E_mas[idx] = 0.0;
+	    }
 	  } else {
 	    // Fallback: set to zero if astrometry not available
 	    Event->centroid_N_mas[idx] = 0.0;

@@ -205,11 +205,28 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   VBM.astrometry = true;
   cout << "VBM astrometry enabled: " << (VBM.astrometry ? "yes" : "no") << endl;
   
-  // Load Sun ephemeris table for parallax calculations
+  // Load Sun ephemeris table for parallax calculations (if available)
   char sun_table_path[200];
   sprintf(sun_table_path, "%ssrc/SunEphemeris.txt", Paramfile.basedir.c_str());
-  VBM.LoadSunTable(sun_table_path);
-  cout << "VBM Sun ephemeris table loaded from: " << sun_table_path << endl;
+  
+  // Check if file exists before loading
+  FILE* sun_file = fopen(sun_table_path, "r");
+  if(sun_file) {
+    fclose(sun_file);
+    VBM.LoadSunTable(sun_table_path);
+    cout << "VBM Sun ephemeris table loaded from: " << sun_table_path << endl;
+  } else {
+    // Try VBMicrolensing data directory
+    sprintf(sun_table_path, "%s/../VBMicrolensing/data/SunEphemeris.txt", Paramfile.basedir.c_str());
+    sun_file = fopen(sun_table_path, "r");
+    if(sun_file) {
+      fclose(sun_file);
+      VBM.LoadSunTable(sun_table_path);
+      cout << "VBM Sun ephemeris table loaded from: " << sun_table_path << endl;
+    } else {
+      cout << "Warning: Sun ephemeris table not found. Parallax calculations may be limited." << endl;
+    }
+  }
   
   Event.vbm = &VBM;
   /* Initialise and warmup random number generator */
