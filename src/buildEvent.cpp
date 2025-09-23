@@ -380,6 +380,9 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   lb[1] = Event->b*TO_RAD;
   eq2gal(lb[0], lb[1], 'g', &Event->ra, &Event->dec);
   if(Event->ra<0) Event->ra += 2*PI;
+  
+  // Set coordinates for VBM astrometry calculation
+  Event->vbm->SetObjectCoordinates("Eq", Event->ra, Event->dec);
 
   //Handle multiplicity
   Event->scompanions.clear();

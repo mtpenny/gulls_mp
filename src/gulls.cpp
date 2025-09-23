@@ -200,6 +200,11 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   }
   VBM.Tol=Paramfile.vbm_tol;
   VBM.RelTol=Paramfile.vbm_reltol;
+  
+  // Enable astrometry computation for Step 1 centroid integration
+  VBM.astrometry = true;
+  cout << "VBM astrometry enabled: " << (VBM.astrometry ? "yes" : "no") << endl;
+  
   Event.vbm = &VBM;
   /* Initialise and warmup random number generator */
   idum = &var;        

@@ -300,7 +300,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       "parallax_shift_u",    "BJD",                         "source_x",
       "source_y",            "source2_x", "source2_y", "lens1_x",                     "lens1_y",
       "lens2_x",             "lens2_y",                     "parallax_shift_x",
-      "parallax_shift_y",    "parallax_shift_z"
+      "parallax_shift_y",    "parallax_shift_z",            "centroid_x",
+      "centroid_y"
     };
     int nBase = sizeof(baseCols) / sizeof(baseCols[0]);
     for(int i = 0; i < nBase; ++i) {
@@ -355,7 +356,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	  obsidx=Event->obsidx[i];
 	  shiftedidx = i-Event->nepochsvec[obsidx];
 	  
-	  fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
+	  fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
 		  Event->epoch[i], Event->Aobs[i], Event->Aerr[i], //0, 1, 2
 		  Event->Atrue[i], Event->Atrueerr[i], obsidx, //3, 4, 5
 		  (Event->nosat[i]?0:1), Event->Afit[i], //6, 7
@@ -374,7 +375,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][2]); //19
 		  Event->pllx[obsidx].sslocation[shiftedidx][0], //17
 		  Event->pllx[obsidx].sslocation[shiftedidx][1], //18
-		  Event->pllx[obsidx].sslocation[shiftedidx][2]); //19
+		  Event->pllx[obsidx].sslocation[shiftedidx][2], //19
+		  Event->centroid_x[i], Event->centroid_y[i]); //20, 21
 		    
 	  
 	  if(ndF>0)

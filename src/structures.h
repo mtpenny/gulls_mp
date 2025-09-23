@@ -369,6 +369,8 @@ struct event{
   vector<double> yl1;
   vector<double> xl2; //lens 2 position
   vector<double> yl2;
+  vector<double> centroid_x; //blended centroid x position (Einstein units)
+  vector<double> centroid_y; //blended centroid y position (Einstein units)
 
   vector<double> data; //generic data to be output
   vector<string> dataheader;
