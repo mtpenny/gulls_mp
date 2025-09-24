@@ -334,3 +334,42 @@ Names may vary slightly across branches; search for the above to locate relevant
   - OS and compiler (gcc/clang versions)
   - The .prm file and any custom observatory/detector files
   - Build command and full error/output logs
+
+
+## TODO:
+
+[ ] Astrometry
+  * step 1: x and y centroid pos
+  * step 2: errors
+  * step 3: ra and dec
+
+    [ ] The current `pr` builder still uses simplified frame handling (piN=piEN, piE=piEE; muS from MUL/MUB) as a “Step 1”. It will run, but sky-centroid accuracy depends on replacing these with the proper conversions (ecliptic→equatorial for parallax; Galactic→equatorial for proper motions) when you’re ready.
+
+  Step 1: x/y centroid positions
+
+    Status: Implemented as sky-frame components in mas: centroid_N_mas, centroid_E_mas (one per epoch). If you prefer “x/y”, we can alias:
+      x = East = centroid_E_mas
+      y = North = centroid_N_mas
+  
+  Step 2: errors
+
+    Add per-epoch centroid uncertainties using your PSF/SNR model (Cramér–Rao bound):
+      σ_centroid ≈ FWHM / (2.355 × SNR), in arcsec; convert to mas by ×1000.
+      Split by axes: if PSF is symmetric, set sigma_N_mas = sigma_E_mas = σ_centroid_mas. If you have elliptical PSF, resolve per-axis.
+    Data you already have:
+      PSF FWHM per obs from detector config, SNR per epoch from photometry pipeline (baselineFlux, Aobs, noise terms).
+    Output fields (suggested):
+      centroid_N_err_mas, centroid_E_err_mas
+
+  Step 3: RA/Dec
+
+    Convert the sky offsets to absolute equatorial coordinates per epoch using the event’s base RA/Dec:
+      ΔDec[deg] = centroid_N_mas / 3.6e6
+      ΔRA[deg] = (centroid_E_mas / 3.6e6) / cos(Dec0)
+      RA = RA0 + ΔRA; Dec = Dec0 + ΔDec
+    RA0/Dec0 should match what VB was initialized with (SetObjectCoordinates), or you can use Event->ra/dec as the reference. If you include lens motion (c1l/c2l), use the combined centroid from CombineCentroids as your ΔN/ΔE.
+    Output fields (suggested):
+      centroid_ra_deg, centroid_dec_deg
+      If you compute errors, propagate small-angle uncertainties:
+        σ_Dec[deg] = centroid_N_err_mas / 3.6e6
+        σ_RA[deg] ≈ (centroid_E_err_mas / 3.6e6) / cos(Dec0)

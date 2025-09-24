@@ -3,9 +3,12 @@
 #include "VBMicrolensingLibrary.h"
 #include "constdefs.h"
 #include "columnCodes.h"
-#include<time.h>
-#include<vector>
-#include<iomanip>
+#include <time.h>
+#include <vector>
+#include <iomanip>
+#include <iostream>
+#include <algorithm>
+#include <cmath>
 #include<fstream>
 
 #define DEBUGVAR 0
@@ -44,12 +47,12 @@ void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Eve
   double thetaE = Event->thE;  // mas
   
   // Fill parameter array for BinaryAstroLightCurve (non-orbital)
-  pr[0] = log(s);
-  pr[1] = log(q);
+  pr[0] = log(std::max(1e-12, s));
+  pr[1] = log(std::max(1e-12, q));
   pr[2] = u0;
   pr[3] = alpha;
-  pr[4] = log(rho);
-  pr[5] = log(tE);
+  pr[4] = log(std::max(1e-12, rho));
+  pr[5] = log(std::max(1e-12, tE));
   pr[6] = t0_abs;
   pr[7] = piN;
   pr[8] = piE;
@@ -61,8 +64,8 @@ void build_binary_astro_params(struct filekeywords* Paramfile, struct event *Eve
   // Warn about simplified coordinate conversions in Step 1
   static bool warning_shown = false;
   if(!warning_shown && (piS > 0)) {
-    cout << "Warning: Using simplified coordinate conversions for Step 1. " 
-         << "Full Galactic<->Equatorial conversion will be implemented in Step 2." << endl;
+    std::cout << "Warning: Using simplified coordinate conversions for Step 1. "
+              << "Full Galactic<->Equatorial conversion will be implemented in Step 2." << std::endl;
     warning_shown = true;
   }
 }
@@ -312,4 +315,3 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     }
 
 }
-
