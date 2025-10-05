@@ -52,7 +52,7 @@ unresolved = unresolved.o $(image)
 coordtest = coordtest.o $(coords)
 
 #Targets
-all : test freetest pixconvolve transitfield output_psf colourImage simoglefield keplersim kepphottest astrometryTest gcimage freeColour freeColourML mlevents mlevents_withcontrol calcZeropoint testfits precompute_psf odSplines resampleFits buildup diatest coordtest #unresolved #diffimg
+all : test freetest pixconvolve transitfield output_psf colourImage simoglefield keplersim kepphottest astrometryTest gcimage freeColour freeColourML mlevents mlevents_withcontrol calcZeropoint testfits precompute_psf odSplines resampleFits buildup diatest coordtest elongation #unresolved #diffimg
 
 
 #Build rules
@@ -144,6 +144,11 @@ freeColourML : $(freeColourML)
 	$(CXX) -Wall -O2 -o freeColourML $(freeColourML) $(IMAGE_FLAGS) $
 	@echo
 
+elongation : $(elongation)
+	@echo Compile elongation
+	$(CXX) -Wall -O2 -o elongation $(elongation) $(IMAGE_FLAGS) $
+	@echo
+
 mlevents : $(mlevents)
 	@echo Compile mlevents
 	$(CXX) -Wall -ggdb -O0 -o mlevents $(mlevents) $(IMAGE_FLAGS) $
@@ -211,6 +216,7 @@ astrometryTest.o : astrometryTest.cpp $(image_h)
 gcimage.o : gcimage.cpp $(image_h)
 diatest.o : diatest.cpp $(image_h)
 freeColour.o : freeColour.cpp $(image_h)
+elongation.o : elongation.cpp $(image_h)
 mlevents.o : mlevents.cpp $(image_h) singleLens.h
 mlevents_withcontrol.o : mlevents_withcontrol.cpp $(image_h) singleLens.h
 buildup.o : buildup.cpp $(image_h)

@@ -272,6 +272,7 @@ int main(int argc, char* argv[])
   cout << detectorNames.size() << " observatories" << endl;
 
   vector<image> images(detectorNames.size());
+  vector<image> noelong(detectorNames.size());
 
   long seed;
   
@@ -279,56 +280,29 @@ int main(int argc, char* argv[])
   for(int im=0;im<int(detectorNames.size());im++)
   {
     if(images[im].load_detector(detectorNames[im])<0) exit(1);
+	if(noelong[im].load_detector(detectorNames[im])<0) exit(1);
     
     //free up the memory used by the psf loading process
     images[im].psf.flush_splines();
+	noelong[im].psf.flush_splines();
 
     //set the magnitude above which the small psf gets used
     images[im].set_largepsfmag(large_psf_mag);
+	noelong[im].set_largepsfmag(large_psf_mag);
 
     //set up the random seed
     images[im].pass_seed(&seed);
     if(im==0) images[im].reseed();
+	noelong[im].pass_seed(&seed);
 
     images[im].set_image_properties(xpix[im],ypix[im]);
+	noelong[im].set_image_properties(xpix[im],ypix[im]);
 
   }
-
-
-  //Load in the microlensing events
-
-  ifstream mlin(mleventsfile.c_str());
-  if(!mlin)
-  {
-    cerr << "Could not open the list of microlensing events: " << mleventsfile << endl;
-    exit(1);
-  }
-
-  vector<vector<double> > mlevents;
   
-  while(!mlin.eof())
-  {
-    getline(mlin,line);
-    split(line,data);
 
-    if(data.size()<30)
-      {
-	continue;
-      }
-
-    vector<double> event;
-
-    for(int i=0;i<int(data.size());i++)
-      {
-	//cerr << i << " " << data[i] << " " << atof(data[i].c_str()) << endl;
-	event.push_back(atof(data[i].c_str()));
-      }
-
-    mlevents.push_back(event);
-  }
-
-  vector<int> mlids = vector<int> (mlevents.size());
-  vector<int> mlidl = vector<int> (mlevents.size());
+  vector<int> mlids;
+  //vector<int> mlidl = vector<int> (mlevents.size());
   
 
   vector<string> fields; //filename of all the fields
@@ -358,6 +332,7 @@ int main(int argc, char* argv[])
   //read in each starfield
 
   vector<vector<string> > stardata = vector<vector<string> >(nfields);
+  vector<vector<string> > lensdata = vector<vector<string> >(nfields);
 
   //ignore any lines with these characters
   string ignore = 
@@ -402,8 +377,10 @@ int main(int argc, char* argv[])
   //start creating the image
 
   freestarlist stars;
+  freestarlist nestars;
 
   for(int k=0;k<int(detectorNames.size());k++) images[k].addbg();
+  for(int k=0;k<int(detectorNames.size());k++) noelong[k].addbg();
 
   ofstream out((outroot + string("txt")).c_str());
   if(!out)
@@ -440,11 +417,11 @@ int main(int argc, char* argv[])
 
     if(areas[i] == -1)
       {
-	sourcefield=i;
+		sourcefield=i;
       }
     if(areas[i] == -2)
       {
-	lensfield=i;
+		lensfield=i;
       }
     areas[i]*=3600*3600; //convert to sq arcsec
 
@@ -496,221 +473,61 @@ int main(int argc, char* argv[])
     for(int reps=0; reps < ndraw; reps++)
       {
 
-	
-	if(areas[i]>0)
-	  {
-	    //regular stars
-	    j = randint(0,nstars[i]-1,&seed);
-	    split(stardata[i][j],data);
-	    mag = atof(data[filter[0]].c_str());
-	    
-	    images[0].freeaddstar(xmin,xmax,ymin,ymax,mag,&stars);
-	  } //if areas>0
-	else
-	  { 
-	    //microlenses
-
-	    //Position of the source and lens at t=0
-	    double xzero, yzero;
-		
-	    if(i==sourcefield)
-	      {
-		//Add the source first
-		//09/18/20j = mlevents[reps][8];
-		j = reps;
-		split(stardata[i][j],data);
-		cout << "Source mags " << j << " ";
-		for(int ii=0; ii<5; ii++)
+		if(areas[i]>0)
 		  {
-		    cout << data[54+ii].c_str() << " ";
-		  }
-		cout << "chosen " << atof(data[54+mlfilter[0]].c_str()) << endl;
-		mag = atof(data[54+mlfilter[0]].c_str());
-		//split(stardata[i][j],data);
-		//mag = atof(data[filter[0]].c_str());
+			//regular stars
+			j = randint(0,nstars[i]-1,&seed);
+			split(stardata[i][j],data);
+			mag = atof(data[filter[0]].c_str());
 
-		//cerr << 54+mlfilter[0] << endl;
-
-		//09/18/20 mag = mlevents[reps][54+mlfilter[0]];
-
-		//cerr << "ML" << reps << " " << mag << " " << 54+mlfilter[0] << endl;
-
-		//OK, need to solve for the position of the both lens and source at time 0 given t0, mul and mub of each
+			//just add the regular star
+			images[0].freeaddstar(xmin,xmax,ymin,ymax,mag,&stars);
+			noelong[0].freeaddstar(stars.x.back(),stars.y.back(),stars.mag.back(),&nestars);
+			
+			
+		  } //if areas>0
+		setdumb=1;
 		
-		//Choose the source's position at t=0 - inside the image
-		xzero = xsubmax*ran2(&seed);
-		yzero = ysubmax*ran2(&seed);
-		
-
-		reg << "MLs" << reps << " " << xzero << " " << yzero << " " << xzero/images[0].psf.Nsub << " " << yzero/images[0].psf.Nsub << " " << mag << endl << std::flush;
-		cout << "MLs" << reps << " " << xzero << " " << yzero << " " << xzero/images[0].psf.Nsub << " " << yzero/images[0].psf.Nsub << " " << mag << endl << std::flush;
-				
-	      } //if i==sourcefield
-	    else
-	      {
-		//Add the lens
-		if(sourcefield==-1)
-		  {
-		    cerr << "Error: You must list the source field first, then the lens field" << endl;
-		    exit(1);
-		  }
-
-		vector<double> sourcedata;
-		//09/18/20int jsource = mlevents[reps][8];
-		//09/18/20split(stardata[sourcefield][jsource],sourcedata);
-
-		j = reps;
-		split(stardata[i][j],data);
-		cout << "Lens mags " << j << " ";
-		for(int ii=0; ii<5; ii++)
-		  {
-		    cout << data[55+nfiltersml+ii].c_str() << " ";
-		  }
-		cout << "chosen " << atof(data[55+nfiltersml+mlfilter[0]].c_str()) << endl;
-		
-		mag = atof(data[55+nfiltersml+mlfilter[0]].c_str());		
-
-		vector<double> lensdata;
-		//09/18/20int jlens = mlevents[reps][17];
-		//09/18/20split(stardata[lensfield][jlens],lensdata);
-
-		/* If recovering from star lists
-		double lmul = atof(lensdata[nfilters].c_str()) * scale;
-		double lmub = atof(lensdata[nfilters+1].c_str()) * scale;
-
-		double smul = atof(sourcedata[nfilters].c_str()) * scale;
-		double smub = atof(sourcedata[nfilters+1].c_str()) * scale;
-		*/
-
-		/* If gathering from microlensing event */
-		//arcsec to subpixels
-		double mastosubpix = images[0].psf.Nsub/(images[0].psf.pixscale*1000.0);
-		//Proper motions in subpixels per year
-		/*09/18/20
-		double lmul = mlevents[reps][20] * mastosubpix;
-		double lmub = mlevents[reps][21] * mastosubpix;
-
-		double smul = mlevents[reps][11] * mastosubpix;
-		double smub = mlevents[reps][12] * mastosubpix;
-
-		double t0 = mlevents[reps][32];
-		double u0 = mlevents[reps][30];
-		double thetaE = mlevents[reps][35];
-
-	        mag = mlevents[reps][55+nfiltersml+mlfilter[0]];
-		*/
-		/* */
-
-		double lmul = atof(data[20].c_str()) * mastosubpix;
-		double lmub = atof(data[21].c_str()) * mastosubpix;
-
-		double smul = atof(data[11].c_str()) * mastosubpix;
-		double smub = atof(data[12].c_str()) * mastosubpix;
-
-		double t0 = atof(data[32].c_str());
-		double u0 = atof(data[30].c_str());
-		double thetaE = atof(data[35].c_str());
-
-	        //09/18/20mag = mlevents[reps][55+nfiltersml+mlfilter[0]];
-
-		
-		//Note a more natural formalisim is reversed l-s
-		//double murel = qAdd(smul-lmul,smub-lmub);
-		double amurel = atan2(smub-lmub,smul-lmul);
-
-		//Source at t=t0
-		double xs0 = stars.x[mlids[reps]] + (t0-0.0)/365.25 * smul;
-		double ys0 = stars.y[mlids[reps]] + (t0-0.0)/365.25 * smub;
-
-		//Lens at t=t0
-		
-		double xl0 = xs0 - u0*thetaE*mastosubpix*cos(amurel+pi/2.0);
-		double yl0 = ys0 - u0*thetaE*mastosubpix*sin(amurel+pi/2.0);
-
-		//Lens at t=0
-		xzero = xl0 - (t0-0.0)/365.25 * lmul;
-		yzero = yl0 - (t0-0.0)/365.25 * lmub;
-
-		cout << "MLl" << reps << " " << xzero << " " << yzero << " " << xzero/images[0].psf.Nsub << " " << yzero/images[0].psf.Nsub << " " << mag << endl << std::flush;
-
-		cout << "pred S-L @ t=t0 MLl" << reps << " " << xs0 << " " << ys0 << " " << xzero + (t0-0.0)/365.25*lmul << " " << yzero + (t0-0.0)/365.25*lmub << " " << xzero + (t0-0.0)/365.25*lmul-xs0 << " " << yzero + (t0-0.0)/365.25*lmub-ys0 << endl;
-
-		mlinfo << reps << " " << t0 << " " << xs0 << " " << ys0 << " " << xl0 << " " << yl0 << " " << course_year[0]*365.25 << " " << stars.x[mlids[reps]] << " " << stars.y[mlids[reps]] << " " << xzero << " " << yzero << endl;
-
-	      } //else if i==sourcefield
-
-	    images[0].freeaddstar(xzero,yzero,mag,&stars);
-	    if(i==sourcefield) mlids[reps] = int(stars.nstars-1);
-	    else mlidl[reps] = int(stars.nstars-1);
-	  } //end if areas>0 else
-
-	//Store the star's location in lists
-	sfn.push_back(i);
-	sid.push_back(j);
-
-
-
-	//Add each star to the other images	
-	for(int im=1;im<int(detectorNames.size());im++)
-	  {
-	    //double x_cen = images[im].Xpix/2*images[im].psf.Nsub;
-	    //double y_cen = images[im].Ypix/2*images[im].psf.Nsub;
-	    //double xsubmax = images[im].Xpix*images[im].psf.Nsub;
-	    //double ysubmax = images[im].Ypix*images[im].psf.Nsub;
-
-	    
-	    if(!setdumb)
-	      {
-		cout << images[im].psf.Nsub << " " << images[0].psf.Nsub << endl;
-	      }
-	    // load_course(dither[im]);
-	    // xmin = bounds_xmin;
-	    // xmax = bounds_xmax;
-	    // ymin = bounds_ymin;
-	    // ymax = bounds_ymax;
-	    // images[im].field_dimensions(areas[i],xmin,xmax,ymin,ymax,Afield);
-	    
-	    scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
-	    if(areas[i]>0)
-	      {
-		mag = atof(data[filter[im]].c_str());
-	      }
-	    else
-	      {
-		if(i==sourcefield) mag = mlevents[reps][54+mlfilter[im]];
-		else mag = mlevents[reps][55+nfiltersml+mlfilter[im]];
-	      }
-	    
-	    //why is this needed? it's just one star - MP: This is adding the same star to the different detectors
-	    //add star at a random position
-	    images[im].freeaddstar(stars.x[stars.nstars-1]/scaledif,stars.y[stars.nstars-1]/scaledif,mag);
-	  }
-	setdumb=1;
-	
-	out << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << stardata[i][j] << "\n";
+		out << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << stardata[i][j] << "\n";
       }
     
   } //end for reps
 
+  //Now add microlensing events
+  int gridsize = 16;
+  double xgridtep = images[0].Xpix/double(gridsize);
+  double ygridtep = images[0].Ypix/double(gridsize);
+  double theta=0.7*pi;
+  double u=0.5;
+  
+  for(int j=0;j<gridsize;j++)
+	{
+	  double y = (0.5+j)*gridsize;
+	  double thetaE = pow(10.0,-1.0+0.5*j);
+	  for(int i=0;i<gridsize;i++)
+		{
+		  double x = (0.5+i)*gridsize;
+		  double mag0 = 16.0 + 0.5*i;
+		  double squp4 = sqrt(u*u+4)
+		  double mag = mag0 - 2.5*log10((sqr(u)+2)/(u*squp4));
+		  double mag1 = mag0 - 2.5*log10(sqr(u+squp4)/(4*u*squp4));
+		  double mag2 = mag0 - 2.5*log10(sqr(u-squp4)/(4*u*squp4));
+		  double r1 = 0.5*(u+squp4) * thetaE/1000.0/images[0].pixscale;
+		  double r2 = 0.5*(u-squp4) * thetaE/1000.0/images[0].pixscale;
+		  double x1 = x + r1*cos(theta); // - r1*sin(theta);
+		  double y1 = y + r1*sin(theta); // - r1*cos(theta);
+		  double x2 = x + r2*sin(theta); // - r2*cos(theta);
+		  double y2 = y + r2*sin(theta); // - r2*cos(theta);
+		  
+		  noelong[0].freeaddstar(x,y,mag,&nestars);
+		  images[0].freeaddstar(x1,y1,mag1,&stars);
+		  images[0].freeaddstar(x2,y2,mag2,&stars);
+		  out << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << i << " " << j << " " << x << " " << y " " << u << " " << theta << " " << thetaE << " " << mag0 << " " << mag << " " << mag1 << " " << mag2 << " " << r1 << " " << r2 << " " << x1 << " " << y1 << " " << x2 << " " << y2 << "\n";
+		
+		}
+	}
 
-  //Add transits and a blended eclipsing binary
-  images[0].freeaddstar(tx1,ty1,m1);
-  images[0].freeaddstar(tx2,ty2,m1);
-  images[0].freeaddstar(tx3,ty3,m2);
-  cout << "Transit: " << tx1 << " " << tx2 << " " << tx1 << " " << tx2 << " " << tx1 << " " << tx2 << " " << m1 << " " << m2 << endl;;
-  for(int im=1;im<int(detectorNames.size());im++)
-    {
-      scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
-      images[im].freeaddstar(tx1/scaledif,ty1/scaledif,m1);
-      images[im].freeaddstar(tx2/scaledif,ty2/scaledif,m1);
-      images[im].freeaddstar(tx3/scaledif,ty3/scaledif,m2);
-    }
-
-  cout << "Added " << stars.nstars << " stars to the image" << endl;
-
-
-  //Add in the microlensing events
-
+  
   
 
 
@@ -719,11 +536,14 @@ int main(int argc, char* argv[])
   for(int im=0;im<int(detectorNames.size());im++)
     {
       scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
-      //psfback[im] = images[im].addpsfbg(xmin/scaledif,xmax/scaledif,ymin/scaledif,ymax/scaledif);
+      psfback[im] = images[im].addpsfbg(xmin/scaledif,xmax/scaledif,ymin/scaledif,ymax/scaledif);
       images[im].addbg();
+	  noelong[im].addbg();
     }
 
-  
+
+
+  //Generate the images
   for(int im=0;im<int(detectorNames.size());im++)
   {
     char imno[12]; sprintf(imno,"%d",im);
@@ -731,6 +551,8 @@ int main(int argc, char* argv[])
     load_course(dither[im]);
     images[im].expose(texp[im],nstack[im]);
     images[im].set_time(course_year[0]*365.25);
+	noelong[im].expose(texp[im],nstack[im]);
+    noelong[im].set_time(course_year[0]*365.25);
     //images[im].set_crpix(images[im].Xpix/2,images[im].Ypix/2);
 
     //COMPUTE THE CRPIX center
@@ -748,11 +570,16 @@ int main(int argc, char* argv[])
 	  
     //images[im].set_crpix(images[im].Xpix/2,images[im].Ypix/2);
     images[im].set_crpix(crpx/images[im].psf.Nsub,crpy/images[im].psf.Nsub);
+	noelong[im].set_crpix(crpx/noelong[im].psf.Nsub,crpy/noelong[im].psf.Nsub);
     
     images[im].set_crval(meanl,meanb);
+	noelong[im].set_crval(meanl,meanb);
     images[im].set_wcs_rot(-course_theta[0]);
+	noelong[im].set_wcs_rot(-course_theta[0]);
     images[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_stack.fits"),true);
+	noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_stack.fits"),true);
     images[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_true.fits"),true);
+	noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_true.fits"),true);
   }
 
 
@@ -786,118 +613,74 @@ int main(int argc, char* argv[])
       load_course(dither[im]);
 
       for(int w=0;w<int(course_x.size());w++)
-	{
-	  cout << "    Waypoint " << w << endl;
-	  
-	  scale = images[0].psf.Nsub/(images[0].psf.pixscale*1000.0);
-	  images[im].reset_image();
-	  images[im].reset_detector();
-	  scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
-	  //y+=0.1372456;
-	  //images[im].freeaddstar(x,y,mag);
-	  
-	  double cos_theta = cos(course_theta[w]);
-	  double sin_theta = sin(course_theta[w]);
-	  
-	  for(int s=0;s<stars.nstars;s++)
-	    {
-
-	      if(s<mlids.front())
 		{
-	      //This data should be in an array by now, no need to redo the text processing.
-		  split(stardata[sfn[s]][sid[s]],data);
-		  mag = atof(data[filter[im]].c_str());
+		  cout << "    Waypoint " << w << endl;
 		  
-		  // scale converts from milliarcseconds/year to arcseconds/year
-		  // then we divide by 3600 to get degrees/year
-		  mul = atof(data[nfilters].c_str()) * scale;
-		  mub = atof(data[nfilters+1].c_str()) * scale;
-		}
+		  scale = images[0].psf.Nsub/(images[0].psf.pixscale*1000.0);
+		  images[im].reset_image();
+		  images[im].reset_detector();
+		  noelong[im].reset_image();
+		  noelong[im].reset_detector();
+		  scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
+		  //y+=0.1372456;
+		  images[im].freeaddstar(x,y,mag);
+		  noelong[im].freeaddstar(x,y,mag);
+	  
+		  double cos_theta = cos(course_theta[w]);
+		  double sin_theta = sin(course_theta[w]);
+		  
+		  for(int s=0;s<stars.nstars;s++)
+			{
+			  
+			  if(s<mlids.front())
+				{
+				  //This data should be in an array by now, no need to redo the text processing.
+				  split(stardata[sfn[s]][sid[s]],data);
+				  mag = atof(data[filter[im]].c_str());
+		  
+				  // scale converts from milliarcseconds/year to arcseconds/year
+				  // then we divide by 3600 to get degrees/year
+				  mul = atof(data[nfilters].c_str()) * scale;
+				  mub = atof(data[nfilters+1].c_str()) * scale;
+				}
 
 
-	      //These values are different for microlensing event stars
+			  //These values are different for microlensing event stars
 
 
 	      
-	      //The sources
-	      if(s>=mlids.front() && s<=mlids.back())
-		{
-		  int mlev = s-mlids.front();
-		  double t0 = mlevents[mlev][32];
-		  double u0 = mlevents[mlev][30];
-		  double tE = mlevents[mlev][33];
-		  mul = mlevents[mlev][11] * scale;
-		  mub = mlevents[mlev][12] * scale;
-		  double smag = mlevents[mlev][54+mlfilter[im]];
-		  cout << im << " Source ";
-		  for(int ii=0;ii<5;ii++)
-		    {
-		      cout << mlevents[mlev][54+ii] << " ";
-		    }
-		  cout << "actual " << smag << endl;
-		  double mlmag = magnification(course_year[w]*365.25,t0,tE,u0);
-		  mag = smag - 2.5*log10(mlmag);
-		  //cerr << "ML event mag " << mag << endl;
-		}
-
-	      //The lenses
-	      if(s>=mlidl.front() && s<=mlidl.back())
-		{
-		   int mlev = s-mlidl.front();
-		   mul = mlevents[mlev][20] * scale;
-		   mub = mlevents[mlev][21] * scale;
-		   mag = mlevents[mlev][55+nfiltersml+mlfilter[im]];
-		   cout << im << " Lens ";
-		   for(int ii=0;ii<5;ii++)
-		     {
-		       cout << mlevents[mlev][55+nfiltersml+ii] << " ";
-		     }
-		   cout << "actual " << mag << endl;
-		   //cerr << "ML lens mag " << mag << endl;
-		}
+			}
 
 	      
 	      
 	      // Updating star locations for a dither position has 3 steps:
 	      
 	      // 1. Calculate location after proper motion
+		  mul=0; mub=0;
 	      star_x = stars.x[s] + course_year[w]*mul;
 	      star_y = stars.y[s] + course_year[w]*mub;
+		  nestar_x = nestars.x[s] + course_year[w]*mul;
+		  nestar_y = nestars.y[s] + course_year[w]*mub;
 	      
 	      // 2. Adjust for dither x,y offset
 	      trans_x = star_x/scaledif-course_x[w]*images[im].psf.Nsub;
 	      trans_y = star_y/scaledif-course_y[w]*images[im].psf.Nsub;
+		  netrans_x = nestar_x/scaledif-course_x[w]*noelong[im].psf.Nsub;
+	      netrans_y = nestar_y/scaledif-course_y[w]*noelong[im].psf.Nsub;
 
 	      // 3. Rotate around image center
 	      x = trans_x*cos_theta+trans_y*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
 	      y = trans_x*-1*sin_theta+trans_y*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
+		  nex = netrans_x*cos_theta+netrans_y*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
+	      ney = netrans_x*-1*sin_theta+netrans_y*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
 
-	      if(s>=mlids.front() && s<=mlids.back())
-		{
-		  int mlev = s-mlids.front();
-		  sx[mlev] = x;
-		  sy[mlev] = y;
-		}
-	      if(s>=mlidl.front() && s<=mlidl.back())
-		{
-		  int mlev = s-mlidl.front();
-		  double dx = sx[mlev]-x;
-		  double dy = sy[mlev]-y;
-
-		  double t0 = mlevents[mlev][32];
-		  double tE = mlevents[mlev][33];
-		  double u0 = mlevents[mlev][30];
-		  double thetaE = mlevents[mlev][35];
-
-		  double t = course_year[w]*365.25;
-		  
-		  cout << "ML" << mlev << " " << t << " " << t/365.25 << " " << t-t0 << " " << dx << " " << dy << " " << qAdd(dx,dy)/images[im].psf.Nsub*images[im].psf.pixscale*1000.0 << " " << thetaE*qAdd(u0,((t-t0)/tE)) << " " << qAdd(dx,dy)/images[im].psf.Nsub*images[im].psf.pixscale*1000.0/thetaE << " " << (t-t0)/tE << endl << std::flush;
-		}
 	      
 	      images[im].freeaddstar(x, y, mag);
+		  noelong[im].freeaddstar(nex, ney, nemag);
 	    }
 	  
 	  images[im].addbg();
+	  noelong[im].addbg();
 	  char imno[12]; sprintf(imno,"%d",im);
 	  
 	  char dithno[15]; sprintf(dithno,"%d",w);
@@ -914,6 +697,8 @@ int main(int argc, char* argv[])
 	  
 	  images[im].expose(texp[im],nstack[im]);
 	  images[im].set_time(course_year[w]*365.25);
+	  noelong[im].expose(texp[im],nstack[im]);
+	  noelong[im].set_time(course_year[w]*365.25);
 
 	  //COMPUTE THE CRPIX center
 	  double crpx_t = images[0].Xpix*images[0].psf.Nsub/2/scaledif-course_x[w]*images[im].psf.Nsub;
@@ -928,6 +713,11 @@ int main(int argc, char* argv[])
 	  images[im].set_crval(meanl,meanb);
 	  images[im].set_wcs_rot(course_theta[w]);
 	  images[im].write_fits(outroot+string("_detector")+string(imno)+string("_")+dither_index+string("_stack.fits"),true);
+
+	  noelong[im].set_crpix(crpx/noelong[im].psf.Nsub,crpy/noelong[im].psf.Nsub);
+	  noelong[im].set_crval(meanl,meanb);
+	  noelong[im].set_wcs_rot(course_theta[w]);
+	  noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_")+dither_index+string("_stack.fits"),true);
 	  //images[im].freesubstar(x,y,mag);
     
 	}
