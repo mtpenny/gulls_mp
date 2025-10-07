@@ -2,6 +2,7 @@
 #include "backupGenerator.h"
 #include "astroFns.h"
 #include "photometryCodes.h"
+#include "random.h"
 #include<time.h>
 
 #include<fstream>
@@ -18,7 +19,6 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
   double baseline;
   double ampmag;
   int satflag;
-
   double nci, ncs, erri, errs;
   vector<double> phot;
 
@@ -94,20 +94,27 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	      Event->Aerr[idx] = phot[7]/baseline;
 	    }
 
-	  //Put astrometry errors here
-	  //Event->xcerr[idx] = Event->xctrueerr[idx] = ;
-	  //Event->xc[idx] = Event->xctrue[idx] + Event->xcerr[idx]*gasdev(Paramfile->seed); //add scatter
-	  //Event->ycerr[idx] = Event->yctrueerr[idx] = ;
-	  //Event->yc[idx] = Event->yctrue[idx] + Event->ycerr[idx]*gasdev(Paramfile->seed); //add scatter
-	  //...
-
 	  
-	  if(World[obsidx].photcode%2==0) //ideal photometry
+					if(World[obsidx].photcode%2==0) //ideal photometry
 	    {
 	      Event->Aobs[idx] = Event->Atrue[idx];
 	      Event->Aerr[idx] = Event->Atrueerr[idx];
 	      Event->xc[idx] = Event->xctrue[idx];
 	      Event->yc[idx] = Event->yctrue[idx];
+			// For ideal mode, do not add noise to astrometry
+			if (Paramfile->astrometry_on) {
+				if (Event->cNtrue[idx] != 0.0 || Event->cEtrue[idx] != 0.0) {
+					Event->cNobs[idx] = Event->cNtrue[idx];
+					Event->cEobs[idx] = Event->cEtrue[idx];
+					Event->cNobserr[idx] = Paramfile->astrometry_error_floor_mas;
+					Event->cEobserr[idx] = Paramfile->astrometry_error_floor_mas;
+				} else {
+					Event->cNobs[idx] = 0.0;
+					Event->cEobs[idx] = 0.0;
+					Event->cNobserr[idx] = 0.0;
+					Event->cEobserr[idx] = 0.0;
+				}
+			}
 	    }
 	  
 	  //subtract the star
@@ -116,6 +123,41 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	  //subtract the background
 	  World[obsidx].im.subbg();
 	}
+
+      // Astrometric errors and observed values (sky NE frame in mas)
+      // This block runs after Aobs/Aerr are set for both photometry paths
+      if (Paramfile->astrometry_on) {
+        const double eps = 1e-12;
+        double denom = (Event->Aerr[idx] > eps ? Event->Aerr[idx] : eps);
+        double snr = fabs(Event->Aobs[idx]) / denom;
+        // FWHM in arcsec from PSF; convert to mas
+        double fwhm_mas = World[obsidx].im.fwhm * 1000.0;
+        // Photon noise term per axis (mas)
+        double sigma_photon = (snr > 0.0 ? fwhm_mas / snr : 0.0);
+        // Total per-axis sigma
+        double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
+        double sigma_axis = sqrt(sigma_photon * sigma_photon + floor_mas * floor_mas);
+
+        // Store errors and observed values only if we have a true centroid
+        if (Event->cNtrue[idx] != 0.0 || Event->cEtrue[idx] != 0.0) {
+          Event->cNobserr[idx] = sigma_axis;
+          Event->cEobserr[idx] = sigma_axis;
+          // add Gaussian noise
+          Event->cNobs[idx] = Event->cNtrue[idx] + sigma_axis * gasdev(Paramfile->seed);
+          Event->cEobs[idx] = Event->cEtrue[idx] + sigma_axis * gasdev(Paramfile->seed);
+        } else {
+          Event->cNobserr[idx] = 0.0;
+          Event->cEobserr[idx] = 0.0;
+          Event->cNobs[idx] = 0.0;
+          Event->cEobs[idx] = 0.0;
+        }
+      } else {
+        // Astrometry disabled
+        Event->cNobserr[idx] = 0.0;
+        Event->cEobserr[idx] = 0.0;
+        Event->cNobs[idx] = 0.0;
+        Event->cEobs[idx] = 0.0;
+      }
 
       //Test for saturation
       Event->nosat[idx] = !satflag; //nosat is the oposite of satflag

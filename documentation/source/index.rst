@@ -38,3 +38,4 @@ Table of Content
    run_simulations
    run_input
    run_output
+   astrometry

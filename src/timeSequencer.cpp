@@ -249,6 +249,14 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
   Event->ycerr.resize(Event->nepochs);
   Event->yctrue.resize(Event->nepochs);
   Event->yctrueerr.resize(Event->nepochs);
+  // NE sky-frame centroids (mas)
+  Event->cNtrue.resize(Event->nepochs);
+  Event->cEtrue.resize(Event->nepochs);
+  // Observed NE centroids and errors
+  Event->cNobs.resize(Event->nepochs);
+  Event->cEobs.resize(Event->nepochs);
+  Event->cNobserr.resize(Event->nepochs);
+  Event->cEobserr.resize(Event->nepochs);
   Event->Afit.resize(Event->nepochs);
   Event->nosat.resize(Event->nepochs);
   Event->xs.resize(Event->nepochs);

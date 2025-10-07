@@ -152,6 +152,9 @@ struct filekeywords{
   double LD_GAMMA; //limb darkening coefficient used in lc-gen
 // A switch for appending uniform error scalings to find DeltaChi2 and n3sig cuts
   double vbm_tol, vbm_reltol;
+  // Astrometry controls
+  int astrometry_on;                 // enable/disable astrometric outputs (1=on, 0=off)
+  double astrometry_error_floor_mas; // systematic astrometric error floor (mas)
   
   int error_scaling;
   int parameterization; //0=standard, 1=croin
@@ -379,6 +382,14 @@ struct event{
   vector<double> yctrue; //y centroid no noise
   vector<double> ycerr; //y centroid error
   vector<double> yctrueerr; //x centroid error no noise
+  // Sky-frame astrometric centroids (North/East) in mas (true, no noise)
+  vector<double> cNtrue;
+  vector<double> cEtrue;
+  // Observed sky-frame astrometric centroids (with noise) and 1-sigma errors (mas)
+  vector<double> cNobs;
+  vector<double> cEobs;
+  vector<double> cNobserr;
+  vector<double> cEobserr;
   
 
   vector<double> data; //generic data to be output

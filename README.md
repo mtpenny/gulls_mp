@@ -3,6 +3,9 @@
 A microlensing simulator optimized for space-based microlensing
 surveys, but also supporting ground-based observatory simulations.   
 
+## Quick links
+
+- Astrometry options and outputs: documentation/source/astrometry.rst
 
 ## Requirements
 

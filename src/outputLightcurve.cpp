@@ -1,8 +1,10 @@
 #include "outputLightcurve.h"
 #include "zodiacalLight.h"
 #include "astroFns.h"
+#include "coords.h"
 #include <iomanip>
 #include <sstream>
+#include <cmath>
 
 #define DEBUGVAR 0
 
@@ -299,6 +301,12 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       "saturation_flag",     "best_single_lens_fit",
       "x_centroid", "x_centroid_error","y_centroid", "y_centroid_error",
       "true_x_centroid", "true_x_centroid_error","true_y_centroid", "true_y_centroid_error",
+      "true_N_centroid_mas", "true_E_centroid_mas",
+      "measured_N_centroid_mas",  "measured_E_centroid_mas",
+      "measured_N_centroid_error_mas", "measured_E_centroid_error_mas",
+      "true_centroid_ra_deg", "true_centroid_dec_deg",
+      "measured_centroid_ra_deg", "measured_centroid_dec_deg",
+      "measured_centroid_ra_error_deg", "measured_centroid_dec_error_deg",
       "parallax_shift_t",
       "parallax_shift_u",    "BJD",                         "source_x",
       "source_y",            "source2_x", "source2_y", "lens1_x",                     "lens1_y",
@@ -352,18 +360,69 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 
   if(lcfile_ptr!=NULL && fileOpen==1)
     {
+      // Precompute lens proper motion in Equatorial frame (mas/yr)
+      int ln_pm = ln; // lens index already determined above
+      double mul = 0.0, mub = 0.0;
+      if (ln_pm >= 0 && ln_pm < (int)Lenses->data.size()) {
+        // Guard against missing columns by checking datadict where possible
+        mul = Lenses->data[ln_pm][Lenses->MUL];
+        mub = Lenses->data[ln_pm][Lenses->MUB];
+      }
+      coords cconv;
+      double muRA_masyr = 0.0, muDec_masyr = 0.0; // East, North components
+      cconv.mulb2ad(Event->l, Event->b, mul, mub, &muRA_masyr, &muDec_masyr);
+      const double deg_per_mas = 1.0 / 3600000.0; // degrees per mas
+      const double days_per_year = 365.25;
+      const double dec0 = Event->dec; // radians
+      const double cosdec = cos(dec0);
+
       for(i=0;i<Event->nepochs;i++)
 	{
 	  t=Event->epoch[i];
 	  obsidx=Event->obsidx[i];
 	  shiftedidx = i-Event->nepochsvec[obsidx];
+
+    // Absolute RA/Dec of centroid: baseline (RA,Dec) + PM drift + microlensing NE offset
+    double dt_years = (Event->epoch[i] - Event->t0) / days_per_year;
+    // NE offsets including PM (mas)
+    double dN_true_mas = Event->cNtrue[i] + muDec_masyr * dt_years;
+    double dE_true_mas = Event->cEtrue[i] + muRA_masyr * dt_years;
+    double dN_obs_mas  = Event->cNobs[i]  + muDec_masyr * dt_years;
+    double dE_obs_mas  = Event->cEobs[i]  + muRA_masyr * dt_years;
+    // Convert to degrees (small-angle approx; RA scaled by cos(dec))
+    double ra_true_deg = 0.0, dec_true_deg = 0.0, ra_obs_deg = 0.0, dec_obs_deg = 0.0;
+    double ra_err_deg = 0.0, dec_err_deg = 0.0;
+    if (Paramfile->astrometry_on) {
+    // Base coords are in radians
+    double ra0_deg  = Event->ra * TO_DEG;
+    double dec0_deg = Event->dec * TO_DEG;
+    double cosd = (fabs(cosdec) > 1e-12 ? cosdec : 1e-12);
+    ra_true_deg  = ra0_deg  + dE_true_mas * deg_per_mas / cosd;
+    dec_true_deg = dec0_deg + dN_true_mas * deg_per_mas;
+    ra_obs_deg   = ra0_deg  + dE_obs_mas  * deg_per_mas / cosd;
+    dec_obs_deg  = dec0_deg + dN_obs_mas  * deg_per_mas;
+    // Error conversion from mas to deg per axis
+    ra_err_deg   = Event->cEobserr[i] * deg_per_mas / cosd;
+    dec_err_deg  = Event->cNobserr[i] * deg_per_mas;
+    // Wrap RA into [0,360)
+    if (ra_true_deg >= 360.0) ra_true_deg = fmod(ra_true_deg, 360.0);
+    if (ra_true_deg < 0.0)    ra_true_deg += 360.0;
+    if (ra_obs_deg >= 360.0)  ra_obs_deg  = fmod(ra_obs_deg, 360.0);
+    if (ra_obs_deg < 0.0)     ra_obs_deg  += 360.0;
+  }
 	  
-	  fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
+      fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
 		  Event->epoch[i], Event->Aobs[i], Event->Aerr[i], //0, 1, 2
 		  Event->Atrue[i], Event->Atrueerr[i], obsidx, //3, 4, 5
 		  (Event->nosat[i]?0:1), Event->Afit[i], //6, 7
-		  Event->xc[i], Event->xcerr[i], Event->yc[i], Event->ycerr[i],
-		  Event->xctrue[i], Event->xctrueerr[i], Event->yctrue[i], Event->yctrueerr[i],
+      Event->xc[i], Event->xcerr[i], Event->yc[i], Event->ycerr[i],
+      Event->xctrue[i], Event->xctrueerr[i], Event->yctrue[i], Event->yctrueerr[i],
+      Event->cNtrue[i], Event->cEtrue[i],
+      Event->cNobs[i],  Event->cEobs[i],
+      Event->cNobserr[i], Event->cEobserr[i],
+      ra_true_deg, dec_true_deg,
+      ra_obs_deg,  dec_obs_deg,
+      ra_err_deg,  dec_err_deg,
 		  //Event->pllx[obsidx].tshift(Event->jdepoch[i]), //8
 		  //Event->pllx[obsidx].ushift(Event->jdepoch[i]), //9
 		  //Event->pllx[obsidx].epochs[Event->jdepoch[i]],  //10
