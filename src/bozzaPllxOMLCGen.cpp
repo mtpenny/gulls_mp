@@ -279,6 +279,112 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	    Event->centroid_E_mas[idx] = 0.0;
 	  }
 	  
+	  // Step 2: Compute centroid uncertainties and apply random perturbation
+	  // Per AGENTS.md: Use photometric SNR already computed in light curve
+	  
+	  // Get PSF FWHM for this observatory (arcsec)
+	  double fwhm_arcsec = World[obsidx].PSFFWHM;
+	  
+	  // Get photometric SNR for this epoch (from existing photometry)
+	  double flux = Event->flux_obs[obsidx][shiftedidx];
+	  double flux_err = Event->error_obs[obsidx][shiftedidx];
+	  double snr = (flux_err > 0) ? (flux / flux_err) : 1.0;  // Avoid divide-by-zero
+	  
+	  // 1D astrometric precision per axis (Cramér-Rao bound)
+	  // For centroid of a 2D Gaussian PSF resolved into 1D components:
+	  // σ_1D ≈ FWHM / SNR (no 2.355 factor for 1D components)
+	  double sigma_photon_arcsec = fwhm_arcsec / snr;
+	  double sigma_photon_mas = sigma_photon_arcsec * 1000.0;  // Convert to mas
+	  
+	  // Systematic floor (mas) from parameter file
+	  double sigma_sys_mas = Paramfile->astrometric_sys_floor;
+	  
+	  // Combined uncertainty (add in quadrature)
+	  double sigma_total_mas = sqrt(sigma_photon_mas * sigma_photon_mas + 
+	                               sigma_sys_mas * sigma_sys_mas);
+	  
+	  // Optional: Check if VBM numerical error dominates
+	  // Per VBM docs: δ_ast ≈ 50 × ρ × Tol × θE
+	  double vbm_error_mas = 50.0 * Event->rs * Paramfile->vbm_tol * Event->thE;
+	  if (vbm_error_mas > sigma_total_mas) {
+	    sigma_total_mas = std::max(sigma_total_mas, vbm_error_mas);
+	  }
+	  
+	  // Store 1D uncertainties (same for both axes, assuming circular PSF)
+	  Event->centroid_N_err_mas[idx] = sigma_total_mas;
+	  Event->centroid_E_err_mas[idx] = sigma_total_mas;
+	  
+	  // Apply random Gaussian perturbation to centroid position
+	  // Draw independent Gaussian deviates for North and East components
+	  // Using Box-Muller transform via ran3
+	  double u1 = ran3(&Paramfile->SEED);
+	  double u2 = ran3(&Paramfile->SEED);
+	  double z1 = sqrt(-2.0 * log(u1)) * cos(2.0 * PI * u2);  // Standard normal
+	  double z2 = sqrt(-2.0 * log(u1)) * sin(2.0 * PI * u2);  // Independent standard normal
+	  
+	  // Scale to desired σ and add to centroid offsets
+	  double perturbation_N = z1 * sigma_total_mas;
+	  double perturbation_E = z2 * sigma_total_mas;
+	  
+	  Event->centroid_N_mas[idx] += perturbation_N;
+	  Event->centroid_E_mas[idx] += perturbation_E;
+	  
+	  // Step 3: Convert perturbed N/E offsets to absolute RA/Dec per epoch
+	  // Reference frame: ICRS (barycentric, tied to distant quasars per AGENTS.md)
+	  
+	  // Get reference coordinates at t0
+	  double ra0_rad = Event->ra;      // Reference RA at t0 (radians, ICRS)
+	  double dec0_rad = Event->dec;    // Reference Dec at t0 (radians, ICRS)
+	  double ra0_deg = ra0_rad * TO_DEG;
+	  double dec0_deg = dec0_rad * TO_DEG;
+	  double cos_dec0 = cos(dec0_rad);
+	  
+	  // Get lens proper motion from catalog
+	  // Catalog has Galactic components MUL, MUB (mas/yr)
+	  int ln = Event->lens;
+	  double mul_lens = Lenses->data[ln][Lenses->MUL];  // Galactic l component (mas/yr)
+	  double mub_lens = Lenses->data[ln][Lenses->MUB];  // Galactic b component (mas/yr)
+	  
+	  // Convert lens proper motion from Galactic to Equatorial (ICRS)
+	  coords coord_helper;
+	  double muRA_lens = 0.0;   // mas/yr in RA direction (already × cos(Dec))
+	  double muDec_lens = 0.0;  // mas/yr in Dec direction
+	  coord_helper.mulb2ad(Event->l * TO_RAD, Event->b * TO_RAD, 
+	                      mul_lens, mub_lens, 
+	                      &muRA_lens, &muDec_lens);
+	  
+	  // Time since reference epoch
+	  double t0_abs = Paramfile->simulation_zerotime + Event->t0;
+	  double t_epoch = Event->jdtimes[obsidx][shiftedidx];  // Absolute JD this epoch
+	  double dt_years = (t_epoch - t0_abs) / 365.25;  // Years since reference
+	  
+	  // Lens proper motion contribution over time (mas)
+	  double lens_pm_E_mas = muRA_lens * dt_years;      // RA (East) offset
+	  double lens_pm_N_mas = muDec_lens * dt_years;     // Dec (North) offset
+	  
+	  // Total centroid offset = VBM centroid (now perturbed) + lens proper motion
+	  double total_offset_N_mas = Event->centroid_N_mas[idx] + lens_pm_N_mas;
+	  double total_offset_E_mas = Event->centroid_E_mas[idx] + lens_pm_E_mas;
+	  
+	  // Convert total offset (mas) to angular delta (degrees)
+	  double delta_dec_deg = total_offset_N_mas / 3.6e6;  // mas → deg (North = Dec)
+	  double delta_ra_deg = total_offset_E_mas / 3.6e6 / cos_dec0;  // mas → deg / cos(Dec) for RA
+	  
+	  // Compute absolute coordinates (ICRS)
+	  Event->centroid_ra_deg[idx] = ra0_deg + delta_ra_deg;
+	  Event->centroid_dec_deg[idx] = dec0_deg + delta_dec_deg;
+	  
+	  // Handle RA wrap-around at 0/360 degrees
+	  if (Event->centroid_ra_deg[idx] < 0.0) {
+	    Event->centroid_ra_deg[idx] += 360.0;
+	  } else if (Event->centroid_ra_deg[idx] >= 360.0) {
+	    Event->centroid_ra_deg[idx] -= 360.0;
+	  }
+	  
+	  // Store error in degrees for output (propagate 1D uncertainties)
+	  Event->centroid_dec_err_deg[idx] = Event->centroid_N_err_mas[idx] / 3.6e6;
+	  Event->centroid_ra_err_deg[idx] = (Event->centroid_E_err_mas[idx] / 3.6e6) / cos_dec0;
+	  
           if(Paramfile->verbosity>=4)
             {
                  Event->vbm_rootaccuracy[idx] = Event->vbm->rootaccuracy;

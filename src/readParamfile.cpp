@@ -63,6 +63,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"VBM_RELTOL","1.0e-6"},
     {"VBM_ABSTOL","1.0e-4"},
     {"LC_TIMEOUT","60.0"},
+    {"ASTROMETRIC_SYS_FLOOR","0.1"},
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"}
   };
@@ -226,6 +227,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->vbm_reltol = stod(pfile["VBM_RELTOL"]);
   Paramfile->vbm_tol = stod(pfile["VBM_ABSTOL"]);  
   Paramfile->lc_timeout = stod(pfile["LC_TIMEOUT"]);
+  Paramfile->astrometric_sys_floor = stod(pfile["ASTROMETRIC_SYS_FLOOR"]);
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
   

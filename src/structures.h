@@ -156,6 +156,7 @@ struct filekeywords{
   int error_scaling;
   int parameterization; //0=standard, 1=croin
   double tref; //Reference time for parallax
+  double astrometric_sys_floor; //Systematic floor for astrometric uncertainty (mas)
 
   int multiple_sources;
   int multiple_lenses;
@@ -373,8 +374,14 @@ struct event{
   vector<double> yl2;
 
   //Astrometric centroids in sky coordinates (mas)
-  vector<double> centroid_N_mas; //blended centroid North position (mas)
-  vector<double> centroid_E_mas; //blended centroid East position (mas)
+  vector<double> centroid_N_mas; //blended centroid North position (mas), PERTURBED with obs noise
+  vector<double> centroid_E_mas; //blended centroid East position (mas), PERTURBED with obs noise
+  vector<double> centroid_N_err_mas; //North 1D uncertainty (mas)
+  vector<double> centroid_E_err_mas; //East 1D uncertainty (mas)
+  vector<double> centroid_ra_deg;  //Absolute RA (deg, ICRS), PERTURBED
+  vector<double> centroid_dec_deg; //Absolute Dec (deg, ICRS), PERTURBED
+  vector<double> centroid_ra_err_deg;  //RA 1D uncertainty (deg)
+  vector<double> centroid_dec_err_deg; //Dec 1D uncertainty (deg)
 
   vector<double> data; //generic data to be output
   vector<string> dataheader;

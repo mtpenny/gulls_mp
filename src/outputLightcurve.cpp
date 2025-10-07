@@ -301,7 +301,9 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       "source_y",            "source2_x", "source2_y", "lens1_x",                     "lens1_y",
       "lens2_x",             "lens2_y",                     "parallax_shift_x",
       "parallax_shift_y",    "parallax_shift_z",            "centroid_N_mas",
-      "centroid_E_mas"
+      "centroid_E_mas",      "centroid_N_err_mas",          "centroid_E_err_mas",
+      "centroid_ra_deg",     "centroid_dec_deg",            "centroid_ra_err_deg",
+      "centroid_dec_err_deg"
     };
     int nBase = sizeof(baseCols) / sizeof(baseCols[0]);
     for(int i = 0; i < nBase; ++i) {
@@ -356,7 +358,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	  obsidx=Event->obsidx[i];
 	  shiftedidx = i-Event->nepochsvec[obsidx];
 	  
-	  fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
+	  fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.12g %.12g %.12g %.12g ",
 		  Event->epoch[i], Event->Aobs[i], Event->Aerr[i], //0, 1, 2
 		  Event->Atrue[i], Event->Atrueerr[i], obsidx, //3, 4, 5
 		  (Event->nosat[i]?0:1), Event->Afit[i], //6, 7
@@ -373,12 +375,13 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][0], //17
 		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][1], //18
 		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][2]); //19
-		  Event->pllx[obsidx].sslocation[shiftedidx][0], //17
-		  Event->pllx[obsidx].sslocation[shiftedidx][1], //18
-		  Event->pllx[obsidx].sslocation[shiftedidx][2], //19
-		  Event->centroid_N_mas[i], Event->centroid_E_mas[i]); //20, 21
-		    
-	  
+	  Event->pllx[obsidx].sslocation[shiftedidx][0], //17
+	  Event->pllx[obsidx].sslocation[shiftedidx][1], //18
+	  Event->pllx[obsidx].sslocation[shiftedidx][2], //19
+	  Event->centroid_N_mas[i], Event->centroid_E_mas[i], //20, 21
+	  Event->centroid_N_err_mas[i], Event->centroid_E_err_mas[i], //22, 23
+	  Event->centroid_ra_deg[i], Event->centroid_dec_deg[i], //24, 25
+	  Event->centroid_ra_err_deg[i], Event->centroid_dec_err_deg[i]); //26, 27	  
 	  if(ndF>0)
 	    {
 	      for(int j=0;j<ndF;j++)
