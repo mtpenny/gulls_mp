@@ -11,6 +11,9 @@
 
 void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
+	(void)Sources;
+	(void)Lenses;
+	(void)logfile_ptr;
   int idx,obsidx;
   
   int filter;

@@ -31,11 +31,8 @@
 int readSLList(int choosefield, bool src, struct filekeywords *Paramfile, struct slcat *sl)
 {
   //int ncols = Paramfile->Nfilters + NDATAFIELDS;
-  int nlist=0;
-  int nlines=-1;
+	int nlist=0;
   int ncols;
-  bool unlog_radius=false;
-  bool radius_set=false;
 
   string line;
   string ignore = 
@@ -65,8 +62,6 @@ int readSLList(int choosefield, bool src, struct filekeywords *Paramfile, struct
 
       if(int(sdata.size())>=6)
 	{
-	  nlines++;
-	  
 	  int field;
 	  double l,b;
 	  double dl,db; //side lengths
@@ -172,17 +167,14 @@ int readSLList(int choosefield, bool src, struct filekeywords *Paramfile, struct
 			  if(sdata[i]==string("MBOL") || sdata[i]==string("logL") || sdata[i]==string("log_L")) sl->MBOL = sl->datadict[sdata[i]];
 
 			  //This should mean that a radius column takes precedence over a logged column if both appear in the output
-			  if(sdata[i]==string("RADIUS") || sdata[i]==string("Radius") || sdata[i]==string("radius"))
-			    {
-			      radius_set = true;
-			      unlog_radius = false;
-			      sl->RADIUS = sl->datadict[sdata[i]];
-			    }
-			  if(!radius_set && (sdata[i]==string("logRADIUS") || sdata[i]==string("log_R") || sdata[i]==string("log_radius")))
-			    {
-			      unlog_radius = true;
-			      sl->RADIUS = sl->datadict[sdata[i]];
-			    }
+		      if(sdata[i]==string("RADIUS") || sdata[i]==string("Radius") || sdata[i]==string("radius"))
+			{
+			  sl->RADIUS = sl->datadict[sdata[i]];
+			}
+		      else if(sdata[i]==string("logRADIUS") || sdata[i]==string("log_R") || sdata[i]==string("log_radius"))
+			{
+			  sl->RADIUS = sl->datadict[sdata[i]];
+			}
 
 			  if(sdata[i]==string("LL") || sdata[i]==string("l") || sdata[i]==string("l(deg)")) sl->LL = sl->datadict[sdata[i]];
 			  if(sdata[i]==string("BB") || sdata[i]==string("b") || sdata[i]==string("b(deg)")) sl->BB = sl->datadict[sdata[i]];

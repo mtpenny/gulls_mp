@@ -17,6 +17,8 @@ void clearVectors(struct obsfilekeywords World[], struct event *Event, struct fi
 
 void timeSequencer(struct obsfilekeywords World[], struct event *Event, struct filekeywords *Paramfile, struct slcat* Lenses, struct slcat* Sources)
 {
+  (void)Lenses;
+  (void)Sources;
   //Clear old vectors
   clearVectors(World,Event,Paramfile);
 
@@ -58,7 +60,6 @@ void determineEpochs(struct obsfilekeywords World[], struct event *Event, struct
   int idx=0;    /* This increments the final epoch array */
 
   int jnd;      /*This loops through fields*/
-  int thisseen; /*Is this event seen by the observatory*/
 
   double Alt,Az,DeltaV, D ,ObjMoonDist,K;
 
@@ -67,8 +68,6 @@ void determineEpochs(struct obsfilekeywords World[], struct event *Event, struct
   /* Loop through all observatories */
   for(obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
     {
-      //thisseen=0;
-
       C_EXT = World[obsidx].extcoeff;
       VSKY =  World[obsidx].skybackground; //20.0 - 2.5*log10(World[obsidx].constbackground);
       altlimit = World[obsidx].altlimit * TO_RAD;
@@ -207,11 +206,6 @@ void determineEpochs(struct obsfilekeywords World[], struct event *Event, struct
 	  cout << "nepochsvec[" << obsidx << "] = " << Event->nepochsvec[obsidx] << " " << Event->nepochsvec[obsidx+1] << endl;
 	}
 
-      //World[obsidx].Aseen+=thisseen*Event->eventArea;
-      //World[obsidx].Nseen+=thisseen;
-      //World[obsidx].Aoccured+=Event->eventArea;
-      //World[obsidx].Noccured++;
-
     }  /* end loop through all observatories */
 
   Event->nepochs = idx;
@@ -225,6 +219,7 @@ void determineEpochs(struct obsfilekeywords World[], struct event *Event, struct
 
 void computeAltitude(double JD, double obslong, double obslat, double eventRA, double eventDEC, int obsidx, double *Alt, double *Az)
 {
+  (void)obsidx;
   double LST,alt,az;
 
   lst(JD,obslong*TO_RAD,&LST);
@@ -236,6 +231,8 @@ void computeAltitude(double JD, double obslong, double obslat, double eventRA, d
 //Resize the vectors that will hold the lightcurves
 void setupMemory(struct obsfilekeywords World[], struct event *Event, struct filekeywords *Paramfile)
 {
+  (void)World;
+  (void)Paramfile;
 
   Event->Aobs.resize(Event->nepochs);
   Event->Aerr.resize(Event->nepochs);
@@ -276,6 +273,7 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
 //clear the vectors ready to be filled again
 void clearVectors(struct obsfilekeywords World[], struct event *Event, struct filekeywords *Paramfile)
 {
+  (void)World;
   Event->epoch.clear();
   //Event->jdepoch.clear();
   Event->jdtimes.clear();

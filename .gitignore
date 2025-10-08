@@ -48,3 +48,11 @@ src/classes/zroots2.cpp
 
 # VBM files
 src/ESPL.tbl
+
+# CMake artifacts
+build/
+build/CMakeFiles/
+build/.cmake
+
+# Smoke test outputs
+smoke_test/output/

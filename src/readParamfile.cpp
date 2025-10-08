@@ -96,7 +96,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     }
   cout << "GULLS_BASE_DIR:" << Paramfile->basedir << endl;
   
-  if(tmp = getenv("GULLS_STARS_DIR"))
+  if((tmp = getenv("GULLS_STARS_DIR")))
     {
       Paramfile->starsdir = string(tmp); 
     }

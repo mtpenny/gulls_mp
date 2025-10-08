@@ -247,6 +247,8 @@ class image
     //assumes all throughput is accounted for
     //zero = flux;
     //zeromag = mag;
+    (void)diameter_;
+    (void)blockage_;
     zero = 1.0;
     zeromag = mag + 2.5*log10(flux); //more forgiving of forgetful programmers
   };

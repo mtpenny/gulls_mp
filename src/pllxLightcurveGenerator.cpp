@@ -4,6 +4,7 @@
 #include "VBMicrolensingLibrary.h"
 #include "coords.h"
 #include "singleLens.h"
+#include "definitions.h"
 #include<time.h>
 #include<vector>
 
@@ -16,7 +17,6 @@
 
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
-    char str[100];
     double rs = Event->rs;
     double u0 = Event->u0;
     double alpha = Event->alpha * TO_RAD;
@@ -30,7 +30,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     Event->Amax=-1;
     Event->umin=1e50;
     Event->lcerror=0;
-    int errflag=0;
     int obsidx;
     double lim_gamma=Event->gamma;
     if(Paramfile->verbosity>=3)
@@ -47,6 +46,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
      }
     vector<int> idxshift;
     int shiftedidx;
+	const double timeout = Paramfile->lc_timeout;
+	const bool enforce_timeout = (timeout > 0.0);
+	time_t starttime = time(NULL);
+	bool timed_out = false;
     for(obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
        idxshift.push_back(Event->nepochsvec[obsidx]);
 
@@ -91,6 +94,15 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		//Calculate the lightcurve
     for (int idx = 0; idx < Event->nepochs; ++idx)
       {
+					if (enforce_timeout)
+						{
+							time_t now = time(NULL);
+							if (difftime(now, starttime) > timeout)
+								{
+									timed_out = true;
+									break;
+								}
+						}
         obsidx = Event->obsidx[idx];
         shiftedidx=idx-idxshift[obsidx];
         double amp = 0.0;
@@ -133,7 +145,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		double x2off = Event->scomp_s[0] * cos(Event->scomp_phase[0]*TO_RAD);
 		double y2off = Event->scomp_s[0] * sin(Event->scomp_phase[0]*TO_RAD) * cos(Event->scomp_inc[0]*TO_RAD);
 		xs2CoM = xsCoM + x2off * cos(Event->scomp_alpha[0]*TO_RAD) - y2off * sin(Event->scomp_alpha[0]*TO_RAD);
-	ys2Center = ysCenter + x2off * sin(Event->scomp_alpha[0]*TO_RAD) + y2off * cos(Event->scomp_alpha[0]*TO_RAD);
+		ys2Center = ysCenter + x2off * sin(Event->scomp_alpha[0]*TO_RAD) + y2off * cos(Event->scomp_alpha[0]*TO_RAD);
 
 		// Get centroid for first source (already computed above in BinaryMag2 call)
 		double cx1 = Event->vbm->astrox1;
@@ -155,8 +167,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		// Centroid = (amp * c1 + fsofs1 * amp2 * c2) / (amp + fsofs1 * (amp2 - 1))
 		double flux1 = amp;
 		double flux2 = Event->scomp_fsofs1[0][filt] * amp2;
-		double total_flux = flux1 + Event->scomp_fsofs1[0][filt] * (amp2 - 1.0);
-		
 		// Flux-weighted centroid in lens frame (Einstein radii)
 		double cx = (flux1 * cx1 + flux2 * cx2) / (flux1 + flux2);
 		double cy = (flux1 * cy1 + flux2 * cy2) / (flux1 + flux2);
@@ -229,9 +239,37 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
             Event->peakpoint = idx;
         }
     }
+
+	if(timed_out)
+		{
+			Event->lcerror = LCGEN_TIMEOUT_ERR;
+			Event->detected = 0;
+			Event->deterror = 0;
+			if(Paramfile->verbosity >= 1)
+				{
+					cout << "Lightcurve generation timed out after " << timeout << " seconds" << endl;
+				}
+			if(logfile_ptr.good())
+				{
+					logfile_ptr << "Lightcurve generation timed out after " << timeout << " seconds" << std::endl;
+				}
+			return;
+		}
   //if there has been an error - try the backup generator
   if(Event->lcerror)
     {
+			if(Event->lcerror == LCGEN_TIMEOUT_ERR)
+				{
+					if(Paramfile->verbosity >= 1)
+						{
+							cout << "Skipping backup generator due to lightcurve timeout" << endl;
+						}
+					if(logfile_ptr.good())
+						{
+							logfile_ptr << "Skipping backup generator due to lightcurve timeout" << std::endl;
+						}
+					return;
+				}
       Event->lcerror=0;
       backupGenerator(Paramfile, Event, World, Sources, Lenses, logfile_ptr);
     }
