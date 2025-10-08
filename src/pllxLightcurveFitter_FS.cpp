@@ -9,7 +9,7 @@
 #define DEBUGVAR 0
 
 
-int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords World[], struct event *Event, int enablePllx)
+int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords World[], struct event *Event, int /*enablePllx*/)
 {
   double my_f_FS (const gsl_vector *v, void *params);
 
@@ -31,6 +31,8 @@ int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords W
 
   double tref = Event->t0;
   if(Paramfile->parameterization==1) tref = Event->tcroin;
+  (void)tref;
+  (void)World;
   
   gsl_set_error_handler_off();
 
@@ -280,7 +282,8 @@ double my_f_FS (const gsl_vector *v, void *params)
     {
       piEN = gsl_vector_get(v, 4);
       piEE = gsl_vector_get(v, 5);
-      piE = qAdd(piEE,piEN);
+  piE = qAdd(piEE,piEN);
+  (void)piE;
 
       for(grpidx=0;grpidx<int(EventL->obsgroups[obsgroup].size());grpidx++)
 	{
@@ -420,7 +423,7 @@ double my_f_FS (const gsl_vector *v, void *params)
 
 void muVisibility(double* mu, double rs, double z0, double ld1)
 {
-  ld1=0; /*Don't include limb darkening yet*/
+  (void)ld1; /*Don't include limb darkening yet*/
 
   *mu = wittFSMagnification(z0,rs);
   return;

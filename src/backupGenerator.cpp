@@ -14,13 +14,16 @@
 
 void backupGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
+  (void)World;
+  (void)Sources;
+  (void)Lenses;
   //A slower, but potentially more robust lightcurve generator for use when
   //the main generator fails
 
   char str[100];
 
   double m1, a;
-  double xsCenter, ysCenter, rs, Gamma, z1, z2;
+  double xsCenter, ysCenter, rs, z1, z2;
   double amp;
   double alpha, cosa, sina, xcom;
 
@@ -29,7 +32,6 @@ void backupGenerator(struct filekeywords* Paramfile, struct event *Event, struct
   int idx,obsidx;
   
   int fsflag=0;
-  int errflag=0;
 
   //set umin and Amax to unreasonable numbers?
   Event->umin=1e50;
@@ -45,7 +47,6 @@ void backupGenerator(struct filekeywords* Paramfile, struct event *Event, struct
   // gathered from event structure
   rs = Event->rs;	/* source size */
   alpha = Event->alpha*TO_RAD;	/* slope of the trajectory */
-  Gamma = Event->gamma;	/* limb-darkening profile */
 
   cosa = cos(alpha); sina = sin(alpha);
   /*xcom = a*(1-2*m1);*/
@@ -62,7 +63,6 @@ void backupGenerator(struct filekeywords* Paramfile, struct event *Event, struct
   fs.reset();
 
   Event->lcerror=0;
-  errflag=0;
 
   //baseline may not be saturated, but all photometry may still be
   Event->allsat=1; 

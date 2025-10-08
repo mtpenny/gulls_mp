@@ -29,7 +29,6 @@ void readObservatoryfile(string v_file, struct obsfilekeywords World[],int idx){
   /* Read the Keyword values in as strings */
   for(jdx=0;jdx<nkey;jdx++)
     {
-      char v_file_temp[1000];
       if(read_config_var(v_file.c_str(), keywords[jdx] , String[jdx])!=0)
 	{
 	  cerr << "Error reading observatory file (" << v_file << ")" << endl;

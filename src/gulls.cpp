@@ -80,7 +80,6 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   Galaxy = new struct galaxy;
   Paramfile = new struct filekeywords;*/
 
-  int debug=0;
   Paramfile.verbosity=0;
 
   int option;
@@ -109,7 +108,6 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 	  break;
 
 	case 'd' :
-	  debug=1;
 	  Paramfile.verbosity++;
 	  break;
 
@@ -360,39 +358,49 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
       if(Paramfile.verbosity) {printf("lightcurve generated\n"); fflush(stdout);}
 
-      /* Perform photometry */
-      if(Paramfile.verbosity) {printf("photometry\n"); fflush(stdout);}
-      clock_gettime(CLOCK_REALTIME,&tstart);
-      photometry(&Paramfile, &Event, World, &Sources, &Lenses, logfile_ptr);
-      clock_gettime(CLOCK_REALTIME,&tend);
-      nsec = tend.tv_nsec - tstart.tv_nsec;
-      phottime += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
+      bool timed_out_event = (Event.lcerror == LCGEN_TIMEOUT_ERR);
 
-      //Did we detect what we are interested in?
-      if(Paramfile.verbosity) {printf("detectionCriteria\n"); fflush(stdout);}
-      clock_gettime(CLOCK_REALTIME,&tstart);
-      detectionCuts(&Paramfile, &Event, World, &Sources, &Lenses);
-      clock_gettime(CLOCK_REALTIME,&tend);
-      nsec = tend.tv_nsec - tstart.tv_nsec;
-      tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
+      if(!timed_out_event)
+        {
+          /* Perform photometry */
+          if(Paramfile.verbosity) {printf("photometry\n"); fflush(stdout);} 
+          clock_gettime(CLOCK_REALTIME,&tstart);
+          photometry(&Paramfile, &Event, World, &Sources, &Lenses, logfile_ptr);
+          clock_gettime(CLOCK_REALTIME,&tend);
+          nsec = tend.tv_nsec - tstart.tv_nsec;
+          phottime += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
 		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
-      if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);}
+
+          //Did we detect what we are interested in?
+          if(Paramfile.verbosity) {printf("detectionCriteria\n"); fflush(stdout);} 
+          clock_gettime(CLOCK_REALTIME,&tstart);
+          detectionCuts(&Paramfile, &Event, World, &Sources, &Lenses);
+          clock_gettime(CLOCK_REALTIME,&tend);
+          nsec = tend.tv_nsec - tstart.tv_nsec;
+          tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
+		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
+          if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);} 
 
 
-      clock_gettime(CLOCK_REALTIME,&tstart);
-      //Output the lightcurve if desired
-      if(Event.outputthis)
+          clock_gettime(CLOCK_REALTIME,&tstart);
+          //Output the lightcurve if desired
+          if(Event.outputthis)
 	{
-	  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
+	  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);} 
 	  outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
-	  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
+	  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);} 
 
 	  //Output images if desired
-	  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
+	  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);} 
 	  outputImages(&Event, World, &Sources, &Paramfile);
-	  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+	  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);} 
 	}
+        }
+      else if(Paramfile.verbosity)
+        {
+          printf("lightcurve generation timed out; skipping photometry, detection, and output steps\n");
+          fflush(stdout);
+        }
 
       //Write out the events parameters and data to the appropriate file
       if(idx==0) writeHeader(&Paramfile, &Event, &Sources, &Lenses, outfile_ptr);

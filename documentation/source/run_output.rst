@@ -37,3 +37,47 @@ Each line in the output file represents a single microlensing event. The values 
 3. The final weight (w) should be used for statistical analyses, such as creating histograms of event frequencies against certain parameters (e.g., planet mass).
 
 It's essential to consider the flags and chi-square values for a comprehensive understanding of each event's quality and the simulation's overall fidelity.
+
+
+Astrometry outputs (NE sky frame)
+---------------------------------
+
+If astrometry is enabled, per-epoch centroid information in the sky frame is included alongside the light curve. These quantities are reported in the local North/East axes on the sky (aligned with Equatorial north/east at the event location), with units of milliarcseconds (mas). This is sometimes colloquially referred to as “NE” frame. It is not RA/Dec directly; rather, it’s small-angle offsets along the north and east directions.
+
+Columns:
+- ``true_N_centroid_mas``: True (noise-free) northward centroid offset
+- ``true_E_centroid_mas``: True (noise-free) eastward centroid offset
+- ``obs_N_centroid_mas``: Observed northward centroid offset (noise applied)
+- ``obs_E_centroid_mas``: Observed eastward centroid offset (noise applied)
+- ``obs_N_centroid_err_mas``: 1-sigma uncertainty (north) per epoch
+- ``obs_E_centroid_err_mas``: 1-sigma uncertainty (east) per epoch
+
+Coordinate frames and units:
+- The x/y centroid columns elsewhere in the output are lens-frame coordinates (x1/x2) in Einstein radii. They are not sky-frame.
+- The NE columns above are sky-frame, in mas. Different frames by design.
+
+When are NE columns populated vs zeroed?
+- Controlled by the parameter ``ASTROMETRY_ON`` (default 0). When 0, all NE astrometry outputs are set to 0.0.
+- Even when ``ASTROMETRY_ON=1``, if a reliable sky orientation cannot be established (e.g., no usable parallax direction and no usable relative proper motion direction), NE outputs are set to 0.0 to avoid misleading values.
+- In ideal photometry mode, the observed NE centroids equal the true NE centroids; per-axis errors are set to the systematic floor without adding random noise.
+
+Noise model (per axis):
+- SNR per epoch is computed from photometry: ``SNR = |Aobs| / max(Aerr, 1e-12)``.
+- Convert PSF width from arcsec to mas: ``FWHM_mas = 1000 * FWHM``.
+- Photon-limited 1D precision: ``sigma_photon = FWHM_mas / SNR``.
+- Add a per-axis systematic floor in quadrature: ``sigma = sqrt(sigma_photon^2 + ASTROMETRIC_SYS_FLOOR^2)``.
+- Observed NE = True NE + independent Gaussian noise with standard deviation ``sigma`` in each axis.
+
+
+Absolute astrometric outputs (Equatorial)
+-----------------------------------------
+
+When astrometry is enabled, the file also reports the absolute Equatorial coordinates of the flux centroid per epoch, including the lens proper motion drift:
+
+- ``true_centroid_ra_deg``, ``true_centroid_dec_deg``: Noise-free centroid sky position at each epoch (degrees)
+- ``measured_centroid_ra_deg``, ``measured_centroid_dec_deg``: Observed centroid sky position (degrees)
+- ``measured_centroid_ra_error_deg``, ``measured_centroid_dec_error_deg``: 1-sigma errors per axis (degrees)
+
+Details:
+- These are derived from the NE offsets plus a linear proper motion term in Equatorial components and added to the base ``(RA,Dec)`` at ``t0``. For small angles, ``ΔRA = ΔE / cos(Dec)`` converted to degrees, and ``ΔDec = ΔN`` converted to degrees. RA is wrapped into [0, 360).
+- The per-axis errors are the NE errors converted to degrees using the same small-angle relations.

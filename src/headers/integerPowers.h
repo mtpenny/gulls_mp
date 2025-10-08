@@ -90,13 +90,13 @@ template<class T> inline const T iPow(const T a, const int beta)
     }
 }
 
-inline const double qAdd(const double a, const double b)
+inline double qAdd(const double a, const double b)
 {
   if(a==0&&b==0) return 0;
   return ((abs(a)>=abs(b)) ? abs(a)*sqrt(1.0+sqr(b/a)):abs(b)*sqrt(1.0+sqr(a/b)) );
 }
 
-inline const double qAdd(const double a, const double b, const double c)
+inline double qAdd(const double a, const double b, const double c)
 {
   double aa=abs(a);
   double ab=abs(b);
