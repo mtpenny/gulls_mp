@@ -282,8 +282,6 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
   ofile << Paramfile->tref << " ";
   ofile << Event->tcroin << " ";
   ofile << Event->ucroin << " " << Event->rcroin << " ";
-  double murel_l = Lenses->data[ln][Lenses->MUL]-Sources->data[sn][Sources->MUL];
-  double murel_b = Lenses->data[ln][Lenses->MUB]-Sources->data[sn][Sources->MUB];
   double murel_ref = Event->thE/Event->tE_r * DAYINYR;
 
   //cout << "2muh,mur,teh,ter,muref,muhelio " << Event->pllx[0].murel_h << " " << Event->pllx[0].murel_r << " " << Event->tE_h << " " << Event->tE_r << " " << murel_ref << " " << Event->pllx[0].murel_h << endl;

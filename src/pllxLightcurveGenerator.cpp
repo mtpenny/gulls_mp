@@ -16,7 +16,6 @@
 
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
-    char str[100];
     double rs = Event->rs;
     double u0 = Event->u0;
     double alpha = Event->alpha * TO_RAD;
@@ -30,7 +29,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     Event->Amax=-1;
     Event->umin=1e50;
     Event->lcerror=0;
-    int errflag=0;
     int obsidx;
     double lim_gamma=Event->gamma;
     if(Paramfile->verbosity>=3)
@@ -155,8 +153,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		// Centroid = (amp * c1 + fsofs1 * amp2 * c2) / (amp + fsofs1 * (amp2 - 1))
 		double flux1 = amp;
 		double flux2 = Event->scomp_fsofs1[0][filt] * amp2;
-		double total_flux = flux1 + Event->scomp_fsofs1[0][filt] * (amp2 - 1.0);
-		
 		// Flux-weighted centroid in lens frame (Einstein radii)
 		double cx = (flux1 * cx1 + flux2 * cx2) / (flux1 + flux2);
 		double cy = (flux1 * cy1 + flux2 * cy2) / (flux1 + flux2);

@@ -161,6 +161,8 @@ class PSF
 
   double ipixval(int Px, int Py, int Sx, int Sy)
   {
+    (void)Sx;
+    (void)Sy;
     return ipsf[kernside*(Py+Nkern) + (Px+Nkern)];
   }
 

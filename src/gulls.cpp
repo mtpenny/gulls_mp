@@ -80,7 +80,6 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   Galaxy = new struct galaxy;
   Paramfile = new struct filekeywords;*/
 
-  int debug=0;
   Paramfile.verbosity=0;
 
   int option;
@@ -109,7 +108,6 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 	  break;
 
 	case 'd' :
-	  debug=1;
 	  Paramfile.verbosity++;
 	  break;
 

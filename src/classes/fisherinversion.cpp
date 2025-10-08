@@ -2,6 +2,7 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <vector>
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_linalg.h>
@@ -16,7 +17,7 @@ void fisherInversion(vector<double> dF, vector<double> err, int npar, int ndata,
 
   ofstream out;
   int output=filename.length();
-  out << scientific;
+  out << std::scientific;
 
   if(output)
     {
@@ -46,7 +47,6 @@ void fisherInversion(vector<double> dF, vector<double> err, int npar, int ndata,
     }
 
   out.precision(16);
-  out.scientific;
 
   //Calculate the bij matrix
   if(output) out << "bij:\n";

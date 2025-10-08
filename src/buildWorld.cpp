@@ -53,7 +53,6 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
   string listfile;
   FILE* obslistfile_ptr; 
   char str[100];
-  char tmp[100];
   string obsfile;
   int obsctr = 0;
   int allspace=1;
@@ -160,8 +159,6 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
 
 	  int nkey=24; /* Number of keywords defined in array "keywords" */
 
-	  int jdx;
-	  
 	  // Read the Keyword values in as strings 
 	  /*for(jdx=0;jdx<nkey;jdx++)
 	    {
@@ -178,7 +175,7 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
 
 
 	  //Loop over modifications - if there is a match, it will replace the value taken from the observatory file
-	  for(int modidx=1;modidx<sdata.size();modidx++)
+	  for(size_t modidx=1;modidx<sdata.size();modidx++)
 	    {
 	      split(sdata[modidx],kwdata,string(1,'='));
 	      for(int kwidx=0;kwidx<nkey;kwidx++)
@@ -295,12 +292,12 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
 
   if(Paramfile->verbosity>1)
     {
-      int onx, inx;
+  int onx;
       logfile_ptr << "Observing sequence\n";
       for(onx=0;onx<Paramfile->numobservatories;onx++)
 	{
 	  logfile_ptr << "\nObservatory " << onx << " " << World[onx].name << " :\n";
-	  for(inx=0;inx<World[onx].sequence_length;inx++)
+	  for(int inx=0;inx<World[onx].sequence_length;inx++)
 	    {
 	      logfile_ptr << World[onx].sequence[inx].field << " " 
 			  << World[onx].sequence[inx].nstack << " "
@@ -324,14 +321,14 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
   if(Paramfile->verbosity>0) {printf("setupImage\n"); fflush(stdout);}
   if(Paramfile->verbosity>1)
 	{
-	  int onx, inx;
+  int onx;
       cerr << "Modifications\n";
       for(onx=0;onx<Paramfile->numobservatories;onx++)
 		{
 		  cerr << "\nObservatory " << onx << " " << World[onx].name << " :\n";
-		  for(inx=0;inx<modifications[onx].size();inx++)
+		  for(size_t modidx=0; modidx<modifications[onx].size(); modidx++)
 			{
-			  cerr << modifications[onx][inx] << " ";
+			  cerr << modifications[onx][modidx] << " ";
 			}
 		  cerr << endl << endl;
 		}
@@ -614,9 +611,8 @@ void applyObsSequence(struct obsfilekeywords World[], struct filekeywords *Param
 //Calculate various properties that apply universally to each epoch
 void setEpochProperties(struct obsfilekeywords World[], struct filekeywords *Paramfile)
 {
-  int idx, obsidx;
-  double jd;
-  int field;
+	int idx, obsidx;
+	double jd;
   double lmlsun;
 
   string throughput;
@@ -629,10 +625,8 @@ void setEpochProperties(struct obsfilekeywords World[], struct filekeywords *Par
 
       if(Paramfile->verbosity>2) cout << "setEpochProperties obsidx=" << obsidx << " nepochs=" << World[obsidx].nepochs << endl; 
 
-      for(idx=0;idx<World[obsidx].nepochs;idx++)
+	for(idx=0;idx<World[obsidx].nepochs;idx++)
 	{
-	  field = World[obsidx].field[idx];
-
 	  //Julian date
 	  World[obsidx].jd.push_back(jd = World[obsidx].epoch[idx]+Paramfile->simulation_zerotime);
 
@@ -781,7 +775,6 @@ void loadObsSequence(struct obsfilekeywords World[], struct filekeywords *Paramf
   string line;
   int repeating=0;
   int repeatCount=0;
-  int linecount=0;
 
   string repeatCommand = string("BEGIN_REPEAT");
   string endRepeatCommand = string("END_REPEAT");
@@ -824,7 +817,6 @@ void loadObsSequence(struct obsfilekeywords World[], struct filekeywords *Paramf
       ind=0;
       repeating=0;
       repeatCount=0;
-      linecount=0;
       repeatStack.clear();
       World[obsidx].mintexp=1e10;
       
@@ -914,8 +906,6 @@ void loadObsSequence(struct obsfilekeywords World[], struct filekeywords *Paramf
 		}
 	    }
 
-	  linecount++;
-
 	} //end while read line
 
       if(Paramfile->verbosity) cout << "mintexp[" << obsidx << "] = " << World[obsidx].mintexp << endl;
@@ -1001,8 +991,8 @@ void setupImage(struct obsfilekeywords World[], struct filekeywords *Paramfile, 
 
   string detfname;
 
-  double imx=0.0, imy=0.0;
-  double maximx=0.0, maximy=0.0; //size of the image in arcsec - we'll make it as big as is needed for all the detectors
+	double imx=0.0;
+	double maximx=0.0; //size of the image in arcsec - we'll make it as big as is needed for all the detectors
   
   
   for(obsidx = 0;obsidx<Paramfile->numobservatories;obsidx++)
