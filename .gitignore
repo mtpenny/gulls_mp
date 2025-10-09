@@ -31,15 +31,6 @@
 *.out
 *.app
 
-# Unrelated files in Amber's repo
-Eta_Earth_Part1.ipynb
-Eta_Earth_Part2.ipynb
-Eta_Earth_Part3.ipynb
-Mp_a_Analysis.ipynb
-rotac_eta_earth_LARGE.occ_data
-*.png
-last_commit_diff.log
-
 # Numerical recipes files
 src/headers/random.h
 src/headers/zroots2.h
@@ -53,6 +44,3 @@ src/ESPL.tbl
 build/
 build/CMakeFiles/
 build/.cmake
-
-# Smoke test outputs
-smoke_test/output/

@@ -11,6 +11,8 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+option(ENABLE_WARNINGS "Enable compiler warnings" OFF)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 find_package(GSL REQUIRED)
@@ -92,13 +94,15 @@ target_link_libraries(gulls_core
     GSL::gslcblas
 )
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  target_compile_options(gulls_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-deprecated-declarations>)
-elseif(MSVC)
-  target_compile_options(gulls_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
+if(ENABLE_WARNINGS)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(gulls_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-deprecated-declarations>)
+  elseif(MSVC)
+    target_compile_options(gulls_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
+  endif()
 endif()
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 
 function(add_gulls_executable target_name)
   add_executable(${target_name} ${ARGN})
@@ -117,17 +121,17 @@ function(add_gulls_executable target_name)
   endif()
 endfunction()
 
-add_gulls_executable(gulls_std
+add_gulls_executable(gulls_std.x
   "${SRC_DIR}/detectionCuts.cpp"
   "${SRC_DIR}/standardPlanet.cpp"
 )
 
-add_gulls_executable(gulls_croin
+add_gulls_executable(gulls_croin.x
   "${SRC_DIR}/detectionCuts.cpp"
   "${SRC_DIR}/croinPlanet.cpp"
 )
 
-add_gulls_executable(gullsFish
+add_gulls_executable(gullsFish.x
   "${SRC_DIR}/fisherDetCuts.cpp"
   "${SRC_DIR}/fisher.cpp"
   "${SRC_DIR}/croinPlanet.cpp"

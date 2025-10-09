@@ -41,7 +41,27 @@ surveys, but also supporting ground-based observatory simulations.
    This produces `gulls_std`, `gulls_croin`, and `gullsFish` in
    `gulls_mp/build/bin/`.
 1. (Optional) Install the binaries anywhere you like with
-   `cmake --install gulls_mp/build --prefix <path>`.
+   `cmake --install build --prefix <path>`.
+
+## Running the executables
+
+After building, the executables are located in `build/bin/`:
+
+```bash
+# Run directly from the project root directory
+./build/bin/gulls_std <parameter_file> [options]
+./build/bin/gulls_croin <parameter_file> [options]
+./build/bin/gullsFish <parameter_file> [options]
+```
+
+Or add the build directory to your PATH for easier access:
+
+```bash
+export PATH="$PWD/build/bin:$PATH"
+gulls_std <parameter_file> [options]
+```
+
+Use the `-d` flag for debug output (repeat for more verbosity: `-d`, `-dd`, `-ddd`).
 
 ### Selecting a build type
 
@@ -49,7 +69,28 @@ By default the project configures in `Release` mode. To switch to
 `Debug` (with symbols and runtime checks) pass
 
 ```bash
-cmake -S gulls_mp -B gulls_mp/build -DCMAKE_BUILD_TYPE=Debug
+cmake -S gulls_mp -B build -DCMAKE_BUILD_TYPE=Debug
+```
+
+### Compiler warnings
+
+By default, compiler warnings are **disabled** for a cleaner build output. 
+To enable warnings (useful when fixing code issues):
+
+```bash
+cmake -B build -DENABLE_WARNINGS=ON && cmake --build build
+```
+
+To disable warnings again:
+
+```bash
+cmake -B build -DENABLE_WARNINGS=OFF && cmake --build build
+```
+
+For quick rebuilds with the current warning setting, just use:
+
+```bash
+cmake --build build
 ```
 
 ### Legacy Makefile workflow
@@ -64,7 +105,6 @@ use them, run `./configure.sh` to rewrite hard-coded paths and then
 > as `findTrack.f`, `magTrack.f`, `extend.f`, and `readData.f` that are
 > not present in the repository. Only the `gulls_std`, `gulls_croin`,
 > and `gullsFish` executables currently build successfully.
-
 
 ## (Incomplete) Checklist/Troubleshooting for regular gulls runs
 
