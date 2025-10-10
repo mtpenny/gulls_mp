@@ -28,13 +28,13 @@ except ImportError:
     PLOTTING_AVAILABLE = False
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BUILD_BIN_DEFAULT = REPO_ROOT / "build" / "bin"
+BUILD_BIN_DEFAULT = REPO_ROOT / "bin"
 PARAM_DIR = REPO_ROOT / "smoke_test" / "parameterfiles"
 
 CASES: Tuple[Tuple[str, str], ...] = (
-    ("gulls_std", "smoke_std.prm"),
-    ("gulls_croin", "smoke_croin.prm"),
-    ("gullsFish", "smoke_fish.prm"),
+    ("gulls_std.x", "smoke_std.prm"),
+    ("gulls_croin.x", "smoke_croin.prm"),
+    ("gullsFish.x", "smoke_fish.prm"),
 )
 
 
