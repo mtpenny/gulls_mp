@@ -1,0 +1,1 @@
+awk '{print $5/9.0+1,$6/9.0+1+10,$13,$15}' nircam_elong.params.txt | while read x y th m; do xy2sky nircam_elong.detector0_000000_stack.fits $x $y | awk -v th=$th -v m=$m '{print $1,$2,th,m}'; done | awk 'BEGIN{print "galactic"}{printf("# text(%s,%s) text={%.2g mas, %4.1f}\n",$1,$2,$3,$4)}' > test.reg

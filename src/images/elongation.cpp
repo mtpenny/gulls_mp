@@ -7,6 +7,7 @@
 #include<cstdlib>
 #include<string>
 #include<sstream>
+#include<iomanip>
 // #include<algorithm>   //added initially for min/max elements in course vectors
 // #include<string>   //added for double to string conversion in file naming
 
@@ -72,6 +73,12 @@ void load_course(string file_name)
   }
 
   coursein.close();
+
+  if(course_x.size()==0)
+	{
+	  cout << "Error: no course was loaded" << endl;
+	  exit(1);
+	}
 
   //normalizes course_x and course_y so that first waypoint is treated as 0,0
   origin_year = course_year[0];
@@ -149,18 +156,16 @@ int main(int argc, char* argv[])
 //                               USER OPTIONS
 /////////////////////////////////////////////////////////////////////////////
 
-  if(argc<8 || (argc>=8 && argc%2==1))
+  if(argc<6 || (argc>=6 && argc%2==1))
   {
-    cerr << "\nUsage:\n./transitfield <detectorlist> <mlevents> <nfilters> <nfiltersml> <field> <area> {<field> <area> {...} } <output filename root>\n" << endl;
+    cerr << "\nUsage:\n./transitfield <detectorlist> <nfilters> <field> <area> {<field> <area> {...} } <output filename root>\n" << endl;
     cerr << "argc = " << argc << endl;
     exit(1);
   }
 
   string detectorList = string(argv[1]);      //detector parameter file
   string outroot = string(argv[argc-1]);  //root of the output filename
-  string mleventsfile = string(argv[2]);      //File containing microlensing events - follows same structure as gulls files
-  int nfilters = atoi(argv[3]);      //number of filters in the galactic model files
-    int nfiltersml = atoi(argv[4]);      //number of filters in the galactic model files
+  int nfilters = atoi(argv[2]);      //number of filters in the galactic model files
    
   //Output consists of:
   ////                   <outroot>.txt -the list of stars and photometry
@@ -199,7 +204,7 @@ int main(int argc, char* argv[])
     getline(detin,line);
     split(line,data);
 
-    if(int(data.size())>=7)
+    if(line.rfind("#",0)!=0 && int(data.size())>=6)
     {
       detectorNames.push_back(data[0]);
       texp.push_back(atof(data[1].c_str()));
@@ -207,17 +212,15 @@ int main(int argc, char* argv[])
       xpix.push_back(atoi(data[3].c_str()));
       ypix.push_back(atoi(data[4].c_str()));
       filter.push_back(atoi(data[5].c_str()));
-      mlfilter.push_back(atoi(data[6].c_str()));
-      dither.push_back(data[7]);
+      dither.push_back(data[6]);
 
       cout << "Detector parsing" << endl;
-      cout << detectorNames.back() << endl;
-      cout << texp.back() << endl;
-      cout << nstack.back() << endl;
-      cout << xpix.back() << " " << ypix.back() << endl;
-      cout << filter.back() << endl;
-      cout << mlfilter.back() << endl;
-      cout << dither.back() << endl << endl;
+      cout << data[0] << " " << detectorNames.back() << endl;
+      cout << data[0] << " " << texp.back() << endl;
+      cout << data[0] << " " << nstack.back() << endl;
+      cout << data[0] << " " << xpix.back() << " " << ypix.back() << endl;
+      cout << data[0] << " " << filter.back() << endl;
+      cout << data[0] << " " << dither.back() << endl << endl;
 
       if(bounds_set==false)
       {
@@ -271,6 +274,12 @@ int main(int argc, char* argv[])
 
   cout << detectorNames.size() << " observatories" << endl;
 
+  if(detectorNames.size()<1)
+	{
+	  cout << "No detectors loaded, exiting." << endl;
+	  exit(1);
+	}
+
   vector<image> images(detectorNames.size());
   vector<image> noelong(detectorNames.size());
 
@@ -301,7 +310,7 @@ int main(int argc, char* argv[])
   }
   
 
-  vector<int> mlids;
+  //vector<int> mlids;
   //vector<int> mlidl = vector<int> (mlevents.size());
   
 
@@ -318,10 +327,7 @@ int main(int argc, char* argv[])
 
   int nfields=0;       //number of starfields that will get read in
 
-  int sourcefield=-1;
-  int lensfield=-1;
-
-  for(int i=5;i<argc-1;i+=2)
+  for(int i=3;i<argc-1;i+=2)
   {
     fields.push_back(string(argv[i]));
     areas.push_back(atof(argv[i+1]));
@@ -382,26 +388,20 @@ int main(int argc, char* argv[])
   for(int k=0;k<int(detectorNames.size());k++) images[k].addbg();
   for(int k=0;k<int(detectorNames.size());k++) noelong[k].addbg();
 
-  ofstream out((outroot + string("txt")).c_str());
+  ofstream out((outroot + string(".txt")).c_str());
   if(!out)
   {
     cerr << "Could not open output file (" << outroot + string(".txt") << ")" << endl;
     exit(1);
   }
 
-  ofstream reg((outroot + string("reg")).c_str());
+  ofstream reg((outroot + string(".reg")).c_str());
   if(!reg)
     {
       cerr << "Could not open region file (" << outroot + string(".reg") << ")" << endl;
       exit(1);
     }
 
-  ofstream mlinfo((outroot + string("mlinfo")).c_str());
-  if(!mlinfo)
-    {
-      cerr << "Could not open mlinfo file (" << outroot + string(".mlinfo") << ")" << endl;
-      exit(1);
-    }
 		  
 
   double scaledif;
@@ -415,17 +415,9 @@ int main(int argc, char* argv[])
   for(int i=0;i<nfields;i++)
   {
 
-    if(areas[i] == -1)
-      {
-		sourcefield=i;
-      }
-    if(areas[i] == -2)
-      {
-		lensfield=i;
-      }
     areas[i]*=3600*3600; //convert to sq arcsec
 
-    if(areas[i]<=0 && !(i==sourcefield || i==lensfield))
+    if(areas[i]<=0)
     {
       cerr << "Error: Nonsense solid angle inputed (" << areas[i] << "). No stars will be added to the image. If entering negative area for source or lens catalogs, use -1 for source -2 for lens." << endl;
       exit(1);
@@ -468,8 +460,7 @@ int main(int argc, char* argv[])
 
     //now we can generate the stars
     setdumb=0;
-    if(areas[i]>0) ndraw = poisson(nstars[i]*Afield/areas[i],&seed);
-    else ndraw = int(mlevents.size());
+    ndraw = poisson(nstars[i]*Afield/areas[i],&seed);
     for(int reps=0; reps < ndraw; reps++)
       {
 
@@ -488,41 +479,54 @@ int main(int argc, char* argv[])
 		  } //if areas>0
 		setdumb=1;
 		
-		out << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << stardata[i][j] << "\n";
+		//out << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << stardata[i][j] << "\n";
       }
     
   } //end for reps
 
+  int laststar = stars.nstars-1;
+
   //Now add microlensing events
-  int gridsize = 16;
-  double xgridtep = images[0].Xpix/double(gridsize);
-  double ygridtep = images[0].Ypix/double(gridsize);
+  int maggridsize = 16;
+  int thetaEgridsize = 16;
+  double pad = 130.0;
+  double xgridstep = double(images[0].Xpix-2*pad)/double(maggridsize)*double(images[0].psf.Nsub);
+  double ygridstep = double(images[0].Ypix-2*pad)/double(thetaEgridsize)*double(images[0].psf.Nsub);
   double theta=0.7*pi;
   double u=0.5;
+
+
+  //cout << "gridsize, xgridstep, ygridstep: " << maggridsize << " " << xgridstep << " " << ygridstep << endl;
   
-  for(int j=0;j<gridsize;j++)
+  for(int j=0;j<thetaEgridsize;j++)
 	{
-	  double y = (0.5+j)*gridsize;
-	  double thetaE = pow(10.0,-1.0+0.5*j);
-	  for(int i=0;i<gridsize;i++)
+	  double y = pad*images[0].psf.Nsub + (0.5+j)*ygridstep;
+	  double thetaE = pow(10.0,-1.0+0.25*j); //in mas
+	  cout << "thetaE = " << thetaE << endl;
+	  cout << "pixsscale,psfNsub = " << images[0].psf.pixscale << " " << images[0].psf.Nsub << endl;
+	  for(int i=0;i<maggridsize;i++)
 		{
-		  double x = (0.5+i)*gridsize;
+		  double x = pad*images[0].psf.Nsub + (0.5+i)*xgridstep;
 		  double mag0 = 16.0 + 0.5*i;
-		  double squp4 = sqrt(u*u+4)
+		  double squp4 = sqrt(u*u+4);
 		  double mag = mag0 - 2.5*log10((sqr(u)+2)/(u*squp4));
-		  double mag1 = mag0 - 2.5*log10(sqr(u+squp4)/(4*u*squp4));
-		  double mag2 = mag0 - 2.5*log10(sqr(u-squp4)/(4*u*squp4));
-		  double r1 = 0.5*(u+squp4) * thetaE/1000.0/images[0].pixscale;
-		  double r2 = 0.5*(u-squp4) * thetaE/1000.0/images[0].pixscale;
+		  double mu1 = sqr(u+squp4)/(4*u*squp4);
+		  double mu2 = sqr(u-squp4)/(4*u*squp4);
+		  double mag1 = mag0 - 2.5*log10(mu1);
+		  double mag2 = mag0 - 2.5*log10(mu2);
+		  double thetaEsubpix = thetaE/1000.0/(images[0].psf.pixscale/images[0].psf.Nsub);
+		  double r1 = 0.5*(u+squp4) * thetaEsubpix;
+		  double r2 = 0.5*(u-squp4) * thetaEsubpix;
+		  double r = (mu1*r1 + mu2*r2)/(mu1+mu2);
 		  double x1 = x + r1*cos(theta); // - r1*sin(theta);
 		  double y1 = y + r1*sin(theta); // - r1*cos(theta);
-		  double x2 = x + r2*sin(theta); // - r2*cos(theta);
+		  double x2 = x + r2*cos(theta); // - r2*cos(theta);
 		  double y2 = y + r2*sin(theta); // - r2*cos(theta);
-		  
-		  noelong[0].freeaddstar(x,y,mag,&nestars);
+
+		  noelong[0].freeaddstar(x+r*cos(theta),y+r*sin(theta),mag,&nestars);
 		  images[0].freeaddstar(x1,y1,mag1,&stars);
 		  images[0].freeaddstar(x2,y2,mag2,&stars);
-		  out << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << i << " " << j << " " << x << " " << y " " << u << " " << theta << " " << thetaE << " " << mag0 << " " << mag << " " << mag1 << " " << mag2 << " " << r1 << " " << r2 << " " << x1 << " " << y1 << " " << x2 << " " << y2 << "\n";
+		  out << setprecision(16) << stars.x[stars.nstars-1] << " " << stars.y[stars.nstars-1] << " " << stars.x[stars.nstars-2] << " " << stars.y[stars.nstars-2] << " " << nestars.x[nestars.nstars-1] << " " << nestars.y[nestars.nstars-1] << " " << i << " " << j << " " << x << " " << y << " " << u << " " << theta << " " << thetaE << " " << thetaEsubpix << " " << mag0 << " " << mag << " " << mag1 << " " << mag2 << " " << r1 << " " << r2 << " " << r << " " << x1 << " " << y1 << " " << x2 << " " << y2 << "\n";
 		
 		}
 	}
@@ -536,7 +540,8 @@ int main(int argc, char* argv[])
   for(int im=0;im<int(detectorNames.size());im++)
     {
       scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
-      psfback[im] = images[im].addpsfbg(xmin/scaledif,xmax/scaledif,ymin/scaledif,ymax/scaledif);
+      images[im].addpsfbg(xmin/scaledif,xmax/scaledif,ymin/scaledif,ymax/scaledif);
+	  //psfback[im].push_back(tmppsfback);
       images[im].addbg();
 	  noelong[im].addbg();
     }
@@ -577,9 +582,9 @@ int main(int argc, char* argv[])
     images[im].set_wcs_rot(-course_theta[0]);
 	noelong[im].set_wcs_rot(-course_theta[0]);
     images[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_stack.fits"),true);
-	noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_stack.fits"),true);
+	noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_nestack.fits"),true);
     images[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_true.fits"),true);
-	noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_true.fits"),true);
+	noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_origin")+string("_netrue.fits"),true);
   }
 
 
@@ -599,14 +604,16 @@ int main(int argc, char* argv[])
   double x; //=30*9;
   double y; //=30*9;
 
-  vector<double> sx(mlevents.size()), sy(mlevents.size());
-  
+  double nemag;
+
+  //vector<double> sx(mlevents.size()), sy(mlevents.size());
+
+
+  //Work with the elongated images first
   for(int im=0;im<int(detectorNames.size());im++)
     {
       double x_cen = images[im].Xpix/2*images[im].psf.Nsub;
       double y_cen = images[im].Ypix/2*images[im].psf.Nsub;
-      //double xsubmax = images[im].Xpix*images[im].psf.Nsub;
-      //double ysubmax = images[im].Ypix*images[im].psf.Nsub;
     
       cout << "  Detector " << im << endl;
       
@@ -622,105 +629,101 @@ int main(int argc, char* argv[])
 		  noelong[im].reset_image();
 		  noelong[im].reset_detector();
 		  scaledif=(images[im].psf.pixscale/images[0].psf.pixscale);
-		  //y+=0.1372456;
-		  images[im].freeaddstar(x,y,mag);
-		  noelong[im].freeaddstar(x,y,mag);
 	  
 		  double cos_theta = cos(course_theta[w]);
 		  double sin_theta = sin(course_theta[w]);
-		  
-		  for(int s=0;s<stars.nstars;s++)
+
+		  //Add the stars of the other noelong images
+		  for(int s=0;s<nestars.nstars;s++)
 			{
+			  mag = nestars.mag[s];
+			  mul=0; mub=0;
+				  
+			  // Updating star locations for a dither position has 3 steps:
 			  
-			  if(s<mlids.front())
-				{
-				  //This data should be in an array by now, no need to redo the text processing.
-				  split(stardata[sfn[s]][sid[s]],data);
-				  mag = atof(data[filter[im]].c_str());
+			  // 1. Calculate location after proper motion
+			  star_x = nestars.x[s] + course_year[w]*mul;
+			  star_y = nestars.y[s] + course_year[w]*mub;
+			  
+			  // 2. Adjust for dither x,y offset
+			  trans_x = star_x/scaledif-course_x[w]*noelong[im].psf.Nsub;
+			  trans_y = star_y/scaledif-course_y[w]*noelong[im].psf.Nsub;
+			  
+			  // 3. Rotate around image center
+			  x = trans_x*cos_theta+trans_y*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
+			  y = trans_x*-1*sin_theta+trans_y*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
 		  
-				  // scale converts from milliarcseconds/year to arcseconds/year
-				  // then we divide by 3600 to get degrees/year
-				  mul = atof(data[nfilters].c_str()) * scale;
-				  mub = atof(data[nfilters+1].c_str()) * scale;
-				}
-
-
-			  //These values are different for microlensing event stars
-
-
-	      
+			  //cout << "noelong " << s << " " << x << " " << y << " " << mag << " " << endl; 
+			  noelong[im].freeaddstar(x, y, mag);
 			}
 
-	      
-	      
-	      // Updating star locations for a dither position has 3 steps:
-	      
-	      // 1. Calculate location after proper motion
-		  mul=0; mub=0;
-	      star_x = stars.x[s] + course_year[w]*mul;
-	      star_y = stars.y[s] + course_year[w]*mub;
-		  nestar_x = nestars.x[s] + course_year[w]*mul;
-		  nestar_y = nestars.y[s] + course_year[w]*mub;
-	      
-	      // 2. Adjust for dither x,y offset
-	      trans_x = star_x/scaledif-course_x[w]*images[im].psf.Nsub;
-	      trans_y = star_y/scaledif-course_y[w]*images[im].psf.Nsub;
-		  netrans_x = nestar_x/scaledif-course_x[w]*noelong[im].psf.Nsub;
-	      netrans_y = nestar_y/scaledif-course_y[w]*noelong[im].psf.Nsub;
-
-	      // 3. Rotate around image center
-	      x = trans_x*cos_theta+trans_y*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
-	      y = trans_x*-1*sin_theta+trans_y*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
-		  nex = netrans_x*cos_theta+netrans_y*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
-	      ney = netrans_x*-1*sin_theta+netrans_y*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
-
-	      
-	      images[im].freeaddstar(x, y, mag);
-		  noelong[im].freeaddstar(nex, ney, nemag);
-	    }
+		  //Add the stars of the other elongation images
+		  for(int s=0;s<stars.nstars;s++)
+			{
+			  mag = stars.mag[s];
+			  mul=0; mub=0;
+				  
+			  // Updating star locations for a dither position has 3 steps:
+			  
+			  // 1. Calculate location after proper motion
+			  mul=0; mub=0;
+			  star_x = stars.x[s] + course_year[w]*mul;
+			  star_y = stars.y[s] + course_year[w]*mub;
+			  
+			  // 2. Adjust for dither x,y offset
+			  trans_x = star_x/scaledif-course_x[w]*images[im].psf.Nsub;
+			  trans_y = star_y/scaledif-course_y[w]*images[im].psf.Nsub;
+			  
+			  // 3. Rotate around image center
+			  x = trans_x*cos_theta+trans_y*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
+			  y = trans_x*-1*sin_theta+trans_y*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
+		  
+			  //cout << "elong " << s << " " << x << " " << y << " " << mag << " " << endl; 
+			  images[im].freeaddstar(x, y, mag);
+			}
 	  
-	  images[im].addbg();
-	  noelong[im].addbg();
-	  char imno[12]; sprintf(imno,"%d",im);
+		  images[im].addbg();
+		  noelong[im].addbg();
+		  char imno[12]; sprintf(imno,"%d",im);
 	  
-	  char dithno[15]; sprintf(dithno,"%d",w);
-	  dither_index = string(dithno);
-	  // ss.str(string());
-	  // ss << w;
-	  // dither_index = "";
-	  // ss >> dither_index;
-	  init_len = dither_index.length();
-	  for(int sc=0; sc<6-init_len; sc++)
-	    {
-	      dither_index = "0" + dither_index;
-	    }
+		  char dithno[15]; sprintf(dithno,"%d",w);
+		  dither_index = string(dithno);
+		  // ss.str(string());
+		  // ss << w;
+		  // dither_index = "";
+		  // ss >> dither_index;
+		  init_len = dither_index.length();
+		  for(int sc=0; sc<6-init_len; sc++)
+			{
+			  dither_index = "0" + dither_index;
+			}
 	  
-	  images[im].expose(texp[im],nstack[im]);
-	  images[im].set_time(course_year[w]*365.25);
-	  noelong[im].expose(texp[im],nstack[im]);
-	  noelong[im].set_time(course_year[w]*365.25);
+		  images[im].expose(texp[im],nstack[im]);
+		  images[im].set_time(course_year[w]*365.25);
+		  noelong[im].expose(texp[im],nstack[im]);
+		  noelong[im].set_time(course_year[w]*365.25);
 
-	  //COMPUTE THE CRPIX center
-	  double crpx_t = images[0].Xpix*images[0].psf.Nsub/2/scaledif-course_x[w]*images[im].psf.Nsub;
-	  double crpy_t = images[0].Ypix*images[0].psf.Nsub/2/scaledif-course_y[w]*images[im].psf.Nsub;
+		  //COMPUTE THE CRPIX center
+		  double crpx_t = images[0].Xpix*images[0].psf.Nsub/2/scaledif-course_x[w]*images[im].psf.Nsub;
+		  double crpy_t = images[0].Ypix*images[0].psf.Nsub/2/scaledif-course_y[w]*images[im].psf.Nsub;
 
-	  // 3. Rotate around image center
-	  double crpx = crpx_t*cos_theta+crpy_t*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
-	  double crpy = -crpx_t*sin_theta+crpy_t*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
+		  // 3. Rotate around image center
+		  double crpx = crpx_t*cos_theta+crpy_t*sin_theta-x_cen*cos_theta-y_cen*sin_theta+x_cen;
+		  double crpy = -crpx_t*sin_theta+crpy_t*cos_theta+x_cen*sin_theta-y_cen*cos_theta+y_cen;
 	  
-	  //images[im].set_crpix(images[im].Xpix/2,images[im].Ypix/2);
-	  images[im].set_crpix(crpx/images[im].psf.Nsub,crpy/images[im].psf.Nsub);
-	  images[im].set_crval(meanl,meanb);
-	  images[im].set_wcs_rot(course_theta[w]);
-	  images[im].write_fits(outroot+string("_detector")+string(imno)+string("_")+dither_index+string("_stack.fits"),true);
+		  //images[im].set_crpix(images[im].Xpix/2,images[im].Ypix/2);
+		  images[im].set_crpix(crpx/images[im].psf.Nsub,crpy/images[im].psf.Nsub);
+		  images[im].set_crval(meanl,meanb);
+		  images[im].set_wcs_rot(course_theta[w]);
+		  images[im].write_fits(outroot+string("detector")+string(imno)+string("_")+dither_index+string("_stack.fits"),true);
 
-	  noelong[im].set_crpix(crpx/noelong[im].psf.Nsub,crpy/noelong[im].psf.Nsub);
-	  noelong[im].set_crval(meanl,meanb);
-	  noelong[im].set_wcs_rot(course_theta[w]);
-	  noelong[im].write_fits(outroot+string("_detector")+string(imno)+string("_")+dither_index+string("_stack.fits"),true);
-	  //images[im].freesubstar(x,y,mag);
+		  noelong[im].set_crpix(crpx/noelong[im].psf.Nsub,crpy/noelong[im].psf.Nsub);
+		  noelong[im].set_crval(meanl,meanb);
+		  noelong[im].set_wcs_rot(course_theta[w]);
+		  noelong[im].write_fits(outroot+string("detector")+string(imno)+string("_")+dither_index+string("_nestack.fits"),true);
+		  //images[im].freesubstar(x,y,mag);
     
-	}
+		}
     }
   
   // cout << images[0].Xpix/2 << "   " << images[0].Ypix/2 << endl;
