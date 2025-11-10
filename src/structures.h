@@ -353,21 +353,21 @@ struct event{
   vector<double> texp;
   vector<double> moonObjDist;
   vector<double> deltaVmoon;
-  vector<double> Atrue;
+  vector<double> Atrue; //true magnification without noise
   vector<double> Atrueerr;
-  vector<double> Aobs;
+  vector<double> Aobs; //relative flux with photometric noise
   vector<double> Aerr;
   vector<double> Afit;
-    vector<double> Asrc1; //magnification of source 1
-  vector<double> Asrc2; //magnification of source 2
+  vector<double> musrc1; //magnification of source 1
+  vector<double> musrc2; //magnification of source 2
   vector<bool> nosat;      /*Is point unsaturated? */
   vector<double> backmag;
   vector<double> dF;
   vector<double> dF_debug;
   vector<double> dF_diff;
-  vector<double> xs; //source position
+  vector<double> xs; //source 1 position
   vector<double> ys;
-  vector<double> xs2; //source position
+  vector<double> xs2; //source 2 position
   vector<double> ys2;
   vector<double> xl1; //lens 1 position
   vector<double> yl1;

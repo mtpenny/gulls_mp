@@ -113,8 +113,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 			Event->ys2[idx] = ys2Center;
 
 			// Store individual source magnifications
-			Event->Asrc1[idx] = amp;
-			Event->Asrc2[idx] = amp2;
+			Event->musrc1[idx] = amp;
+			Event->musrc2[idx] = amp2;
 			
 			int filt = World[obsidx].filter;		
 			Event->Atrue[idx] = amp + Event->scomp_fsofs1[0][filt] * (amp2-1);
@@ -125,8 +125,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 	    } else {
 		
-			Event->Asrc1[idx] = amp;
-			Event->Asrc2[idx] = 0.0; // No second source
+			Event->musrc1[idx] = amp;
+			Event->musrc2[idx] = 0.0; // No second source
 			Event->Atrue[idx] = amp;
 
 		//put single source astrometry here

@@ -373,8 +373,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      double FS1 = Event->fs[obsidx];  // is this fs1 or fs1+fs2? It's fs1
 	      double FS2 = FS1 * r;
 	      // Use stored magnifications from lightcurve generation
-	      src1_rel = FS1 * Event->Asrc1[i];
-	      src2_rel = FS2 * Event->Asrc2[i];
+	      src1_rel = FS1 * Event->musrc1[i];
+	      src2_rel = FS2 * Event->musrc2[i];
 	  }
 	  fprintf(lcfile_ptr, 
       "%.12g %.8g %g " 
