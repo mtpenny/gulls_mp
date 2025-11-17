@@ -93,6 +93,16 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     }
   cout << "GULLS_BASE_DIR:" << Paramfile->basedir << endl;
   
+  if(tmp = getenv("GULLS_INPUT_DIR"))
+    {
+      Paramfile->inputdir = string(tmp); 
+    }
+  else
+    {
+      cout << "GULLS_INPUT_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
+      Paramfile->inputdir = Paramfile->basedir;
+    }
+
   if(tmp = getenv("GULLS_STARS_DIR"))
     {
       Paramfile->starsdir = string(tmp); 
@@ -101,6 +111,16 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {
       cout << "GULLS_STARS_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
       Paramfile->starsdir = Paramfile->basedir;
+    }
+
+  if(tmp = getenv("GULLS_PLANETS_DIR"))
+    {
+      Paramfile->plansdir = string(tmp); 
+    }
+  else
+    {
+      cout << "GULLS_PLANETS_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
+      Paramfile->plansdir = Paramfile->basedir;
     }
 
   //Read in all the parameters
@@ -172,9 +192,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->run_name = pfile["RUN_NAME"];
   Paramfile->outputdir = pfile["OUTPUT_DIR"] + Paramfile->run_name + string("/");
 
-  Paramfile->obsdir = Paramfile->basedir + pfile["OBSERVATORY_DIR"];
+  Paramfile->obsdir = Paramfile->inputdir + pfile["OBSERVATORY_DIR"];
   Paramfile->obslist = Paramfile->obsdir + pfile["OBSERVATORY_LIST"];
-  Paramfile->weatherprofiledir = Paramfile->basedir + pfile["WEATHER_PROFILE_DIR"];
+  Paramfile->weatherprofiledir = Paramfile->inputdir + pfile["WEATHER_PROFILE_DIR"];
 
   Paramfile->starfielddir = Paramfile->starsdir + pfile["STARFIELD_DIR"];
   Paramfile->starfieldlist = Paramfile->starfielddir + pfile["STARFIELD_LIST"];
@@ -185,7 +205,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->lensdir = Paramfile->starsdir + pfile["LENS_DIR"];
   Paramfile->lenslist = Paramfile->lensdir + pfile["LENS_LIST"];
 
-  Paramfile->planetdir = Paramfile->basedir + pfile["PLANET_DIR"];
+  Paramfile->planetdir = Paramfile->plansdir + pfile["PLANET_DIR"];
   Paramfile->planetroot = pfile["PLANET_ROOT"];
 
   
