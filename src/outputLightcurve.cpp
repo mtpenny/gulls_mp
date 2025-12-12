@@ -11,6 +11,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   void muVisibility(double *mu, double rs, double z0, double ld1);
   string lcfname;
   FILE *lcfile_ptr;
+  ofstream lcfile;
   FILE *lcdatafile_ptr;
   int fileOpen=0;
   int i, obsidx;
@@ -63,7 +64,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 
   if(Event->nepochs>0)
     {
-      lcfile_ptr = fopen(lcfname.c_str(),"w");
+      //lcfile_ptr = fopen(lcfname.c_str(),"w");
+      lcfname.open(lcfname,fstream::out);
       fileOpen=1;
     }
   else return;
@@ -113,240 +115,286 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 
 
   //blending
-  data.str(""); data << "#fs: ";
+  //data.str(""); data << "#fs: ";
+  lcfile << "#fs: ";
   for(int i=0;i<Paramfile->numobservatories;i++)
     {
-      data << Event->fs[i] << " ";
+      //data << Event->fs[i] << " ";
+      lcfile << Event->fs[i] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_sources)
     {
-      data.str(""); data << "#fs2: ";
+      //data.str(""); data
+      lcfile << "#fs2: ";
       for(int i=0;i<Paramfile->numobservatories;i++)
 	{
 	  if(sc>-1)
-	    data << Event->scomp_fsofs1[0][World[i].filter]*Event->fs[i] << " ";
+	    lcfile << Event->scomp_fsofs1[0][World[i].filter]*Event->fs[i] << " ";
 	  else
-	    data << 0 << " ";
+	    lcfile << 0 << " ";
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }  
 
   //Source magnitudes
-  data.str(""); data << "#Sourcemag: ";
+  //data.str(""); data
+  lcfile << "#Sourcemag: ";
   int sn = Event->source;
   for(int i=0;i<Paramfile->Nfilters;i++)
     {
-      data << Sources->mags[sn][i] << " ";
+      lcfile << Sources->mags[sn][i] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_sources)
     {
-      data.str(""); data << "#Source2mag: ";
+      //data.str(""); data
+      lcfile << "#Source2mag: ";
       for(int i=0;i<Paramfile->Nfilters;i++)
 	{
-	  if(sc>-1) data << Sources->mags[sc][i] << " ";
-	  else data << 99 << " ";
+	  if(sc>-1) lcfile << Sources->mags[sc][i] << " ";
+	  else lcfile << 99 << " ";
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
 
 
   //Source data
-  data.str(""); data << "#Sourcedata: ";
-  data << sn << " ";
+  //data.str(""); data
+  lcfile << "#Sourcedata: ";
+  lcfile << sn << " ";
   for(int i=0;i<Sources->data[sn].size();i++)
     {
-      data << Sources->data[sn][i] << " ";
+      lcfile << Sources->data[sn][i] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_sources)
     {
-      data.str(""); data << "#Source2data: ";
-      data << sc << " ";
+      //data.str(""); data
+      lcfile << "#Source2data: ";
+      lcfile << sc << " ";
       for(int i=0;i<Sources->data[sn].size();i++)
 	{
-	  if(sc>-1) data << Sources->data[sc][i] << " ";
-	  else data << 1e-50 << " ";
+	  if(sc>-1) lcfile<< Sources->data[sc][i] << " ";
+	  else lcfile << 1e-50 << " ";
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
   
 
   //Observatory magnitudes
-  data.str(""); data << "#Obssrcmag: ";
+  //data.str(""); data
+  lcfile << "#Obssrcmag: ";
   for(int i=0;i<Paramfile->numobservatories;i++)
     {
-      data << Sources->mags[sn][World[i].filter] << " ";
+      lcfile << Sources->mags[sn][World[i].filter] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_sources)
     {
-      data.str(""); data << "#Obssrc2mag: ";
+      //data.str(""); data
+      lcfile << "#Obssrc2mag: ";
       for(int i=0;i<Paramfile->numobservatories;i++)
 	{
-	  if(sc>-1) data << Sources->mags[sc][World[i].filter] << " ";
-	  else data << 99 << " ";
+	  if(sc>-1) lcfile << Sources->mags[sc][World[i].filter] << " ";
+	  else lcfile << 99 << " ";
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
 
 
   //Lens magnitudes
-  data.str(""); data << "#Lensmag: ";
+  //data.str(""); data
+  lcfile << "#Lensmag: ";
   int ln = Event->lens;
   for(int i=0;i<Paramfile->Nfilters;i++)
     {
-      data << Lenses->mags[ln][i] << " ";
+      lcfile << Lenses->mags[ln][i] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_lenses)
     {
-      data.str(""); data << "#Lens2mag: ";
+      //data.str(""); data
+      lcfile << "#Lens2mag: ";
       int ln = Event->lens;
       for(int i=0;i<Paramfile->Nfilters;i++)
 	{
-	  if(lc>=-1) data << Lenses->mags[lc][i] << " ";
-	  else data << 99 << " ";
+	  if(lc>=-1) lcfile << Lenses->mags[lc][i] << " ";
+	  else lcfile << 99 << " ";
 	}
       fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
 
   
   //Lens data
-  data.str(""); data << "#Lensdata: ";
-  data << ln << " ";
+  //data.str(""); data
+  lcfile << "#Lensdata: ";
+  lcfile << ln << " ";
   for(int i=0;i<Lenses->data[ln].size();i++)
     {
-      data << Lenses->data[ln][i] << " ";
+      lcfile << Lenses->data[ln][i] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_lenses)
     {
-      data.str(""); data << "#Lens2data: ";
-      data << lc << " ";
+      //data.str(""); data
+      lcfile << "#Lens2data: ";
+      lcfile << lc << " ";
       for(int i=0;i<Lenses->data[ln].size();i++)
 	{
-	  if(lc>-1) data << Lenses->data[ln][i] << " ";
-	  else data << 1e-50 << " ";
+	  if(lc>-1) lcfile << Lenses->data[ln][i] << " ";
+	  else lcfile << 1e-50 << " ";
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
 
   //Observatory magnitudes
-  data.str(""); data << "#Obslensmag: ";
+  //data.str(""); data
+  lcfile << "#Obslensmag: ";
   for(int i=0;i<Paramfile->numobservatories;i++)
     {
-      data << Lenses->mags[ln][World[i].filter] << " ";
+      lcfile << Lenses->mags[ln][World[i].filter] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   if(Paramfile->multiple_lenses)
     {
-      data.str(""); data << "#Obslensmag: ";
+      //data.str(""); data
+      lcfile << "#Obslensmag: ";
       for(int i=0;i<Paramfile->numobservatories;i++)
 	{
-	  if(lc>-1) data << Lenses->mags[lc][World[i].filter] << " ";
-	  else data << 99 << " ";
+	  if(lc>-1) lcfile << Lenses->mags[lc][World[i].filter] << " ";
+	  else lcfile << 99 << " ";
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
   
   //Planet data
-  data.str(""); data << "#Planet: ";
+  //data.str("");
+  lcfile << "#Planet: ";
   for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
     {
-      data << Event->params[i] << " ";
+      lcfile << Event->params[i] << " ";
     }
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
 
   //Microlensing data
-  data.str(""); data << "#Event: ";
-  data << Event->u0 << " " << Event->alpha << " " << setprecision(12)
-       << Event->t0 << " " << Event->tcroin << " " << setprecision(6) << " "
-       << Event->ucroin << " " << Event->rcroin << " " << Event->tE_r << " " << Event->rs;
-  fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  //data.str(""); data
+  lcfile << "#Event: ";
+  lcfile << Event->u0 << " " << Event->alpha << " " << setprecision(12)
+	 << Event->t0 << " " << Event->tcroin << " " << setprecision(6) << " "
+	 << Event->ucroin << " " << Event->rcroin << " " << Event->tE_r << " " << Event->rs;
+  //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+  lcfile << endl;
 
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)
     {
-      data.str(""); data << "#Obsgroup: ";
-      data << obsgroup << " " << Event->flatchi2[obsgroup] << " "
+      //data.str(""); data
+      lcfile << "#Obsgroup: ";
+      lcfile << obsgroup << " " << Event->flatchi2[obsgroup] << " "
 	   << Event->flag_needFS[obsgroup] << " "
 	   << (Event->flag_needFS[obsgroup]?Event->FSPL[obsgroup].chisq:
 	       Event->PSPL[obsgroup].chisq); 
       //Members
       for(int grpidx=0; grpidx<int(Event->obsgroups[obsgroup].size()); grpidx++)
 	{
-	  data << Event->obsgroups[obsgroup][grpidx] << " "; 
+	  lcfile << Event->obsgroups[obsgroup][grpidx] << " "; 
 	}
-      fprintf(lcfile_ptr,"%s\n",data.str().c_str());
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
 
 
   int ndF = int(Event->dF.size()) / Event->nepochs;
   // ─────────────── header ───────────────
-  {
-    static const char* baseCols[] = {
-      "Simulation_time", "measured_relative_flux", "measured_relative_flux_error",
-      "true_relative_flux",  "true_relative_flux_error",    "observatory_code",
-      "saturation_flag",     "best_single_lens_fit",
-      "x_centroid", "x_centroid_error","y_centroid", "y_centroid_error",
-      "true_x_centroid", "true_x_centroid_error","true_y_centroid", "true_y_centroid_error",
-      "parallax_shift_t",
-      "parallax_shift_u",    "BJD",                         "source_x",
-      "source_y",            "source2_x", "source2_y", "lens1_x",                     "lens1_y",
-      "lens2_x",             "lens2_y",                     "parallax_shift_x",
-      "parallax_shift_y",    "parallax_shift_z"
-    };
-    int nBase = sizeof(baseCols) / sizeof(baseCols[0]);
-    for(int i = 0; i < nBase; ++i) {
-      fprintf(lcfile_ptr, "%s ", baseCols[i]);
+  
+  //static const char* baseCols[] = {
+  lcfile << 
+    "Simulation_time" << " " << "measured_relative_flux" << " " <<
+    "measured_relative_flux_error" << " " << "true_relative_flux" << " " <<
+    "true_relative_flux_error" << " " << "observatory_code" << " " <<
+    "saturation_flag" << " " << "best_single_lens_fit" << " " <<
+    "x_centroid" << " " << "x_centroid_error" << " " <<
+    "y_centroid" << " " << "y_centroid_error" << " " <<
+    "true_x_centroid" << " " << "true_x_centroid_error" << " " <<
+    "true_y_centroid" << " " << "true_y_centroid_error" << " " <<
+    "parallax_shift_t" << " " << "parallax_shift_u" << " " <<    "BJD" << " " <<
+    "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " ";
+  for(auto i : Event->nsrc)
+    {
+      lcfile << "source" << i << "_x" << " " << "source" << i << "_y" << " " << "source" << i << "_mu" << " ";
     }
-    if (ndF > 0) {
+  for(auto i : Event->nlens)
+    {
+      lcfile << "lens" << i << "_x" << " " << "lens" << i << "_y" << " ";
+    }
+
+  if (ndF > 0)
+    {
       string dF_nopllx = string("dF_t0 dF_tE dF_u0 dF_alpha dF_s dF_q dF_rs");
       string dF_pllx   = string(" dF_piEN dF_piEE");
       vector<string> parstrings;
       int nfixpar = 7 + (Paramfile->pllxMultiplyer ? 2 : 0);
       if (Paramfile->pllxMultiplyer)
-        split(dF_nopllx + dF_pllx, parstrings);
+	split(dF_nopllx + dF_pllx, parstrings);
       else
-        split(dF_nopllx, parstrings);
-      
-      stringstream ss;
-      for(size_t obsgroup = 0; obsgroup < Event->obsgroups.size(); ++obsgroup) {
-        int nobs    = int(Event->obsgroups[obsgroup].size());
-        int nparams = nfixpar + 2*nobs;
-
-        for(int idx = 0; idx < nparams; ++idx) {
-          ss.str("");  ss.clear();
-          ss << "ObsGroup_" << obsgroup << "_";
-
-          if (idx < nfixpar) {
-            ss << parstrings[idx];
-          } else {
-            int grpidx = (idx - nfixpar) / 2;
-            int obsidx = Event->obsgroups[obsgroup][grpidx];
-
-            if (((idx - nfixpar) % 2) == 0)
-              ss << "dF_Fbase" << obsidx;
-            else
-              ss << "dF_fs"     << obsidx;
-          }  
+	split(dF_nopllx, parstrings);
+	
+      //stringstream ss;
+      for(size_t obsgroup = 0; obsgroup < Event->obsgroups.size(); ++obsgroup)
+	{
+	  int nobs    = int(Event->obsgroups[obsgroup].size());
+	  int nparams = nfixpar + 2*nobs;
+	
+	  for(int idx = 0; idx < nparams; ++idx)
+	    {
+	      //ss.str("");  ss.clear();
+	      lcfile << "ObsGroup_" << obsgroup << "_";
+		
+	      if (idx < nfixpar)
+		{
+		  lcfile << parstrings[idx] << " ";
+		}
+	      else
+		{
+		  int grpidx = (idx - nfixpar) / 2;
+		  int obsidx = Event->obsgroups[obsgroup][grpidx];
+		  
+		  if (((idx - nfixpar) % 2) == 0)
+		    lcfile << "dF_Fbase" << obsidx << " ";
+		  else
+		    lcfile << "dF_fs"     << obsidx << " ";
+		}  
      
-     	  fprintf(lcfile_ptr, "%s ", ss.str().c_str());
-        }
-      }
+	      //fprintf(lcfile_ptr, "%s ", ss.str().c_str());
+	    }
+	}
     }
-    // finish the header line
-    fprintf(lcfile_ptr, "\n");
-  }
+  // finish the header line
+  lcfile << endl;
+  //fprintf(lcfile_ptr, "\n");
+    
   //output the lightcurve
   int shiftedidx;
 
@@ -357,38 +405,37 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	  t=Event->epoch[i];
 	  obsidx=Event->obsidx[i];
 	  shiftedidx = i-Event->nepochsvec[obsidx];
+	  lcfile << precision(16) <<
 	  
-	  fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
-		  Event->epoch[i], Event->Aobs[i], Event->Aerr[i], //0, 1, 2
-		  Event->Atrue[i], Event->Atrueerr[i], obsidx, //3, 4, 5
-		  (Event->nosat[i]?0:1), Event->Afit[i], //6, 7
-		  Event->xc[i], Event->xcerr[i], Event->yc[i], Event->ycerr[i],
-		  Event->xctrue[i], Event->xctrueerr[i], Event->yctrue[i], Event->yctrueerr[i],
-		  //Event->pllx[obsidx].tshift(Event->jdepoch[i]), //8
-		  //Event->pllx[obsidx].ushift(Event->jdepoch[i]), //9
-		  //Event->pllx[obsidx].epochs[Event->jdepoch[i]],  //10
-		  Event->pllx[obsidx].tshift[shiftedidx],
-		  Event->pllx[obsidx].ushift[shiftedidx],
-		  Event->pllx[obsidx].epochs[shiftedidx],
-		  Event->xs[i], Event->ys[i],
-		  Event->xs2[i], Event->ys2[i],
-		  Event->xl1[i], Event->yl1[i],
-		  Event->xl2[i], Event->yl2[i], //14, 15, 16
-		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][0], //17
-		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][1], //18
-		  //Event->pllx[obsidx].sslocation[Event->jdepoch[i]][2]); //19
-		  Event->pllx[obsidx].sslocation[shiftedidx][0], //17
-		  Event->pllx[obsidx].sslocation[shiftedidx][1], //18
-		  Event->pllx[obsidx].sslocation[shiftedidx][2]); //19
-		    
+	    //fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
+	    Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << 
+	    Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << 
+	    (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " <<
+	    Event->xc[i] << " " << Event->xcerr[i] << " " << Event->yc[i] << " " << Event->ycerr[i] << " " << 
+	    Event->xctrue[i] << " " << Event->xctrueerr[i] << " " << Event->yctrue[i] << " " << Event->yctrueerr[i] << " " << 
+	    Event->pllx[obsidx].tshift[shiftedidx] << " " << 
+	    Event->pllx[obsidx].ushift[shiftedidx] << " " << 
+	    Event->pllx[obsidx].epochs[shiftedidx] << " " <<
+	    Event->pllx[obsidx].sslocation[shiftedidx][0] << " " << 
+	    Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << 
+	    Event->pllx[obsidx].sslocation[shiftedidx][2]) << " ";
+      for(auto i : Event->nsrc)
+	{
+	  lcfile << Event->xsrc[i] << " " << Event->ysrc[i] << " " << Event->mu_src[i] << " ";
+	}
+      for(auto i : Event->nlens)
+	{
+	  lcfile << Event->xlens[i] << " " << Event->ylens[i] << " ";
+	}	  		    
 	  
-	  if(ndF>0)
+      if(ndF>0)
+	{
+	  for(int j=0;j<ndF;j++)
 	    {
-	      for(int j=0;j<ndF;j++)
-		{
-		  fprintf(lcfile_ptr,"%.6g ",Event->dF[i+j*Event->nepochs]);
-		}
-	      //for(int j=0;j<ndF;j++)
+	      fprintf(lcfile_ptr,"%.6g ",Event->dF[i+j*Event->nepochs]);
+	      lcfile << Event->dF[i+j*Event->nepochs] << " ";
+	    }
+	  //for(int j=0;j<ndF;j++)
                 //{
                   //fprintf(lcfile_ptr,"%.6g ",Event->dF_debug[i+j*Event->nepochs]);
                // }
@@ -396,12 +443,13 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
                // {
                  // fprintf(lcfile_ptr,"%.6g ",Event->dF_diff[i+j*Event->nepochs]);
                // }
-	    }
-	  fprintf(lcfile_ptr,"\n");
 	}
-      
-      fclose(lcfile_ptr);
+      lcfile << endl;
+      //fprintf(lcfile_ptr,"\n");
     }
+  lcfile.close();
+  //fclose(lcfile_ptr);
+    
   if(Paramfile->verbosity>=4)
     {
       cout << "Writing extra lightcurve data" << endl;
@@ -410,10 +458,10 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
         {
 	  for(i=0;i<Event->nepochs;i++)
             {
-		t=Event->epoch[i];
-		obsidx=Event->obsidx[i];
-          	fprintf(lcdatafile_ptr, "%.11g %.11g %.12g %.12g %.12g\n ",
-                  Event->epoch[i], Event->Atrue[i], Event->vbm_rootaccuracy[i], Event->vbm_squarecheck[i], Event->vbm_therr[i]);//0, 1, 2, 3,4
+	      t=Event->epoch[i];
+	      obsidx=Event->obsidx[i];
+	      fprintf(lcdatafile_ptr, "%.11g %.11g %.12g %.12g %.12g\n ",
+		      Event->epoch[i], Event->Atrue[i], Event->vbm_rootaccuracy[i], Event->vbm_squarecheck[i], Event->vbm_therr[i]);//0, 1, 2, 3,4
 	    }
 	    fclose(lcdatafile_ptr);
 	}

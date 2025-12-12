@@ -282,10 +282,16 @@ struct fittedparams{
 struct event{
 
   int source, lens;
+  int nsource, nlens;
   vector<int> scompanions, lcompanions;
-  vector<double> scomp_rs, scomp_s, scomp_alpha, scomp_inc, scomp_phase;
+  vector<double> scomp_rs, scomp_s, scomp_alpha, scomp_phase, scomp_q;
+  vector<double> scomp_a, scomp_e, scomp_I, scomp_L0, scomp_w, scomp_O, scomp_dL; //orbital elements
   vector<vector<double> > scomp_fsofs1;
-  vector<double> lcomp_s, lcomp_q, lcomp_alpha, lcomp_inc, lcomp_phase;
+  vector<double> lcomp_s, lcomp_q, lcomp_alpha, lcomp_phase;
+  vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL; //orbital elements
+  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q;
+  //double ljoint_thE, ljoint_tE, ljoint_rE;
+  double qsum;
   int field;
   int id;
   //microlensing paramters
@@ -367,10 +373,12 @@ struct event{
   vector<double> ys;
   vector<double> xs2; //source position
   vector<double> ys2;
+  vector<vector<double> > xsrc, ysrc, mu_src;
   vector<double> xl1; //lens 1 position
   vector<double> yl1;
   vector<double> xl2; //lens 2 position
   vector<double> yl2;
+  vector<vector<double> > xlens, ylens;
   vector<double> xc; //x centroid
   vector<double> xctrue; //x centroid no noise
   vector<double> xcerr; //x centroid
@@ -457,6 +465,9 @@ struct slcat
 };
 #define SL_CAT
 #endif
+
+vector<vector<double> > planet_data; //this will replace pcat
+vector<string> planet_header;
 
 #ifndef P_CAT
 struct pcat
