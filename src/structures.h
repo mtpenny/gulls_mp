@@ -160,6 +160,9 @@ struct filekeywords{
   int multiple_sources;
   int multiple_lenses;
 
+  int astrometry_on;
+  double astrometry_error_floor_mas;
+
   long* seed;
 
   double alltime;

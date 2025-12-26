@@ -41,12 +41,15 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
     {
       obsidx = Event->obsidx[idx];
 
-      filter = World[obsidx].filter;
+	filter = World[obsidx].filter;
 
       if(World[obsidx].photcode==FASTAP)
 	{
-	  ampmag = Event->Atrue[idx];
-	  World[obsidx].im.fast_photometry(ampmag, &nci, &ncs, &erri, &satflag);
+		ampmag = Event->Atrue[idx];
+		World[obsidx].im.fast_photometry(ampmag, &nci, &ncs, &erri, &satflag);
+		//icounts = number of ideal counts
+  		//ncounts = poisson realized number of counts
+  		//error = error on photometry
 	  errs=erri;
 
 	  //store the results
@@ -93,21 +96,11 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	      Event->Aobs[idx] = phot[6]/baseline;
 	      Event->Aerr[idx] = phot[7]/baseline;
 	    }
-
-	  //Put astrometry errors here
-	  //Event->xcerr[idx] = Event->xctrueerr[idx] = ;
-	  //Event->xc[idx] = Event->xctrue[idx] + Event->xcerr[idx]*gasdev(Paramfile->seed); //add scatter
-	  //Event->ycerr[idx] = Event->yctrueerr[idx] = ;
-	  //Event->yc[idx] = Event->yctrue[idx] + Event->ycerr[idx]*gasdev(Paramfile->seed); //add scatter
-	  //...
-
 	  
 	  if(World[obsidx].photcode%2==0) //ideal photometry
 	    {
 	      Event->Aobs[idx] = Event->Atrue[idx];
 	      Event->Aerr[idx] = Event->Atrueerr[idx];
-	      Event->xc[idx] = Event->xctrue[idx];
-	      Event->yc[idx] = Event->yctrue[idx];
 	    }
 	  
 	  //subtract the star
@@ -116,13 +109,64 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	  //subtract the background
 	  World[obsidx].im.subbg();
 	}
+	  // astrometric error from Gould & Yee (2014)
+	  //σast = σphot * FWHM / (ln 256)^(1/2) , where σphot is the fractional photometric precision
+	  // Astrometric errors and observed values (sky xy frame in mas)
+      // This block runs after Aobs/Aerr are set for both photometry paths
+      if (Paramfile->astrometry_on) {
+        const double eps = 1e-12;
+        const double ln256 = log(256.0);
+        const double inv_sqrt_ln256 = 1.0 / sqrt(ln256);
 
-      //Test for saturation
-      Event->nosat[idx] = !satflag; //nosat is the oposite of satflag
-      if(Event->allsat && !satflag) Event->allsat = 0;
-      if(Event->allsatobs[obsidx] && !satflag) Event->allsatobs[obsidx] = 0;
-  
+        double sigma_phot = 0.0;
+        if (Event->Aerr[idx] > eps) {
+          sigma_phot = Event->Aerr[idx]/Event->Aobs[idx];
+        } else {
+          sigma_phot = eps;
+        }
+
+        double fwhm_mas = World[obsidx].im.fwhm * 1000.0;
+		double fwhm_er = fwhm_mas / Event->thE;  // in einsteins radii
+        double sigma_astro = fwhm_er * sigma_phot * inv_sqrt_ln256;
+        double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
+		double floor_er = floor_mas / Event->thE; // in einsteins radii
+		double sigmaAstro = sqrt(sigma_astro * sigma_astro + floor_er * floor_er);
+		// blend the source centroid with lens and abient stars
+		double fstot = 0.0;
+		fstot += Event->fs[obsidx];
+
+		if (Paramfile->multiple_sources && Event->scompanions.size()>0)
+		{
+			int sc = Event->scompanions[0];
+			// flux ratio of source companion to source 1 in this filter
+			double fluxRatio = 0.0;
+			if(Event->scomp_fsofs1.size()>0 && Event->scomp_fsofs1[0].size()>filter)
+			{
+				fluxRatio = Event->scomp_fsofs1[0][filter];
+			}
+			fstot += Event->fs[obsidx] * fluxRatio;
+		}
+
+		// blend = baseline - sum(source_fluxes)
+		double blend_flux;
+		blend_flux = 1 - fstot;
+		// blending using flux weighted centroids with the "lens" at (xl1,yl1) and the source(s) at (xctrue,yctrue)
+		Event->xctrue[idx] = Event->xctrue[idx]*fstot + Event->xl1[idx]*blend_flux;
+		Event->yctrue[idx] = Event->yctrue[idx]*fstot + Event->yl1[idx]*blend_flux;
+		Event->xctrueerr[idx] = 0.0;
+		Event->yctrueerr[idx] = 0.0;
+
+		// add astrometric noise
+		Event->xcerr[idx] = sigmaAstro;
+		Event->ycerr[idx] = sigmaAstro;
+		Event->xc[idx] = Event->xctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
+		Event->yc[idx] = Event->yctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
+
+		//Test for saturation
+		Event->nosat[idx] = !satflag; //nosat is the oposite of satflag
+		if(Event->allsat && !satflag) Event->allsat = 0;
+		if(Event->allsatobs[obsidx] && !satflag) Event->allsatobs[obsidx] = 0;
+	
     }
 
 }
-
