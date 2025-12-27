@@ -2,7 +2,7 @@ name: gulls
 channels:
   - conda-forge
 dependencies:
-  - python>=3.9
+  - python>=3.11
   - cmake
   - gsl
   - cfitsio
@@ -13,5 +13,6 @@ dependencies:
   - numpy
   - sphinx
   - sphinx_rtd_theme
+  - pip
   - pip:
       - VBMicrolensing
