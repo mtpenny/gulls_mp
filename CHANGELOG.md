@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unbalanced parenthesis in documentation formula
 - Trailing whitespace in parameter reading code
 - Step numbering in astrometry documentation
+- Pinned Sphinx version; `sphinx` and `sphinx-rtd-theme` became incompatable at version 7.
+    
 
 ### Security
 - Added validation to prevent division by zero in astrometric calculations
