@@ -143,6 +143,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
           if(Paramfile->verbosity>3) cout << hexfloat << Event->epoch[idx] << " " << Event->t0 << " " << Event->tE_r << " " << tt << " " << xsCoM << " " << ysCenter << " " << rs << endl;
           if(Paramfile->verbosity>3) fstr << hexfloat << Event->epoch[idx] << " " << Event->t0 << " " << Event->tE_r << " " << tt << " " << xsCoM << " " << ysCenter << " " << rs << endl;
           amp = Event->vbm->MultiMag2(xsCoM, ysCenter,rs);
+          // In the VBM frame, astrox1 is the X-coordinate and astrox2 is the perpendicular (Y-like) coordinate.
+          // They are intentionally mapped to astroX (X) and astroY (Y) in the sky/event frame.
           astroX = Event->vbm->astrox1;
           astroY = Event->vbm->astrox2;
           if(Paramfile->verbosity>3) cout << "Event->vbm->MultiMag2(xsCoM, ysCenter,rs); done" << endl;
