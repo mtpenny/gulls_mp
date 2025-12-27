@@ -235,7 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         out_files = verify_outputs(case.output_dir)
         verify_catalog_alignment(out_files, case.params)
         summaries = gather_case_metrics(out_files)
-        plot_lightcurves(case.output_dir, summaries, case.params)
+        plot_lightcurves(case.output_dir, summaries, case.params, build_bin)
 
     if failures:
         print("\nSmoke test failed:")
