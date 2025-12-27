@@ -116,6 +116,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		Event->yl2[idx] = 0.0;
 	    Event->vbm->a1 = lim_gamma;
 	    amp = Event->vbm->BinaryMag2(a, q, xsCoM, ysCenter, rs);
+	    // VBM returns astrometric offsets in its own (x1, x2) frame: astrox1 (axis 1) and astrox2 (axis 2).
+	    // Here we interpret axis 1 as X and axis 2 as Y in the output coordinate system.
 	    double src1AstroX = Event->vbm->astrox1;
 	    double src1AstroY = Event->vbm->astrox2;
 	    combinedAstroX = src1AstroX;  // source 1 only for now
