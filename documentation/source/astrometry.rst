@@ -58,7 +58,7 @@ Per-epoch astrometric uncertainties and observed values are generated as follows
    - ``FWHM_er = FWHM_mas / thetaE_mas``
 4. Photon-limited astrometric uncertainty per axis per Gould & Yee (2014):
    - ``sigma_astro = FWHM_er * sigma_phot / sqrt(ln(256))``
-4. Total per-axis uncertainty combines the photon term with a systematic floor:
+5. Total per-axis uncertainty combines the photon term with a systematic floor:
    - ``sigmaAstro = sqrt(sigma_astro^2 + (ASTROMETRIC_SYS_FLOOR/thetaE_mas)^2)``
 
 Zeroing behavior (no sky orientation or disabled):
