@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.1.0] - 2025-12-27
+
+### Added
+- Basic astrometry support for microlensing simulations
+- Six new output columns for centroid positions and uncertainties (true and observed)
+- `ASTROMETRY_ON` parameter to enable/disable astrometric computations (default: 0)
+- `ASTROMETRIC_SYS_FLOOR` parameter for systematic uncertainty floor in mas (default: 0.1)
+- Comprehensive astrometry documentation (`documentation/source/astrometry.rst`)
+- Centroid calculation using VBMicrolensing low-level functions (`BinaryMag2`, `MultiMag2`)
+- Noise model implementation based on Gould & Yee (2014)
+- Flux-weighted blending for centroids with lens and ambient stars
+- Support for single and binary source configurations in astrometry
+
+### Changed
+- Variable naming: renamed `Asrc1`/`Asrc2` to `musrc1`/`musrc2` for consistency with magnification nomenclature
+- Enhanced photometry module to compute astrometric uncertainties from photometric precision
+- Updated lightcurve generators to compute and store true centroid positions
+
+### Fixed
+- Potential division by zero when θ_E (Einstein radius) is very small
+- Added validation check with warning for events with θ_E < 1e-10 mas
+- Spelling errors in comments: "oposite" → "opposite", "shif" → "shift", "abient" → "ambient"
+- Buffer overflow in `snprintf` call (missing buffer size argument)
+- Unbalanced parenthesis in documentation formula
+- Trailing whitespace in parameter reading code
+- Step numbering in astrometry documentation
+
+### Security
+- Added validation to prevent division by zero in astrometric calculations
+- Fixed buffer overflow vulnerability in string formatting
+
 ## [2.0.0] - 2025-10-20
 
 ### Added
