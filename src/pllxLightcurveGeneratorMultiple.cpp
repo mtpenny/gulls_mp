@@ -138,7 +138,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
           Event->umin=min(Event->umin,qAdd(tt,uu));
           
           xsCoM = tt*cosa - uu*sina + VBM_origin; //coordinate shift to center of mass
-          xsCenter = tt*cosa - uu*sina + Mao_origin;// coordinate shif to primary lens
+          xsCenter = tt*cosa - uu*sina + Mao_origin;// coordinate shift to primary lens
           ysCenter = tt*sina + uu*cosa;
           if(Paramfile->verbosity>3) cout << hexfloat << Event->epoch[idx] << " " << Event->t0 << " " << Event->tE_r << " " << tt << " " << xsCoM << " " << ysCenter << " " << rs << endl;
           if(Paramfile->verbosity>3) fstr << hexfloat << Event->epoch[idx] << " " << Event->t0 << " " << Event->tE_r << " " << tt << " " << xsCoM << " " << ysCenter << " " << rs << endl;

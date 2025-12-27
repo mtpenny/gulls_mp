@@ -52,7 +52,7 @@ Noise model and zeroing rules
 Per-epoch astrometric uncertainties and observed values are generated as follows:
 
 1. Compute a fractional photometric error ratio per epoch from the simulated photometry:
-   - ``sigma_phot = max(Aerr / max(Aobs, 1e-12)``
+   - ``sigma_phot = Aerr / max(Aobs, 1e-12)``
 2. PSF width is taken from the instrument model as ``FWHM`` in arcsec; we convert to mas via ``FWHM_mas = 1000 * FWHM``.
 3. Convert to Einstein-radius units using the event's ``thetaE_mas``:
    - ``FWHM_er = FWHM_mas / thetaE_mas``

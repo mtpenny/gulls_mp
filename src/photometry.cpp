@@ -132,8 +132,8 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
           // Set astrometric errors to a large value to indicate invalid data
           Event->xcerr[idx] = 1e10;
           Event->ycerr[idx] = 1e10;
-          Event->xc[idx] = Event->xctrue[idx];
-          Event->yc[idx] = Event->yctrue[idx];
+          Event->xc[idx] = Event->xctrue[idx] + Event->xcerr[idx] * gasdev(Paramfile->seed);
+          Event->yc[idx] = Event->yctrue[idx] + Event->ycerr[idx] * gasdev(Paramfile->seed);
         } else {
           double fwhm_mas = World[obsidx].im.fwhm * 1000.0;
           double fwhm_er = fwhm_mas / Event->thE;  // in einsteins radii
@@ -147,7 +147,7 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 
           if (Paramfile->multiple_sources && Event->scompanions.size()>0)
           {
-            int sc = Event->scompanions[0];
+            int sc = Event->scompanions[0];  // this isn't used !
             // flux ratio of source companion to source 1 in this filter
             double fluxRatio = 0.0;
             if(Event->scomp_fsofs1.size()>0 && Event->scomp_fsofs1[0].size()>filter)
