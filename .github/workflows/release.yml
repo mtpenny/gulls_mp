@@ -30,7 +30,13 @@ jobs:
 
 
     - name: Cleanup previous outputs
-      run: rm -rf smoke_test/output/*
+      shell: bash -l {0}
+      run: |
+        rm -rf smoke_test/output/*
+        rm -rf documentation/build/*
+        rm -rf bin/*
+        rm -rf release_plots/*
+
 
     - name: Build documentation
       shell: bash -l {0}
@@ -38,7 +44,7 @@ jobs:
         conda activate gulls
         cd documentation
         make html
-
+        cd ..
 
     - name: Configure CMake
       shell: bash -l {0}
@@ -46,12 +52,13 @@ jobs:
         conda activate gulls
         cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     
-    - name: Build
+    - name: Build Gulls
       shell: bash -l {0}
       run: |
         conda activate gulls
         cmake --build build --parallel
     
+
     - name: Run smoke tests and generate plots
       shell: bash -l {0}
       run: |
@@ -68,7 +75,7 @@ jobs:
         # List what we found
         echo "Generated plots for release:"
         ls -la release_plots/
-        
+
     
     - name: Create release archive
       run: |
