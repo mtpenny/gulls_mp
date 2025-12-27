@@ -865,6 +865,7 @@ def plot_lightcurves(
     gulls_version = "unknown"
     if build_bin is not None:
         gulls_version = _extract_gulls_version(build_bin)
+        print(f"Detected gulls version: {gulls_version}")
 
     for lc_file in lc_files:
         planet_vals, event_vals = _parse_header(lc_file)
