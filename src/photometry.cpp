@@ -125,42 +125,53 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
           sigma_phot = eps;
         }
 
-        double fwhm_mas = World[obsidx].im.fwhm * 1000.0;
-		double fwhm_er = fwhm_mas / Event->thE;  // in einsteins radii
-        double sigma_astro = fwhm_er * sigma_phot * inv_sqrt_ln256;
-        double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
-		double floor_er = floor_mas / Event->thE; // in einsteins radii
-		double sigmaAstro = sqrt(sigma_astro * sigma_astro + floor_er * floor_er);
-		// blend the source centroid with lens and abient stars
-		double fstot = 0.0;
-		fstot += Event->fs[obsidx];
+        // Check for valid Einstein radius before division
+        if (Event->thE < eps) {
+          logfile_ptr << "Warning: Event->thE (" << Event->thE << ") is less than epsilon (" << eps 
+                      << "). Skipping astrometry calculations for this observation." << endl;
+          // Set astrometric errors to a large value to indicate invalid data
+          Event->xcerr[idx] = 1e10;
+          Event->ycerr[idx] = 1e10;
+          Event->xc[idx] = Event->xctrue[idx];
+          Event->yc[idx] = Event->yctrue[idx];
+        } else {
+          double fwhm_mas = World[obsidx].im.fwhm * 1000.0;
+          double fwhm_er = fwhm_mas / Event->thE;  // in einsteins radii
+          double sigma_astro = fwhm_er * sigma_phot * inv_sqrt_ln256;
+          double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
+          double floor_er = floor_mas / Event->thE; // in einsteins radii
+          double sigmaAstro = sqrt(sigma_astro * sigma_astro + floor_er * floor_er);
+          // blend the source centroid with lens and abient stars
+          double fstot = 0.0;
+          fstot += Event->fs[obsidx];
 
-		if (Paramfile->multiple_sources && Event->scompanions.size()>0)
-		{
-			int sc = Event->scompanions[0];
-			// flux ratio of source companion to source 1 in this filter
-			double fluxRatio = 0.0;
-			if(Event->scomp_fsofs1.size()>0 && Event->scomp_fsofs1[0].size()>filter)
-			{
-				fluxRatio = Event->scomp_fsofs1[0][filter];
-			}
-			fstot += Event->fs[obsidx] * fluxRatio;
-		}
+          if (Paramfile->multiple_sources && Event->scompanions.size()>0)
+          {
+            int sc = Event->scompanions[0];
+            // flux ratio of source companion to source 1 in this filter
+            double fluxRatio = 0.0;
+            if(Event->scomp_fsofs1.size()>0 && Event->scomp_fsofs1[0].size()>filter)
+            {
+              fluxRatio = Event->scomp_fsofs1[0][filter];
+            }
+            fstot += Event->fs[obsidx] * fluxRatio;
+          }
 
-		// blend = baseline - sum(source_fluxes)
-		double blend_flux;
-		blend_flux = 1 - fstot;
-		// blending using flux weighted centroids with the "lens" at (xl1,yl1) and the source(s) at (xctrue,yctrue)
-		Event->xctrue[idx] = Event->xctrue[idx]*fstot + Event->xl1[idx]*blend_flux;
-		Event->yctrue[idx] = Event->yctrue[idx]*fstot + Event->yl1[idx]*blend_flux;
-		Event->xctrueerr[idx] = 0.0;
-		Event->yctrueerr[idx] = 0.0;
+          // blend = baseline - sum(source_fluxes)
+          double blend_flux;
+          blend_flux = 1 - fstot;
+          // blending using flux weighted centroids with the "lens" at (xl1,yl1) and the source(s) at (xctrue,yctrue)
+          Event->xctrue[idx] = Event->xctrue[idx]*fstot + Event->xl1[idx]*blend_flux;
+          Event->yctrue[idx] = Event->yctrue[idx]*fstot + Event->yl1[idx]*blend_flux;
+          Event->xctrueerr[idx] = 0.0;
+          Event->yctrueerr[idx] = 0.0;
 
-		// add astrometric noise
-		Event->xcerr[idx] = sigmaAstro;
-		Event->ycerr[idx] = sigmaAstro;
-		Event->xc[idx] = Event->xctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
-		Event->yc[idx] = Event->yctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
+          // add astrometric noise
+          Event->xcerr[idx] = sigmaAstro;
+          Event->ycerr[idx] = sigmaAstro;
+          Event->xc[idx] = Event->xctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
+          Event->yc[idx] = Event->yctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
+        }
 
 		//Test for saturation
 		Event->nosat[idx] = !satflag; //nosat is the opposite of satflag
