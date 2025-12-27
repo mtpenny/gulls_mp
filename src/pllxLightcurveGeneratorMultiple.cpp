@@ -171,7 +171,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->Atrue[idx] = amp;
       if( errflag != 0) 
 	{
-	  snprintf(str,"\nerror caught from magfunc_  errval:%d", 
+	  snprintf(str, sizeof(str), "\nerror caught from magfunc_  errval:%d", 
 		  Event->lcerror);
 	  logfile_ptr << Event->lcerror << endl;
 	  logfile_ptr << Event->u0 << " " << Event->tE_r << " " 
