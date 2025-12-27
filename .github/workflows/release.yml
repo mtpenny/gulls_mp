@@ -27,7 +27,19 @@ jobs:
         conda env create -f environment.yml
         conda activate gulls
         conda list
-    
+
+
+    - name: Cleanup previous outputs
+      run: rm -rf smoke_test/output/*
+
+    - name: Build documentation
+      shell: bash -l {0}
+      run: |
+        conda activate gulls
+        cd documentation
+        make html
+
+
     - name: Configure CMake
       shell: bash -l {0}
       run: |
@@ -56,6 +68,7 @@ jobs:
         # List what we found
         echo "Generated plots for release:"
         ls -la release_plots/
+        
     
     - name: Create release archive
       run: |
@@ -115,14 +128,3 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-    - name: Cleanup previous outputs
-      run: rm -rf smoke_test/output/*
-
-    - name: Build documentation
-      shell: bash -l {0}
-      run: |
-        conda activate gulls
-        cd documentation
-        make html
