@@ -794,10 +794,49 @@ def _render_astrometric_figure(
     return plot_file, lensframe_path
 
 
+def _extract_gulls_version(build_bin: Path) -> str:
+    """Extract the gulls version by running the executable.
+    
+    Returns version string like "2.1.0" or "unknown" if unable to determine.
+    """
+    import subprocess
+    import re
+    
+    # Try gulls_std first as it's the most common
+    executables = ["gulls_std", "gulls_croin", "gullsFish"]
+    
+    for exe_name in executables:
+        exe_path = build_bin / exe_name
+        if not exe_path.exists():
+            continue
+        
+        try:
+            # Run the executable with invalid arguments to get version in error output
+            result = subprocess.run(
+                [str(exe_path), "-i", "/nonexistent"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            # Check both stdout and stderr for version string
+            output = result.stdout + result.stderr
+            
+            # Look for "gulls v2.1.0" pattern
+            match = re.search(r'gulls v(\d+\.\d+\.\d+)', output)
+            if match:
+                return match.group(1)
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            continue
+    
+    # Default to 2.1.0 if we can't extract it
+    return "2.1.0"
+
+
 def plot_lightcurves(
     output_dir: Path,
     summaries: Dict[Tuple[int, int, int], Dict[str, float]] | None = None,
     params: Dict[str, str] | None = None,
+    build_bin: Path | None = None,
 ) -> None:
     lc_files = sorted(output_dir.rglob("*.lc"))
     if not lc_files:
@@ -821,6 +860,12 @@ def plot_lightcurves(
         ms = params.get("MULTIPLE_SOURCES")
         if ms is not None:
             multiple_sources_expected = str(ms).strip().lower() not in {"0", "false", "off"}
+    
+    # Extract gulls version for version-aware validation
+    gulls_version = "unknown"
+    if build_bin is not None:
+        gulls_version = _extract_gulls_version(build_bin)
+        print(f"Detected gulls version: {gulls_version}")
 
     for lc_file in lc_files:
         planet_vals, event_vals = _parse_header(lc_file)
@@ -900,31 +945,59 @@ def plot_lightcurves(
         flux_err = _require_column("measured_relative_flux_error")
         true_flux = _require_column("true_relative_flux")
 
-        astrom_cols = [
-            "true_N_centroid_mas",
-            "true_E_centroid_mas",
-            "measured_N_centroid_mas",
-            "measured_E_centroid_mas",
-            "measured_N_centroid_error_mas",
-            "measured_E_centroid_error_mas",
-            "true_centroid_ra_deg",
-            "true_centroid_dec_deg",
-            "measured_centroid_ra_deg",
-            "measured_centroid_dec_deg",
-            "measured_centroid_ra_error_deg",
-            "measured_centroid_dec_error_deg",
-        ]
-        missing_astrom_cols = [col for col in astrom_cols if col not in column_names]
-        has_astrom = not missing_astrom_cols
-        if astrometry_expected and missing_astrom_cols:
-            print(
-                f"  Debug: {lc_file.name} missing astrometry columns: "
-                + ", ".join(missing_astrom_cols)
-            )
-        if astrometry_expected and not has_astrom:
-            raise SmokeTestError(
-                f"Smoke test failed: astrometric columns missing in {lc_file.name}"
-            )
+        # Version-aware astrometry column validation
+        # v2.1.0: minimal lens-frame columns (x_centroid, y_centroid, etc.)
+        # v2.2.0+: full sky-frame columns (true_N_centroid_mas, etc.)
+        if gulls_version.startswith("2.1."):
+            # v2.1.0 has minimal lens-frame astrometry columns
+            astrom_cols_v2_1 = [
+                "x_centroid",
+                "x_centroid_error",
+                "y_centroid",
+                "y_centroid_error",
+                "true_x_centroid",
+                "true_x_centroid_error",
+                "true_y_centroid",
+                "true_y_centroid_error",
+            ]
+            missing_astrom_cols = [col for col in astrom_cols_v2_1 if col not in column_names]
+            has_astrom = not missing_astrom_cols
+            if astrometry_expected and missing_astrom_cols:
+                print(
+                    f"  Debug: {lc_file.name} missing v2.1.0 astrometry columns: "
+                    + ", ".join(missing_astrom_cols)
+                )
+            if astrometry_expected and not has_astrom:
+                raise SmokeTestError(
+                    f"Smoke test failed: v2.1.0 astrometric columns missing in {lc_file.name}"
+                )
+        else:
+            # v2.2.0+ has full sky-frame astrometry columns
+            astrom_cols = [
+                "true_N_centroid_mas",
+                "true_E_centroid_mas",
+                "measured_N_centroid_mas",
+                "measured_E_centroid_mas",
+                "measured_N_centroid_error_mas",
+                "measured_E_centroid_error_mas",
+                "true_centroid_ra_deg",
+                "true_centroid_dec_deg",
+                "measured_centroid_ra_deg",
+                "measured_centroid_dec_deg",
+                "measured_centroid_ra_error_deg",
+                "measured_centroid_dec_error_deg",
+            ]
+            missing_astrom_cols = [col for col in astrom_cols if col not in column_names]
+            has_astrom = not missing_astrom_cols
+            if astrometry_expected and missing_astrom_cols:
+                print(
+                    f"  Debug: {lc_file.name} missing v2.2.0+ astrometry columns: "
+                    + ", ".join(missing_astrom_cols)
+                )
+            if astrometry_expected and not has_astrom:
+                raise SmokeTestError(
+                    f"Smoke test failed: v2.2.0+ astrometric columns missing in {lc_file.name}"
+                )
 
         # Extract source flux columns (optional for binary source events)
         src1_flux = _optional_column("source1_relative_flux")
@@ -941,7 +1014,9 @@ def plot_lightcurves(
         # when multiple sources are expected and both columns are present.
         _sanity_check_flux_conservation(lc_file, true_flux, src1_flux, src2_flux)
 
-        if not has_astrom:
+        # For v2.1.0, only lens-frame columns are available, so we skip astrometry plotting
+        # For v2.2.0+, we have full sky-frame columns and can plot astrometry
+        if not has_astrom or gulls_version.startswith("2.1."):
             _plot_photometry_only(lc_file, output_dir, title, time, flux, flux_err, true_flux, src1_flux, src2_flux)
             continue
 
