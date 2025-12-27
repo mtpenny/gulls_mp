@@ -233,7 +233,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
   // Astrometry controls
   Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
-  Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]);  
+  Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]);
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];
