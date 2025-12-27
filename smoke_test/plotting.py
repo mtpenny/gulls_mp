@@ -145,6 +145,120 @@ def _sanity_check_flux_conservation(
 
 
 
+def _plot_minimal_astrometry(
+    lc_file: Path,
+    output_dir: Path,
+    title: str,
+    time: np.ndarray,
+    true_x_er: np.ndarray,
+    true_y_er: np.ndarray,
+    meas_x_er: np.ndarray,
+    meas_y_er: np.ndarray,
+    x_er_err: np.ndarray,
+    y_er_err: np.ndarray,
+    tE: float,
+) -> Path:
+    fig, ax = plt.subplots(2, 1, figsize=(8, 8))
+    fig.suptitle(title, fontsize=14)
+
+    ax[0].errorbar(
+        meas_x_er,
+        meas_y_er,
+        xerr=x_er_err,
+        yerr=y_er_err,
+        fmt="o",
+        markersize=3,
+        alpha=0.5,
+        color="C0",
+        label="Measured",
+        zorder=1,
+    )
+    ax[0].plot(
+        true_x_er,
+        true_y_er,
+        "-",
+        linewidth=1.5,
+        color="red",
+        label="True",
+        zorder=2,
+        alpha=0.8,
+    )
+    ax[0].scatter(
+        true_x_er,
+        true_y_er,
+        c=time,
+        cmap=plt.get_cmap("plasma"),
+        s=20,
+        marker="x",
+        linewidths=0.9,
+        alpha=1.0,
+        label="True samples",
+        zorder=3,
+    )
+    ax[0].set_xlabel("x_centroid (Einstein radii)")
+    ax[0].set_ylabel("y_centroid (Einstein radii)")
+    ax[0].set_title("Astrometric Centroid in Lens Frame with Lens at Rest")
+    ax[0].grid(True, alpha=0.3)
+    ax[0].legend()
+    
+    # plot 2: x and y centroids around event peak
+    # zoom in to +/- 2 Einstein radius around origin and epochs +/- 2*tE
+    mask_peak = (time >= -2 * tE) & (time <= 2 * tE)
+    ax[1].errorbar(
+        time[mask_peak],
+        meas_x_er[mask_peak],
+        yerr=x_er_err[mask_peak],
+        fmt="o",
+        markersize=3,
+        alpha=0.5,
+        color="C0",
+        label="Measured x",
+        zorder=1,
+    )
+    ax[1].errorbar(
+        time[mask_peak],
+        meas_y_er[mask_peak],
+        yerr=y_er_err[mask_peak],
+        fmt="o",
+        markersize=3,
+        alpha=0.5,
+        color="C1",
+        label="Measured y",
+        zorder=1,
+    )
+    ax[1].plot(
+        time[mask_peak],
+        true_x_er[mask_peak],
+        "-",
+        linewidth=1.5,
+        color="red",
+        label="True x",
+        zorder=2,
+        alpha=0.8,
+    )
+    ax[1].plot(
+        time[mask_peak],
+        true_y_er[mask_peak],
+        "-",
+        linewidth=1.5,
+        color="orange",
+        label="True y",
+        zorder=2,
+        alpha=0.8,
+    )
+    ax[1].set_xlabel("Time (days)")
+    ax[1].set_ylabel("Centroid (Einstein radii)")
+    ax[1].set_title("Centroid Around Event Peak")
+    ax[1].grid(True, alpha=0.3)
+    ax[1].legend()
+
+    plot_file = output_dir / f"{lc_file.stem}_astrometry_plot.png"
+    fig.tight_layout()
+    fig.savefig(plot_file, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Generated astrometry plot: {plot_file.name}")
+    return plot_file
+
 def _plot_photometry_only(
     lc_file: Path,
     output_dir: Path,
@@ -935,6 +1049,9 @@ def plot_lightcurves(
             val = summary.get("event_dec")
             if val is not None and not math.isnan(val):
                 event_dec_float = float(val)
+            val = summary.get("tE_ref")
+            if val is not None and not math.isnan(val):
+                tE = float(val)
         if alpha_deg_float is None and event_vals and len(event_vals) >= 2:
             alpha_deg_float = float(event_vals[1])
         if alpha_deg_float is None:
@@ -1017,7 +1134,31 @@ def plot_lightcurves(
         # For v2.1.0, only lens-frame columns are available, so we skip astrometry plotting
         # For v2.2.0+, we have full sky-frame columns and can plot astrometry
         if not has_astrom or gulls_version.startswith("2.1."):
-            _plot_photometry_only(lc_file, output_dir, title, time, flux, flux_err, true_flux, src1_flux, src2_flux)
+            _plot_photometry_only(
+                lc_file, 
+                output_dir, 
+                title, 
+                time, 
+                flux, 
+                flux_err, 
+                true_flux,
+                src1_flux, 
+                src2_flux)
+            if has_astrom and gulls_version.startswith("2.1."):
+                print(f"  Debug: Plotting minimal astrometry plot for {lc_file.name} (gulls v2.1.0)")
+                minimal_astrometry_plot = _plot_minimal_astrometry(
+                    lc_file,
+                    output_dir,
+                    title,
+                    time,
+                    _require_column("true_x_centroid"),
+                    _require_column("true_y_centroid"),
+                    _require_column("x_centroid"),
+                    _require_column("y_centroid"),
+                    _require_column("x_centroid_error"),
+                    _require_column("y_centroid_error"),
+                    tE
+                )
             continue
 
         true_N_mas = _require_column("true_N_centroid_mas")
