@@ -131,7 +131,7 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
         double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
 		double floor_er = floor_mas / Event->thE; // in einsteins radii
 		double sigmaAstro = sqrt(sigma_astro * sigma_astro + floor_er * floor_er);
-		// blend the source centroid with lens and abient stars
+		// blend the source centroid with lens and ambient stars
 		double fstot = 0.0;
 		fstot += Event->fs[obsidx];
 
