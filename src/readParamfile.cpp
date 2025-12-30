@@ -94,6 +94,13 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {
       Paramfile->basedir = string(tmp);
     }
+
+  // Normalize base paths: a lot of the code concatenates paths like
+  // `basedir + "src/..."` and expects `basedir` to end with '/'.
+  if(!Paramfile->basedir.empty() && Paramfile->basedir.back() != '/')
+    {
+      Paramfile->basedir.push_back('/');
+    }
   cout << "GULLS_BASE_DIR:" << Paramfile->basedir << endl;
   
   if(tmp = getenv("GULLS_STARS_DIR"))
@@ -104,6 +111,11 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {
       cout << "GULLS_STARS_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
       Paramfile->starsdir = Paramfile->basedir;
+    }
+
+  if(!Paramfile->starsdir.empty() && Paramfile->starsdir.back() != '/')
+    {
+      Paramfile->starsdir.push_back('/');
     }
 
   //Read in all the parameters
