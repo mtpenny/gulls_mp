@@ -152,11 +152,10 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 
       	if (Paramfile->multiple_sources && Event->scompanions.size()>0)
         {
-          int sc = Event->scompanions[0];  // this isn't used !
           // flux ratio of source companion to source 1 in this filter
           double fluxRatio = 0.0;
 		  // loop through the companion sources
-		  for(size_t cidx=0; cidx < sc; cidx++)
+		  for(size_t cidx=0; cidx < Event->scompanions.size(); cidx++)
 		  {
 			if(Event->scomp_fsofs1.size()>0 && Event->scomp_fsofs1[cidx].size()>filter)
             {
