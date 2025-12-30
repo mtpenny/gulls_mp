@@ -126,6 +126,8 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   if(!Paramfile->starsdir.empty() && Paramfile->starsdir.back() != '/')
     {
       Paramfile->starsdir.push_back('/');
+    }
+
   if(tmp = getenv("GULLS_PLANETS_DIR"))
     {
       Paramfile->plansdir = string(tmp); 
