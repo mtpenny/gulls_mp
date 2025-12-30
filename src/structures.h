@@ -174,6 +174,7 @@ struct filekeywords{
   string pathdir;
   string pathfile;
   string basedir;
+  string inputdir; 
   string starsdir;
   /*string scriptdir;
   string paramdir;
@@ -192,6 +193,7 @@ struct filekeywords{
   string sourcelist; 
   string lensdir; 
   string lenslist; 
+  string plansdir; 
   string planetdir;
   string planetroot;
   string outputdir;
