@@ -154,6 +154,7 @@ else()
   target_compile_options(gulls_core_new PRIVATE -w)
 endif()
 
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 
 function(add_gulls_executable target_name)

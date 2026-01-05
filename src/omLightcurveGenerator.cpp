@@ -365,7 +365,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   lens_parameters[2] = 1.0;
   for(int i=1;i<nlens;i++)
     {
-      lens_parameters[3*i+2] = Event->lcomp_q[i];
+      cout << nlens << " " << i << " " << 3*i+2 << endl;
+      lens_parameters[3*i+2] = Event->p_q[i]; //Event->lcomp_q[i];
     }
 
   //

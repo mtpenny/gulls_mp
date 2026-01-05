@@ -340,7 +340,7 @@ void image::reset_detector()
 //Clear the true image
 void image::reset_image()
 {
-  if(int(timage.size())!=Npix)
+  if(timage.empty() || int(timage.size())!=Npix)
     {
       timage.resize(Npix);
     }
