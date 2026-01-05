@@ -7,7 +7,7 @@
 #include "readPlanets.h"
 #include "split.h"
 
-int readPlanets(struct filekeywords *Paramfile, vector<struct pcat> *planets, string instance, int choosefield)
+int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets)
 {
   int ncols = NPLANETINPUT;
   int nlist=0;
@@ -21,14 +21,12 @@ int readPlanets(struct filekeywords *Paramfile, vector<struct pcat> *planets, st
 
   string fname = string(Paramfile->planetdir) + string(Paramfile->planetroot);
 
-  if(choosefield>=0)
+  if(Paramfile->choosefield>=0)
     {
-      char field[20];
-      sprintf(field,"%d",choosefield);
-      fname += string(field) + string(".");
+      fname += to_string(Paramfile->choosefield) + string(".");
     }
 
-  fname += string(instance);
+  fname += to_string(Paramfile->instance);
 
   pf.open(fname.c_str());
   if(!pf)
@@ -48,7 +46,8 @@ int readPlanets(struct filekeywords *Paramfile, vector<struct pcat> *planets, st
 
 	  if(int(data.size())==ncols)
 	    {
-	      planets->push_back(pcat(&data,NPLANETINPUT+NPLANETDERIV));
+	      //planets->push_back(pcat(&data,NPLANETINPUT+NPLANETDERIV));
+	      Planets->data.push_back(data);
 	      nlist++;
 	    }
 	}

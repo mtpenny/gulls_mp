@@ -79,6 +79,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run CI-optimized subset of tests (faster, essential cases only).",
     )
+    parser.add_argument(
+        "--debug",
+        type=int,
+        default=0,
+        help="The debug verbosity level of the output"
+    )
     return parser.parse_args(argv)
 
 
@@ -93,6 +99,8 @@ def _resolve_case_selection(raw_choices: Sequence[str] | None, ci_mode: bool = F
                 ("smoke_fish_binary", "gullsFish.x", "smoke_std_binary.prm"),
                 ("smoke_croin", "gulls_croin.x", "smoke_croin.prm"),
                 ("smoke_croin_binary", "gulls_croin.x", "smoke_croin_binary.prm"),
+                ("smoke_general", "gulls_general.x", "smoke_general.prm"),
+                ("smoke_general_binary", "gulls_general.x", "smoke_general_binary.prm"),
             )
         return CASES
 
@@ -218,9 +226,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             shutil.rmtree(case.output_dir)
         case.output_dir.mkdir(parents=True, exist_ok=True)
 
-        cmd = [str(case.exe_path), "-i", str(case.exec_param_path), "-s", args.instance]
+        cmd = [str(case.exe_path), "-i", str(case.exec_param_path), "-s", args.instance] #, "-d","-d","-d"]
         if args.field is not None:
             cmd.extend(["-f", str(args.field)])
+        for i in range(args.debug):
+            cmd.extend(["-d"])
 
         print(f"\n=== Running {case.exe_name} ({case.label}) with {case.param_path.name} ===")
         result = run_command(cmd, env, args.exec_timeout, cwd=REPO_ROOT)

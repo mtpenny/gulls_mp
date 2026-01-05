@@ -1,7 +1,7 @@
 #include "getPlanetvals.h"
 #include "buildEvent.h"
 
-void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct filekeywords *Paramfile, struct slcat* Sources, struct slcat* Lenses, vector<struct pcat>* Planets)
+void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct filekeywords *Paramfile, struct slcat* Sources, struct slcat* Lenses, struct planetdata* Planets)
 {
   //extract and calculate the planet parameters
 
@@ -21,7 +21,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   //extract the input data
   for(int i=0;i<NPLANETINPUT;i++)
     {
-      Event->params[i] = (*Planets)[sdx].data[i];
+      Event->params[i] = Planets->data[sdx][i];
     }
 
   //Calculate the derived planet properties
@@ -50,7 +50,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
     Event->t0 = double(Paramfile->NUM_SIM_DAYS)*ran2(Paramfile->seed);
 
   //setupParallax(Event->t0, Paramfile, World, Event, Sources, Lenses);
-  Paramfile->tref = Event->t0;
+  Event->tref = Event->t0;
 
   //compute_u0(Paramfile, World, Event, Paramfile->seed);
   Event->u0max = ( 2*Event->rs>1 ? 2*Event->rs : 1);

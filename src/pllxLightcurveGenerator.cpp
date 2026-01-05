@@ -37,6 +37,37 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		 << ", RelTol=" 
 		 << Event->vbm->RelTol 
 		 << std::endl;
+
+
+    if(Paramfile->verbosity>=3) cout << "About to resize xsrc" << endl;
+    
+    Event->xsrc.clear();
+    Event->ysrc.clear();
+    Event->mu_src.clear();
+
+    Event->xsrc.resize(Event->nsrc);
+    Event->ysrc.resize(Event->nsrc);
+    Event->mu_src.resize(Event->nsrc);
+    for(int i=0; i<Event->nsrc; i++)
+      {
+	Event->xsrc[i].resize(Event->nepochs);
+	Event->ysrc[i].resize(Event->nepochs);
+	Event->mu_src[i].resize(Event->nepochs);
+      }
+
+    if(Paramfile->verbosity>=3) cout << "xsrc resized" << endl;
+
+    Event->xlens.clear();
+    Event->ylens.clear();
+    Event->xlens.resize(Event->nlens);
+    Event->ylens.resize(Event->nlens);
+    for(int i=0; i<Event->nlens; i++)
+      {
+	Event->xlens[i].resize(Event->nepochs);
+	Event->ylens[i].resize(Event->nepochs);
+      }
+
+    if(Paramfile->verbosity>=3) cout << "xlens resized" << endl;
      
     //if the event is saturated in each band, no need to calculate the lightcurve
     if(Event->nepochs==0 || Event->allsat)
@@ -61,6 +92,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	    if (difftime(now, starttime) > timeout)
 	      {
 		timed_out = true;
+		cout << "Lightcurve generation timed out" << endl;
 		break;
 	      }
 	  }
@@ -89,12 +121,17 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
             Event->xs[idx] = xsCoM;
             Event->ys[idx] = ysCenter;
-            Event->xl1[idx] = VBM_origin;
-            Event->yl1[idx] = 0.0;
-            Event->xl2[idx] = VBM_origin + a;
-            Event->yl2[idx] = 0.0;
+	    Event->xsrc[0][idx] = xsCoM;
+	    Event->ysrc[0][idx] = ysCenter;
+            Event->xl1[idx] = Event->xlens[0][idx] = VBM_origin;
+            Event->yl1[idx] = Event->ylens[0][idx] = 0.0;
+            Event->xl2[idx] = Event->xlens[1][idx] = VBM_origin + a;
+            Event->yl2[idx] = Event->ylens[1][idx] = 0.0;
 	    Event->vbm->a1 = lim_gamma;
 	    amp = Event->vbm->BinaryMag2(a, q, xsCoM, ysCenter, rs);
+	    Event->mu_src[0][idx] = amp;
+
+	    cout << 0 << " " << Event->epoch[idx] << " " << amp << endl;
 
 	    Event->vbm_rootaccuracy[idx] = Event->vbm->rootaccuracy;
 	    Event->vbm_squarecheck[idx] = Event->vbm->squarecheck;
@@ -103,14 +140,22 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	    if(Paramfile->multiple_sources && Event->scompanions.size()>0)
 	      {
 		double xs2CoM, ys2Center;
+		cout << "scomp_s.size, scomp_phase.size" << " " << Event->scomp_s[0] << " " << Event->scomp_phase.size() << endl;
 		double x2off = Event->scomp_s[0] * cos(Event->scomp_phase[0]*TO_RAD);
-		double y2off = Event->scomp_s[0] * sin(Event->scomp_phase[0]*TO_RAD) * cos(Event->scomp_inc[0]*TO_RAD);
-		xs2CoM = xsCoM + x2off * cos(Event->scomp_alpha[0]*TO_RAD) - y2off * sin(Event->scomp_alpha[0]*TO_RAD);
-		ys2Center = ysCenter + x2off * sin(Event->scomp_alpha[0]*TO_RAD) + y2off * cos(Event->scomp_alpha[0]*TO_RAD);
-
+		cout << "x2off" << x2off << endl;
+		double y2off = Event->scomp_s[0] * sin(Event->scomp_phase[0]*TO_RAD) * cos(Event->scomp_I[0]*TO_RAD);
+		cout << "y2off" << y2off << endl;
+		xs2CoM = xsCoM + x2off * cosa - y2off * sina;
+		cout << "xs2CoM" << xs2CoM << endl;
+		ys2Center = ysCenter + x2off * sina + y2off * cosa;
+		cout << "ys2Center" << ys2Center << endl;
 		double amp2 = Event->vbm->BinaryMag2(a, q, xs2CoM, ys2Center, Event->scomp_rs[0]);
+		cout << 1 << " " << Event->epoch[idx] << " " << amp2 << endl;
 		Event->xs2[idx] = xs2CoM;
 		Event->ys2[idx] = ys2Center;
+		Event->xsrc[1][idx] = xs2CoM;
+		Event->ysrc[1][idx] = ys2Center;
+		Event->mu_src[1][idx] = amp2;
 	      
 		int filt = World[obsidx].filter;		
 		Event->Atrue[idx] = amp + Event->scomp_fsofs1[0][filt] * (amp2-1);

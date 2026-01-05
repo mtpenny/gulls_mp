@@ -181,12 +181,12 @@ void fisherMatrix(struct filekeywords* Paramfile, struct event *Event, struct ob
   if(Paramfile->choosefield<0)
     {
       sprintf(fmfname, "%s%s_%d_%d.det.fm", Paramfile->outputdir,
-	      Paramfile->run_name, Event->instance, Event->id);
+	      Paramfile->run_name, Paramfile->instance, Event->id);
     }
   else
     {
       sprintf(fmfname, "%s%s_%d_%d_%d.det.fm", Paramfile->outputdir,
-	      Paramfile->run_name, Event->instance, Paramfile->choosefield, 
+	      Paramfile->run_name, Paramfile->instance, Paramfile->choosefield, 
 	      Event->id);
     }
 

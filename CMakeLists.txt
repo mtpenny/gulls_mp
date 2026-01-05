@@ -47,6 +47,35 @@ set(COMMON_SOURCES
   "${SRC_DIR}/photometry.cpp"
   "${SRC_DIR}/buildEvent.cpp"
   "${CLASSES_DIR}/VBMicrolensingLibrary.cpp"
+  "${SRC_DIR}/outputLightcurve.cpp"	
+)
+
+set(GENERAL_SOURCES
+  "${SRC_DIR}/gulls.cpp"
+  "${SRC_DIR}/strfns.cpp"
+  "${SRC_DIR}/readParamfile.cpp"
+  "${SRC_DIR}/readObservatoryfile.cpp"
+  "${SRC_DIR}/buildWorld.cpp"
+  "${CLASSES_DIR}/random.cpp"
+  "${SRC_DIR}/info.cpp"
+  "${SRC_DIR}/timeSequencer.cpp"
+  "${SRC_DIR}/astroFns.cpp"
+  "${SRC_DIR}/mathFns.cpp"
+  "${CLASSES_DIR}/wittFSPL.cpp"
+  "${CLASSES_DIR}/image.cpp"
+  "${CLASSES_DIR}/psf.cpp"
+  "${SRC_DIR}/readStarfields.cpp"
+  "${SRC_DIR}/readSLList.cpp"
+  "${SRC_DIR}/readPlanets2.cpp"
+  "${CLASSES_DIR}/parallax.cpp"
+  "${CLASSES_DIR}/ephem.cpp"
+  "${CLASSES_DIR}/coords.cpp"
+  "${CLASSES_DIR}/zodiacalLight.cpp"
+  "${CLASSES_DIR}/rbf.cpp"
+  "${SRC_DIR}/photometry.cpp"
+  "${SRC_DIR}/buildEvent.cpp"
+  "${CLASSES_DIR}/VBMicrolensingLibrary.cpp"
+  "${SRC_DIR}/outputLightcurve.cpp"	
 )
 
 set(CURVEGEN_FORTRAN
@@ -64,8 +93,6 @@ set(CURVEGEN_FORTRAN
 )
 
 set(FSBLCOMMON_SOURCES
-  "${SRC_DIR}/pllxLightcurveGenerator.cpp"
-  "${SRC_DIR}/outputLightcurve.cpp"
   "${SRC_DIR}/backupGenerator.cpp"
   "${CLASSES_DIR}/fs.cpp"
   "${CLASSES_DIR}/zroots2.cpp"
@@ -80,7 +107,20 @@ add_library(gulls_core STATIC
   ${FSBLCOMMON_SOURCES}
 )
 
+add_library(gulls_core_new STATIC
+  ${GENERAL_SOURCES}
+  "${SRC_DIR}/pllxLightcurveFitter.cpp"
+  "${SRC_DIR}/pllxLightcurveFitter_FS.cpp"
+)
+
 target_include_directories(gulls_core
+  PUBLIC
+    "${SRC_DIR}"
+    "${HEADERS_DIR}"
+    "${CLASSES_DIR}"
+)
+
+target_include_directories(gulls_core_new
   PUBLIC
     "${SRC_DIR}"
     "${HEADERS_DIR}"
@@ -94,12 +134,24 @@ target_link_libraries(gulls_core
     GSL::gslcblas
 )
 
+target_link_libraries(gulls_core_new
+  PUBLIC
+    CFITSIO::CFITSIO
+    GSL::gsl
+    GSL::gslcblas
+)
+
 if(ENABLE_WARNINGS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(gulls_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-deprecated-declarations>)
+    target_compile_options(gulls_core_new PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-deprecated-declarations>)
   elseif(MSVC)
     target_compile_options(gulls_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
+    target_compile_options(gulls_core_new PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
   endif()
+else()
+  target_compile_options(gulls_core PRIVATE -w)
+  target_compile_options(gulls_core_new PRIVATE -w)
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
@@ -121,22 +173,50 @@ function(add_gulls_executable target_name)
   endif()
 endfunction()
 
+function(add_general_executable target_name)
+  add_executable(${target_name} ${ARGN})
+  target_link_libraries(${target_name}
+    PRIVATE
+      gulls_core_new
+  )
+  if(UNIX)
+    target_link_libraries(${target_name} PRIVATE m)
+    if(NOT APPLE)
+      find_library(DL_LIBRARY dl)
+      if(DL_LIBRARY)
+        target_link_libraries(${target_name} PRIVATE ${DL_LIBRARY})
+      endif()
+    endif()
+  endif()
+endfunction()
+
 add_gulls_executable(gulls_std.x
+  "${SRC_DIR}/pllxLightcurveGenerator.cpp"
   "${SRC_DIR}/detectionCuts.cpp"
   "${SRC_DIR}/standardPlanet.cpp"
 )
 
+add_general_executable(gulls_general.x
+  "${SRC_DIR}/omLightcurveGenerator.cpp"
+  "${SRC_DIR}/detectionCuts.cpp"
+  "${SRC_DIR}/generalPlanet.cpp"
+)
+
 add_gulls_executable(gulls_croin.x
+  "${SRC_DIR}/pllxLightcurveGenerator.cpp"
   "${SRC_DIR}/detectionCuts.cpp"
   "${SRC_DIR}/croinPlanet.cpp"
 )
 
 add_gulls_executable(gullsFish.x
+  "${SRC_DIR}/pllxLightcurveGenerator.cpp"
   "${SRC_DIR}/fisherDetCuts.cpp"
   "${SRC_DIR}/fisher.cpp"
   "${SRC_DIR}/croinPlanet.cpp"
   "${CLASSES_DIR}/fisherinversion.cpp"
 )
+
+
 
 # PSF generation utility (standalone, minimal dependencies)
 add_executable(generateMoffat

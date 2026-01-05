@@ -22,9 +22,8 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
 		vector<vector<vector<double> > >* starfield, 
 		vector<double>* starfielddata, 
 		struct filekeywords *Paramfile, struct slcat *Sources, 
-		struct slcat *Lenses, int sdx, string instance, long *idum)
+		struct slcat *Lenses, int sdx, long *idum)
 {
-  Event->instance = atoi(instance.c_str());
   Event->id = sdx;
 
   Event->gamma = Paramfile->LD_GAMMA;
@@ -47,7 +46,7 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   
   Event->lcomp_s.clear();
   Event->lcomp_q.clear();
-  Event->lcomp_alpha.clear();
+  //Event->lcomp_alpha.clear();
   Event->lcomp_phase.clear();
   Event->lcomp_a.clear();
   Event->lcomp_e.clear();
@@ -81,6 +80,11 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   compute_u0(Paramfile, World, Event, idum);
 
   Event->peakpoint=0;
+
+  if(Paramfile->verbosity>=2)
+    {
+      cout << "At end of build event, nlens = " << Event->nlens << ", nsrc = " << Event->nsrc << endl;
+    }
 
   if(ran2(Paramfile->seed)<Paramfile->outputLightcurve) Event->outputthis=1;
   else Event->outputthis=0;
@@ -257,10 +261,10 @@ void computeBlending(struct event *Event, struct obsfilekeywords World[], struct
 
       //add the image background
       if(Paramfile->verbosity>2)
-		{
-		  cout << __FILE__ << " " << __FUNCTION__ << ": Add background " << World[obsidx].zodiflux[0]
-			   << endl;
-		}
+	{
+	  cout << __FILE__ << " " << __FUNCTION__ << ": Add background " << World[obsidx].zodiflux[0]
+	       << endl;
+	}
       allbg = 20.0 - 2.5*log10(World[obsidx].constbackground 
 			       + World[obsidx].zodiflux[0]
 			       + pow(10,-0.4*(World[obsidx].skybackground-20))
@@ -436,8 +440,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 		  else
 		    {
 		      break;
-		    }
-		}
+		    } //end if companion
+		} //end for sources
 	    } //end isbinary==1
 	  else if(isbinary>=2)
 	    {
@@ -450,8 +454,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 		    {
 		      primarysn = i;
 		      break;
-		    }
-		}
+		    } //end if primary
+		} //end for sources
 
 	      if(primarysn==-1)
 		{
@@ -491,14 +495,14 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	}
     } //end if multiple sources
 
-  Event->nsource=1;
+  Event->nsrc=1;
   //Compute source companion properties
   if(Paramfile->multiple_sources)
     {
       //add companion properties to the event data here?
       for(auto sc : Event->scompanions)
 	{
-	  Event->nsource++;
+	  Event->nsrc++;
 	  Event->scomp_rs.push_back((Sources->data[sc][Sources->RADIUS] * Rsun / Sources->data[sc][Sources->DIST]) / Event->thE);
 	  double P = pow(10,Sources->data[sc][Sources->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Sources->data[sn][Sources->datadict["Mass"]];
@@ -529,6 +533,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	      long_perihelion = Sources->data[sn][Sources->datadict["LongitudeAscendingNode"]];
 	    }
 	  Event->scomp_O.push_back(long_ascnode);
+	  Event->scomp_alpha.push_back(long_ascnode);
 
 	  double rnd = ran2(idum);
 	  double inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
@@ -540,6 +545,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 
 	  Event->scomp_dL.push_back(2*PI/P);
 	  Event->scomp_L0.push_back(360.0*ran2(idum));
+	  Event->scomp_phase.push_back(Event->scomp_L0.back());
 
 	  
 	  Event->scomp_s.push_back(acomb/(Event->thE * Sources->data[sn][Sources->DIST]));
@@ -561,6 +567,9 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	}
     }
 
+
+  Event->nlens=1;
+  
   //Handle multiple lenses - first handle the ingestion and then compute the properties
   if(Paramfile->multiple_lenses>0)
     {
@@ -638,7 +647,6 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
     {
       Event->qsum = 1.0;
       //add lens companion properties to the event data here
-      Event->nlens=1;
 
       //add companion properties to the event data here?
       for(auto lc : Event->lcompanions)
@@ -827,7 +835,7 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   if(Paramfile->verbosity>1) cout << __FUNCTION__ << endl;
   int sn = Event->source;
   int ln = Event->lens;
-  double tref = Paramfile->tref;
+  double tref = Event->tref;
 
   coords c;
 

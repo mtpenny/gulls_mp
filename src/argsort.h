@@ -1,3 +1,5 @@
+#ifndef ARGSORT_H
+
 #include <vector>
 #include <algorithm>
 
@@ -20,3 +22,6 @@ std::vector<size_t> argsort(const std::vector<T> &array) {
 
     return indices;
 }
+
+#define ARGSORT_H
+#endif

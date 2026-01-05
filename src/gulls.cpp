@@ -34,7 +34,8 @@ struct event Event;
 //struct galaxy Galaxy;
 struct slcat Sources;
 struct slcat Lenses;
-vector<struct pcat> Planets;
+//vector<struct pcat> Planets;
+struct planetdata Planets;
 
 //stored list of stellar magnitues
 //starfield[besancon field number][level number][star number][band]
@@ -123,7 +124,8 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 	}
     }
 
-  Paramfile.choosefield=field;
+  Paramfile.choosefield = field;
+  Paramfile.instance = stoi(instance);
 
   infile_ptr = fopen(input_filename.c_str(),"r");
   if (infile_ptr == NULL)
@@ -279,7 +281,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 
   //Read in the planets
   if(Paramfile.verbosity) {printf("readPlanets\n"); fflush(stdout);}
-  if(readPlanets(&Paramfile, &Planets, instance, field)==0)
+  if(readPlanets(&Paramfile, &Planets)==0)
     {
       sprintf(str,"Error reading planets. Exiting.");
       fmtline(str,WIDTH,"FATAL");
@@ -319,7 +321,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
     fflush(stdout);}
 
   /* For every Galaxy model event */
-  for(idx=0; idx<int(Planets.size()); idx++)
+  for(idx=0; idx<int(Planets.data.size()); idx++)
     {
       cout << "Starting event " << idx << endl;
       
@@ -327,7 +329,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       if(Paramfile.verbosity) {printf("buildEvent\n"); fflush(stdout);}
       clock_gettime(CLOCK_REALTIME,&tstart);
       buildEvent(&Event, World, starfield, starfieldData,  
-				 &Paramfile, &Sources, &Lenses, idx, instance, idum);
+				 &Paramfile, &Sources, &Lenses, idx, idum);
       //getPlanetvals(&Event, World, &Paramfile, &Sources, &Lenses, &Planets);
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;

@@ -206,7 +206,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
   ofile.precision(12);
   ofile << scientific;
   //position and event data - +6+1 = 1
-  ofile << Event->id << " " << Event->instance << " ";
+  ofile << Event->id << " " << Paramfile->instance << " ";
   ofile << Event->field << " ";
   ofile << Event->l << " " << Event->b << " " << Event->ra*TO_DEG << " " 
 	<< Event->dec*TO_DEG << " ";
@@ -279,7 +279,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
   //microlensing paramters - 11+1 = 26
   ofile << Event->u0 << " " << Event->alpha << " ";
   ofile << Event->t0 << " ";
-  ofile << Paramfile->tref << " ";
+  ofile << Event->tref << " ";
   ofile << Event->tcroin << " ";
   ofile << Event->ucroin << " " << Event->rcroin << " ";
   double murel_l = Lenses->data[ln][Lenses->MUL]-Sources->data[sn][Sources->MUL];
@@ -355,7 +355,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->scomp_rs[0] << " ";
 	  ofile << Event->scomp_s[0] << " ";
 	  ofile << Event->scomp_alpha[0] << " ";
-	  ofile << Event->scomp_inc[0] << " ";
+	  ofile << Event->scomp_I[0] << " ";
 	  ofile << Event->scomp_phase[0] << " ";
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {

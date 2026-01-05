@@ -39,7 +39,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 			   / (Event->params[PMASS] + Lenses->data[ln][Lenses->MASS]));
 
   //setupParallax(Event->t0, Paramfile, World, Event, Sources, Lenses);
-  Paramfile->tref=Event->t0;
+  Event->tref=Event->t0;
   Paramfile->parameterization=0;
 
   //compute_u0(Paramfile, World, Event, Paramfile->seed);

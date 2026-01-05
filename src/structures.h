@@ -144,7 +144,8 @@ struct filekeywords{
   int lenslight;
   double pllxMultiplyer; //Adjust the strength of parallax - will usually choose 0 (off) or 1 (normal)
   int verbosity;
-  int choosefield;
+  int choosefield; //The field number 
+  int instance; //The subrun number
   int identicalSequence; //reuse the lightcurve calculations with different bands
   double u0max;
   int SUBRUNSIZE;  
@@ -155,7 +156,6 @@ struct filekeywords{
   
   int error_scaling;
   int parameterization; //0=standard, 1=croin
-  double tref; //Reference time for parallax
 
   int multiple_sources;
   int multiple_lenses;
@@ -282,12 +282,12 @@ struct fittedparams{
 struct event{
 
   int source, lens;
-  int nsource, nlens;
+  int nsrc, nlens, nplanets;
   vector<int> scompanions, lcompanions;
   vector<double> scomp_rs, scomp_s, scomp_alpha, scomp_phase, scomp_q;
   vector<double> scomp_a, scomp_e, scomp_I, scomp_L0, scomp_w, scomp_O, scomp_dL; //orbital elements
   vector<vector<double> > scomp_fsofs1;
-  vector<double> lcomp_s, lcomp_q, lcomp_alpha, lcomp_phase;
+  vector<double> lcomp_s, lcomp_q, lcomp_phase;
   vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL; //orbital elements
   vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q;
   //double ljoint_thE, ljoint_tE, ljoint_rE;
@@ -295,6 +295,7 @@ struct event{
   int field;
   int id;
   //microlensing paramters
+  double tref; //Reference time for parallax
   double u0, alpha, t0, tcroin, ucroin, rcroin, tE_h, tE_r, rE, thE, piE, piEN, piEE, rs, murel, murel_l, murel_b, vt, gamma;
   //weights
   //double t0croin, rcroin, u0croin;
@@ -313,7 +314,6 @@ struct event{
   vector<struct fittedparams> PSPL;
   vector<struct fittedparams> FSPL;
   vector<int> flag_needFS;
-  int instance;
   int lcerror;    //lightcurve generation flag
   int fisherror;  //fisher matrix calculation error
   int deterror;   //detection criteria error flag
@@ -466,8 +466,16 @@ struct slcat
 #define SL_CAT
 #endif
 
-vector<vector<double> > planet_data; //this will replace pcat
-vector<string> planet_header;
+#ifndef PLANET_STUFF
+
+struct planetdata
+{
+  vector<vector<double> > data; //this will replace pcat
+  vector<string> header;
+};
+
+#define PLANET_STUFF
+#endif
 
 #ifndef P_CAT
 struct pcat

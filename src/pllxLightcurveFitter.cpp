@@ -25,8 +25,8 @@ int lightcurveFitter(struct filekeywords* Paramfile, struct obsfilekeywords Worl
   int obsidx;
   int idx;
 
-  double tref = Event->t0;
-  if(Paramfile->parameterization==1) tref = Event->tcroin;
+  double tref = Event->tref;//Event->t0;
+  //if(Paramfile->parameterization==1) tref = Event->tcroin;
   
   gsl_set_error_handler_off();
   

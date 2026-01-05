@@ -7,7 +7,7 @@
 #include "readPlanets.h"
 #include "split.h"
 
-int readPlanets(struct filekeywords *Paramfile, vector<vector<double> > *planets, string subrun, int choosefield, vector<string>* planet_header)
+int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets)
 {
 
   //There is expected to be one planet file per subrun and per field with the filename format
@@ -21,16 +21,17 @@ int readPlanets(struct filekeywords *Paramfile, vector<vector<double> > *planets
     string("ABCDFGHIJKLMNOPQRSTUVWXYZabcdfghijklmnopqrstuvwxyz*:;=(),[]{}#");
   vector<double> data;
   vector<string> header_data;
+  string subrun = to_string(Paramfile->instance);
 
   ifstream pf;
 
   string fname = string(Paramfile->planetdir) + string(Paramfile->planetroot);
 
-  if(choosefield>=0)
+  if(Paramfile->choosefield>=0)
     {
       //char field[20];
       //sprintf(field,"%d",choosefield);
-      fname += itos(choosefield) + string(".") + subrun;
+      fname += to_string(Paramfile->choosefield) + string(".") + subrun;
     }
   else
     {
@@ -55,32 +56,32 @@ int readPlanets(struct filekeywords *Paramfile, vector<vector<double> > *planets
 	{
 	  split(line,data);
 
-	  planet_data->push_back(data);
+	  Planets->data.push_back(data);
 	  nlist++;
 
 	}
       else
 	{
 	  split(line,header_data);
-	  (*planet_header) = header_data;
+	  Planets->header = header_data;
 	  
 	}
     }
 
-  if(planet_header.size()==0)
+  if(Planets->header.size()==0)
     {
-      for(int i=0;i<planet_data[0].size();i++)
+      for(int i=0;i<Planets->data[0].size();i++)
 	{
-	  planet_header.push_back("Planet_" + to_string(i));
+	  Planets->header.push_back("Planet_" + to_string(i));
 	}
     }
 
-  if(planet_header.size()!=planet_data[0].size())
+  if(Planets->header.size()!=Planets->data[0].size())
     {
       cerr << "WARNING: Planet file header has different number of columns than the data." << endl;
-      for(auto i : planet_header.size()) cerr << planet_header[i] << " ";
+      for(auto ph : Planets->header) cerr << ph << " ";
       cerr << endl;
-      for(auto i : planet_data[0].size()) cerr << planet_data[0][i] << " ";
+      for(auto pd : Planets->data[0]) cerr << pd << " ";
       cerr << endl;
     }
 

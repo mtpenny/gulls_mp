@@ -255,14 +255,10 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
   Event->ys.resize(Event->nepochs);
   Event->xs2.resize(Event->nepochs);
   Event->ys2.resize(Event->nepochs);
-  Event->xsrc.resize(Event->nsrc,Event->nepochs);
-  Event->ysrc.resize(Event->nlens,Event->nepochs);
   Event->xl1.resize(Event->nepochs);
   Event->yl1.resize(Event->nepochs);
   Event->xl2.resize(Event->nepochs);
   Event->yl2.resize(Event->nepochs);
-  Event->xlens.resize(Event->nlens,Event->nepochs);
-  Event->ylens.resize(Event->nlens,Event->nepochs);
   Event->vbm_rootaccuracy.resize(Event->nepochs);
   Event->vbm_squarecheck.resize(Event->nepochs);
   Event->vbm_therr.resize(Event->nepochs);
