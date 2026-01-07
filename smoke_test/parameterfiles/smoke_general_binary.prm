@@ -12,11 +12,11 @@ STARFIELD_DIR=smoke_test/assets/starfields/
 STARFIELD_LIST=smoke.starfields
 
 SOURCE_DIR=smoke_test/assets/sources/
-SOURCE_LIST=smoke.sources
+SOURCE_LIST=smoke_binary.sources
 SOURCE_COLOURS=0
 
-LENS_DIR=smoke_test/assets/lenses/
-LENS_LIST=smoke.lenses
+LENS_DIR=smoke_test/assets/sources/
+LENS_LIST=smoke_binary.sources
 LENS_COLOURS=0
 
 PLANET_DIR=smoke_test/assets/planets/
@@ -54,14 +54,14 @@ LC_GEN=1
 LD_GAMMA=0.1
 VBM_RELTOL=1.0e-6
 VBM_ABSTOL=1.0e-4
-LC_TIMEOUT=10.0
+LC_TIMEOUT=1000.0
 
-NUM_SIM_DAYS=200
+NUM_SIM_DAYS=2000
 
 REPEAT_SEQUENCE=0
 OBS_GROUPS=(ALL)
 OBS_GROUP_NAMES=smoke
 ERROR_SCALING=0
-MULTIPLE_SOURCES=0
-MULTIPLE_LENSES=0
+MULTIPLE_SOURCES=1
+MULTIPLE_LENSES=1
 

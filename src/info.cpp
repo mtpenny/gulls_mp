@@ -102,11 +102,14 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   //ofile << " | "; 
 
   //planet data - 7+1 = 38
-  for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  int pcount=0;
+  for(auto paramhead : Event->paramsHeader)
     {
-      sprintf(paramstr,"%d",i);
-      if(Event->paramsHeader[i].size()>0) strcpy(paramstr,Event->paramsHeader[i].c_str());
-      ofile << "Planet_" << paramstr << " ";
+      ofile << "Planet_";
+      if(paramhead.size()>0) ofile << paramhead << " ";
+      else ofile << pcount << " ";
+      pcount++;	     
     }
   //ofile << "| ";
   
@@ -299,9 +302,10 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 
   
   //planet data - 7+1 = 38
-  for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  for(auto param : Event->params)
     {
-      ofile << Event->params[i] << " ";
+      ofile << param << " ";
     }
   //ofile << "| ";
   

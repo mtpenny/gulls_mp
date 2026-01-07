@@ -18,11 +18,11 @@ class orbitalElements
  private:
 
   //numerical accuracy required for solution of Kepler's equation
-  static constexpr double tol = 1.0e-6*3.1415926535897932384626433/180.0; 
+  static constexpr double tol = 1.0e-6; //
 
   //orbital elements and their time derivatives (in per year)
   //present value, value at epoch, rate of change
-  //values will be stored in radians, regardless of input
+  //values will be stored in degrees, regardless of input
   double epoch;
   double a, a0, da; //semimajor axis           (AU)
   double e, e0, de; //eccentricity             (rad)
@@ -102,7 +102,7 @@ class orbitalElements
       O0=O; dO=0;
       b=0; c=0; s=0; f=0;
 
-      storerad();
+      //storerad();
     };
 
   //long term, outer planets
@@ -117,7 +117,7 @@ class orbitalElements
       O0=elements[5]; dO=derivatives[5];
       b=bb; c=cc; s=ss; f=ff;
 
-      storerad();
+      //storerad();
     };
 
   //long term, outer planets
@@ -137,9 +137,16 @@ class orbitalElements
       O0=O00; dO=Od;
       b=bb; c=cc; s=ss; f=ff;
 
-      storerad();
+      //storerad();
     };
 
+  void print_elements()
+  {
+    cout << "a0=" << a0 << " e0=" << e0 << " I0=" << I0 << " L0=" << L0 << " w0=" << w0 << " O0=" << O0 << endl;
+    cout << "da=" << da << " de=" << de << " dI=" << dI << " dL=" << dL << " dw=" << dw << " dO=" << dO << endl;
+    cout << "b=" << b << " c=" << c << " s=" << s << " f=" << f << " epoch=" << epoch << endl;
+  };
+  
   //common planets/orbits
 
   //Earth-moon barycenter

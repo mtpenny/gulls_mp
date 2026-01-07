@@ -543,7 +543,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	    }
 	  Event->scomp_I.push_back(inc);
 
-	  Event->scomp_dL.push_back(2*PI/P);
+	  Event->scomp_dL.push_back(360.0/P);
 	  Event->scomp_L0.push_back(360.0*ran2(idum));
 	  Event->scomp_phase.push_back(Event->scomp_L0.back());
 
@@ -691,7 +691,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	    }
 	  Event->lcomp_I.push_back(inc);
 
-	  Event->lcomp_dL.push_back(2*PI/P);
+	  Event->lcomp_dL.push_back(360.0/P);
 	  Event->lcomp_L0.push_back(360.0*ran2(idum));
 
 	  Event->lcomp_s.push_back(acomb/(Event->thE * Lenses->data[ln][Lenses->DIST]));

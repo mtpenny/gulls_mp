@@ -147,6 +147,7 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
 	  if(Paramfile->verbosity>0)  cout << "readObservatoryfile " << obsfile << endl;
 	  readObservatoryfile(obsfile,World,obsctr);
 	  if(Paramfile->verbosity>0)  {printf("Observatoryfile read\n"); fflush(stdout);}
+	  if(Paramfile->verbosity>=2) cout << "sdata.size() = " << sdata.size() << endl;
 
 	  sprintf(str,"%s",obsfile.c_str()); 
 	  fmtline(str,2*WIDTH,"PARSED"); 
@@ -181,11 +182,14 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
 	  for(int modidx=1;modidx<sdata.size();modidx++)
 	    {
 	      split(sdata[modidx],kwdata,string(1,'='));
+	      if(Paramfile->verbosity>=2) cout << "Processing modification: " << sdata[modidx] << " " << kwdata[0] << " " << kwdata[1] << endl;
 	      for(int kwidx=0;kwidx<nkey;kwidx++)
 		{
       
 		  if(strncmp(keywords[kwidx], kwdata[0].c_str(),strlen(keywords[kwidx])) == 0 )
 		    {
+		      if(Paramfile->verbosity>=2) cout << "kwidx  " << kwidx << " matched." << endl;
+		      
 		      switch(kwidx)
 			{
 			case 0:
@@ -323,19 +327,19 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
 
   if(Paramfile->verbosity>0) {printf("setupImage\n"); fflush(stdout);}
   if(Paramfile->verbosity>1)
-	{
-	  int onx, inx;
-      cerr << "Modifications\n";
+    {
+      int onx, inx;
+      cout << "Modifications\n";
       for(onx=0;onx<Paramfile->numobservatories;onx++)
-		{
-		  cerr << "\nObservatory " << onx << " " << World[onx].name << " :\n";
-		  for(inx=0;inx<modifications[onx].size();inx++)
-			{
-			  cerr << modifications[onx][inx] << " ";
-			}
-		  cerr << endl << endl;
-		}
+	{
+	  cout << "\nObservatory " << onx << " " << World[onx].name << " :\n";
+	  for(inx=0;inx<modifications[onx].size();inx++)
+	    {
+	      cout << modifications[onx][inx] << " ";
+	    }
+	  cout << endl << endl;
 	}
+    }
   setupImage(World,Paramfile,idum,modifications);
 
   if(Paramfile->verbosity>0) {printf("setupOrbit\n"); fflush(stdout);}

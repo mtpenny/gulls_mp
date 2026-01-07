@@ -134,9 +134,10 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	  Event->p_q.push_back(q);
 	  Event->qsum += q*M1;
 	  double acomb = Event->p_a.back() * (1+Event->p_q.back());
-	  double period = DAYINYR * sqrt(cube(acomb)/totmass);
+	  double period = sqrt(cube(acomb)/totmass);
 	  Event->p_period.push_back(period);
-	  Event->p_dL.push_back(2*PI/period);
+	  Event->p_dL.push_back(360.0/period);
+	  if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " period=" << period << " acomb=" << acomb << " q=" << Event->p_q.back() << " totmass=" << totmass << " dL=" << Event->p_dL.back() << endl;
 	}
       if(orbtype==2)
 	{
@@ -156,9 +157,10 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	      Event->p_q.push_back(q);
 	      Event->qsum += q;
 	      double acomb = Event->p_a.back() * (1+Event->p_q.back());
-	      double period = DAYINYR * sqrt(cube(acomb)/totmass);
+	      double period = sqrt(cube(acomb)/totmass);
 	      Event->p_period.push_back(period);
-	      Event->p_dL.push_back(2*PI/period);
+	      Event->p_dL.push_back(360.0/period);
+	      if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " period=" << period << " acomb=" << acomb << " q=" << Event->p_q.back() << " totmass=" << totmass << " dL=" << Event->p_dL.back() << endl;
 	    }
 	}
       if(orbtype==1)
@@ -170,9 +172,10 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	  Event->p_q.push_back(q);
 	  Event->qsum += q;
 	  double acomb = Event->p_a.back() * (1+Event->p_q.back());
-	  double period = DAYINYR * sqrt(cube(acomb)/totmass);
+	  double period = sqrt(cube(acomb)/totmass);
 	  Event->p_period.push_back(period);
-	  Event->p_dL.push_back(2*PI/period);
+	  Event->p_dL.push_back(360.0/period);
+	  if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " period=" << period << " acomb=" << acomb << " q=" << Event->p_q.back() << " totmass=" << totmass << " dL=" << Event->p_dL.back() << endl;
 	}
 
       if(orbtype>3)

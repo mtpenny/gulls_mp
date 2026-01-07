@@ -47,24 +47,35 @@ int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets)
       return 0;
     }
 
+  int headerSet=0;
+
   //read in the planets
   while(!pf.eof())
     {
       getline(pf,line);
       //remove any comments
+
+      if(line.substr(0,1).find("#")!=line.npos) continue;
+      
       if(line.find_first_of(ignore)==line.npos)
 	{
 	  split(line,data);
 
-	  Planets->data.push_back(data);
-	  nlist++;
+	  if(data.size()>0)
+	    {
+	      Planets->data.push_back(data);
+	      nlist++;
+	    }
 
 	}
       else
 	{
-	  split(line,header_data);
-	  Planets->header = header_data;
-	  
+	  if(headerSet==0)
+	    {
+	      split(line,header_data);
+	      Planets->header = header_data;
+	      headerSet=1;
+	    }
 	}
     }
 

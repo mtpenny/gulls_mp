@@ -240,9 +240,10 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       int ln = Event->lens;
       for(int i=0;i<Paramfile->Nfilters;i++)
 	{
-	  if(lc>=-1) lcfile << Lenses->mags[lc][i] << " ";
+	  if(lc>-1) lcfile << Lenses->mags[lc][i] << " ";
 	  else lcfile << 99 << " ";
 	}
+      lcfile << endl;
       //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
     }
 
@@ -263,9 +264,9 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       //data.str(""); data
       lcfile << "#Lens2data: ";
       lcfile << lc << " ";
-      for(int i=0;i<Lenses->data[ln].size();i++)
+      for(int i=0;i<Lenses->data[ln].size();i++) //yes, this is meant to be [ln]
 	{
-	  if(lc>-1) lcfile << Lenses->data[ln][i] << " ";
+	  if(lc>-1) lcfile << Lenses->data[lc][i] << " ";
 	  else lcfile << 1e-50 << " ";
 	}
       lcfile << endl;
@@ -298,9 +299,10 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   //Planet data
   //data.str("");
   lcfile << "#Planet: ";
-  for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  for(auto param : Event->params)
     {
-      lcfile << Event->params[i] << " ";
+      lcfile << param << " ";
     }
   lcfile << endl;
   //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
@@ -431,7 +433,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << flush; 
       lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " " << flush;
 
-      if(Paramfile->verbosity>=3)
+      if(Paramfile->verbosity>=4)
 	{
 	  cout << "xsrc size " << Event->xsrc.size() << " " << Event->xsrc[0].size() << endl;
 	  cout << "ysrc size " << Event->ysrc.size() << " " << Event->ysrc[0].size() << endl;

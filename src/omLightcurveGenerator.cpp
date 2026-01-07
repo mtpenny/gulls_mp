@@ -129,9 +129,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
       s_elements[1][0] = orbitalElements(Event->scomp_a[0], Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
-      double w_1 = Event->scomp_w[0];
-      w_1 += (w_1>=180.0?-180.0:180.0);
-      s_elements[0][0] = orbitalElements(a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], w_1, Event->scomp_O[0], Event->scomp_dL[0]);
+      s_elements[0][0] = orbitalElements(-a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
 
       //Compute the origin shift relative to the center of mass of the lens
       vector<double> xp;      
@@ -167,11 +165,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 					     Event->lcomp_I[0], Event->lcomp_L0[0],
 					     Event->lcomp_w[0], Event->lcomp_O[0],
 					     Event->lcomp_dL[0]);
-	  double w_1 = Event->lcomp_w[0];
-	  w_1 += (w_1>=180.0?-180.0:180.0);
-	  l_elements[0][0] = orbitalElements(a1, Event->lcomp_e[0],
+	  l_elements[0][0] = orbitalElements(-a1, Event->lcomp_e[0],
 					     Event->lcomp_I[0], Event->lcomp_L0[0],
-					     w_1, Event->lcomp_O[0],
+					     Event->lcomp_w[0], Event->lcomp_O[0],
 					     Event->lcomp_dL[0]);
 
 	  //Compute the origin shift relative to the center of mass of the lens - I don't think this is needed
@@ -193,9 +189,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 	  //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
 	  l_elements[1][0] = orbitalElements(Event->p_a[0], Event->p_e[0], Event->p_I[0], Event->p_L0[0], Event->p_w[0], Event->p_O[0], Event->p_dL[0]);
-	  double w_1 = Event->p_w[0];
-	  w_1 += (w_1>=180.0?-180.0:180.0);
-	  l_elements[0][0] = orbitalElements(a1, Event->p_e[0], Event->p_I[0], Event->p_L0[0], w_1, Event->p_O[0], Event->p_dL[0]);
+	  l_elements[0][0] = orbitalElements(-a1, Event->p_e[0], Event->p_I[0], Event->p_L0[0], Event->p_w[0], Event->p_O[0], Event->p_dL[0]);
 
 	  //Compute the origin shift relative to the center of mass of the lens
 	  //vector<double> xp;      
@@ -292,15 +286,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  double pfix = sqrt(mbary+q);
 		  Event->p_period[idx] /= pfix;
 		  l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-		  double w_1 = Event->p_w[idx];
-		  w_1 += (w_1>=180.0?-180.0:180.0);
-		  l_elements[1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], w_1, Event->p_O[idx], Event->p_dL[idx]*pfix));
+		  //reflex orbit of the planet due to the moons
+		  l_elements[1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
 		  for(auto jdx : orbsize_order)
 		    {
 		      if(jdx==idx) break;
 		      if(Event->p_orbtype[jdx]==3)
 			{
-			  l_elements[jdx+1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], w_1, Event->p_O[idx], Event->p_dL[idx]*pfix));
+			  l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
 			}
 		    }
 		  mbary += Event->p_q[idx];
@@ -331,10 +324,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      double pfix = sqrt(mbary+q);
 	      Event->p_period[idx] /= pfix;
 	      l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-	      double w_1 = Event->p_w[idx];
-	      w_1 += (w_1>=180.0?-180.0:180.0);
 	      //reflex motion of the main star
-	      l_elements[0].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], w_1, Event->p_O[idx], Event->p_dL[idx]*pfix));
+	      l_elements[0].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
 	      int skip_unless_moon=0;
 	      //add the reflex motion to any other bodies inside this one's orbit
 	      for(auto jdx : orbsize_order)
@@ -348,7 +339,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  if(Event->p_orbtype[jdx]!=3 || planet_yet==1)
 		    {
 		      //this works because the above continue will skip it for the first planet_yet==1 which is the planet itself
-		      l_elements[jdx+1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], w_1, Event->p_O[idx], Event->p_dL[idx]*pfix));
+		      l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
 		    }
 		}
 	      mbary += q;
@@ -365,11 +356,34 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   lens_parameters[2] = 1.0;
   for(int i=1;i<nlens;i++)
     {
-      cout << nlens << " " << i << " " << 3*i+2 << endl;
-      lens_parameters[3*i+2] = Event->p_q[i]; //Event->lcomp_q[i];
+      //cout << nlens << " " << i << " " << 3*i+2 << " " << Event->p_q.size() << endl;
+      lens_parameters[3*i+2] = Event->p_q[i-1]; //Event->lcomp_q[i];
     }
 
-  //
+  //Check the orbital elements arrays are right
+  if(Paramfile->verbosity>=2)
+    {
+      cout << "l_elements.size()=" << l_elements.size();
+      for(auto lel : l_elements)
+	{
+	  cout << " " << lel.size();
+	}
+      cout << endl;
+      for(auto lorb : l_elements)
+	{
+	  for(auto lel : lorb) lel.print_elements();
+	}
+      cout << "s_elements.size()=" << s_elements.size();
+      for(auto sel : s_elements)
+	{
+	  cout << " " << sel.size();
+	}
+      cout << endl;
+      for(auto sorb : s_elements)
+	{
+	  for(auto sel : sorb) sel.print_elements();
+	}
+    }
 
   //Calculate the lightcurve
   for(int idx=0; idx<Event->nepochs; idx++)
@@ -414,7 +428,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      vector<double> xp;
 	      for(int j=0;j<int(s_elements[i].size());j++)
 		{
-		  s_elements[i][j].viewfrom(Event->tref,antipode_ra,antipode_dec,&xp);
+		  s_elements[i][j].viewfrom(Event->jdtimes[obsidx][idx],antipode_ra,antipode_dec,&xp);
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
@@ -434,9 +448,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
 
 
-      vector<double> xl(nsrc,0.0); //lens position in the plane of the sky, ecliptic sky coordinates in AU
-      vector<double> yl(nsrc,0.0);
-      vector<double> dl(nsrc,0.0); //lens distance 
+      vector<double> xl(nlens,0.0); //lens position in the plane of the sky, ecliptic sky coordinates in AU
+      vector<double> yl(nlens,0.0);
+      vector<double> dl(nlens,0.0); //lens distance 
 
       if(nlens>1)
 	{
@@ -445,8 +459,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      vector<double> xp;      
 	      for(int j=0;j<int(l_elements[i].size());j++)
 		{
-		  l_elements[i][j].viewfrom(Event->tref,antipode_ra,antipode_dec,&xp);
-		  xl[i] += xp[0]; yl[i] += xp[1]; dl[2] += xp[2];
+		  if(Paramfile->verbosity>=3) l_elements[i][j].print_elements();
+		  l_elements[i][j].viewfrom(Event->jdtimes[obsidx][idx],antipode_ra,antipode_dec,&xp);
+		  if(Paramfile->verbosity>=3) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][idx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
+		  xl[i] += xp[0]; yl[i] += xp[1]; dl[i] += xp[2];
 		}
 	      xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
 
@@ -487,7 +503,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       else if(nlens==2)
 	{
 	  double s = qAdd(xl[1]-xl[0],yl[1]-yl[0]);
-	  double q = Event->lcomp_q[0];
+	  double q = Event->p_q[0];
 	  double rot = atan2(yl[1],xl[1]);
 	  double cr = cos(-rot); double sr = sin(-rot);
 

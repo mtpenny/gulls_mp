@@ -257,7 +257,8 @@ double my_f_FS (const gsl_vector *v, void *params)
   int idx,obsidx,startidx,endidx;
   double chisq = 0.0;
   double Chisq=0.0;
-  double* A = new double[EventL->nepochs];
+  //double* A = new double[EventL->nepochs];
+  vector<double> A(EventL->nepochs,0.0);
   double R1, R2, inverr2;
 
   double* Fu = new double[MAX_NUM_OBSERVATORIES];
@@ -408,7 +409,7 @@ double my_f_FS (const gsl_vector *v, void *params)
     }
 
   //free up memory
-  delete[] A;
+  //delete[] A;
   delete[] Fu;
   delete[] Fl;
   delete[] chisqvec;
