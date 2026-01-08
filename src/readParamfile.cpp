@@ -79,6 +79,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   //getenv here for the path to get base_path, tack on to the beginning of everything, should not be bad this way, we can ditch paths.txt or whatever, will make everything simpler.
 
   char const* tmp;
+  string tmpstr;
 
   Paramfile->basedir=string("");
   
@@ -89,7 +90,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     }
   else
     {
-      Paramfile->basedir = string(tmp);
+      tmpstr = string(tmp);
+      Paramfile->basedir = tmpstr;
+      if(tmpstr.substr(tmpstr.length()-1).find_last_of("/")==string::npos) Paramfile->basedir += "/";
     }
   cout << "GULLS_BASE_DIR:" << Paramfile->basedir << endl;
   

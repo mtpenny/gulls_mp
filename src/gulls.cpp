@@ -406,7 +406,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
         }
 
       //Write out the events parameters and data to the appropriate file
-      if(idx==0) writeHeader(&Paramfile, &Event, &Sources, &Lenses, outfile_ptr);
+      if(idx==0) writeHeader(&Paramfile, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
       if(Event.lcerror || Event.deterror)
 	{
 	  if(Event.lcerror)
@@ -416,11 +416,11 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
             sprintf(str,"\nDiscarding event %d (Failed detection criteria)",
 		    idx);
 	  fmtline(str,WIDTH,"OKAY"); 
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, logfile_ptr);
+	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, logfile_ptr);
 	}
       else //otherwise
 	{
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, outfile_ptr);
+	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
 	}
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;

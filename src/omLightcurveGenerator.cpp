@@ -104,6 +104,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       //For now, we are only going to deal with binary sources
       nsrc=2;
 
+      if(Paramfile->verbosity>=1) cout << "Multiple source event, nsrc=" << nsrc << endl;
+
       s_elements.resize(nsrc);
       for(int i=0;i<nsrc;i++)
 	{
@@ -131,7 +133,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       s_elements[1][0] = orbitalElements(Event->scomp_a[0], Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
       s_elements[0][0] = orbitalElements(-a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
 
-      //Compute the origin shift relative to the center of mass of the lens
+      
+
+      //Compute the origin shift relative to the center of mass of the lens - normalization by rEsrc will be done later
       vector<double> xp;      
       for(int j=0;j<int(s_elements[0].size());j++)
 	{
@@ -154,6 +158,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     {
       if(Paramfile->multiple_lenses && Event->lcompanions.size()>0)
 	{
+
+	  if(Paramfile->verbosity>=1) cout << "Lens is a binary star, no planets" << endl;
+	  
 	  //the binary lens is a binary star
 	  l_elements[0].resize(1);
 	  l_elements[1].resize(1);
@@ -180,6 +187,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
       else 
 	{
+	  if(Paramfile->verbosity>=1) cout << "Lens is a single star and one planet" << endl;
 	  //we have a planet and a star
 	  //the binary lens is a single star and planet
 	  l_elements[0].resize(1); // the star
@@ -229,6 +237,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       //Determine the heirarchy of orbits
       auto orbsize_order = argsort(Event->p_a);
+      if(Paramfile->verbosity>1)
+	{
+	  cout << "Orbit order:" << endl;
+	  for(auto os : orbsize_order) cout << os << " " << Event->p_a[os] << endl;
+	  
+	}
       int moons = 0;
       int barycenters = 0;
       int circumbinary=0;
@@ -249,107 +263,129 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       if(Paramfile->multiple_lenses && Event->lcompanions.size()>0)
 	{
-	  if(Event->p_orbtype.back()==-1)
+	  //Figure out the type of binary star system we have
+	  //The binary star companion has an orbtype of -1, if the last in the orbsize_order list is it, its a distant companion
+	  if(Event->p_orbtype[orbsize_order.back()]==-1)
 	    {
 	      distantbinary=1;
-	    }
-	  else if(Event->p_orbtype[moons]==-1)
-	    {
-	      circumbinary=1;
+	      if(Paramfile->verbosity>=1) cout << "Lens involves a distant binary star and at least one planet, nlens=" << Event->nlens << " nplanets=" << Event->nplanets << endl;
 	    }
 	  else
 	    {
-	      mixedbinary=1; //this is quite possibly extremely unphysical
-	    }
-	 	  
-	}
-      else
-	{
-	  //Read the list backwards and assign moons to planets, then create orbits for their
-	  //barycenters
-	  
-	  //For the moon-planet system we need a barycenter that will orbit the star,
-	  //then the moon and planet will orbit the barycenter
-	  double mbary = 1.0; //mass ratio relative to the planet
-	  double q;
-	  double qsys;
-
-	  if(moons>0)
-	    {
-	      for(auto idx : orbsize_order)
+	      //The closest non-moon orbit is the stellar companion --> circumbinary
+	      for(auto oso : orbsize_order)
 		{
-		  if(Event->p_orbtype[idx]!=3) continue; //skip non-moons
+		  if(Event->p_orbtype[oso]==3) continue;
+		  if(Event->p_orbtype[oso]==-1) circumbinary=1;
+		  break;
+		}
 		  
-		  q = Event->p_q[idx]/mbary; //ratio of moon mass to all internal mass
-		  double acomb = (mbary+q)*Event->p_a[idx];
-		  double a1 = acomb-Event->p_a[idx];
-		  double pfix = sqrt(mbary+q);
-		  Event->p_period[idx] /= pfix;
-		  l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-		  //reflex orbit of the planet due to the moons
-		  l_elements[1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-		  for(auto jdx : orbsize_order)
-		    {
-		      if(jdx==idx) break;
-		      if(Event->p_orbtype[jdx]==3)
-			{
-			  l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-			}
-		    }
-		  mbary += Event->p_q[idx];
-		  
-		} //end loop over moons
-	      qsys = mbary*Event->p_q[0]; //mass ratio of the moon system to the first star
-	    } //end if moons 
-	  //We've added the moons, now work through the other bodies, treating the planet as the combined mass of it with its moons
+	      if(circumbinary==1)
+		{
+		  if(Paramfile->verbosity>=1) cout << "Lens involves a close binary star and at least one circumbinary planet, nlens " << Event->nlens << " nplanets=" << Event->nplanets << endl;		  
+		}
+	      else
+		{
+		  mixedbinary=1; //the binary star is between two planets, this is quite possibly extremely unphysical
+		  if(Paramfile->verbosity>=1) cout << "Lens is classified as a mixed binary that might be unphysical/unstable, nlens " << Event->nlens << " nplanets=" << Event->nplanets << endl;
+		}
+	    }	 	  
+	}
 
-	  //Start with the first star
-	  mbary=1;
-	  int planet_yet=0;
-	      
+      //Now construct orbits
+      
+      //For the moon-planet system we need a barycenter that will orbit the star,
+      //then the moon and planet will orbit the barycenter
+
+      double qsys;
+
+      if(moons>0)
+	{
+	  double mbary = Event->p_mass[0]; //ratio of the planet+moons system relative to the planet (for now)
+	  double qbary = 1.0;
+	  double q;
+	  
+	  if(Paramfile->verbosity>=1) cout << "Lens involves a planet with moons, nlens=" << nlens << " nmoons=" << moons << endl;
 	  for(auto idx : orbsize_order)
 	    {
-	      if(Event->p_orbtype[idx]==3) continue; //ignore the moons, they are orbiting the planet
-
-	      if(moons>0 && Event->p_orbtype[idx]!=-1)
-		{
-		  //if there are moons, there is only one planet
-		  q = qsys; //use the mass of the planet moon system
-		  planet_yet=1; //modify the moon system with the reflex orbit
-		}
-	      else q = Event->p_q[idx];
-		  
-	      double acomb = (mbary+q)*Event->p_a[idx];
+	      //Only one planet allowed with moons, the planet will be the first in the planet list [0], the second in the orbit list [1]
+	      //Work through moon orbits in order of orbit size so the more distant ones deal with a central barycenter and total inner mass
+	      
+	      if(Event->p_orbtype[idx]!=3) continue; //skip non-moons
+	      
+	      q = Event->p_mass[idx]/mbary; //ratio of moon mass to all internal mass
+	      double acomb = (qbary+q)*Event->p_a[idx];
 	      double a1 = acomb-Event->p_a[idx];
-	      double pfix = sqrt(mbary+q);
+	      double pfix = sqrt(qbary+q);
 	      Event->p_period[idx] /= pfix;
 	      l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-	      //reflex motion of the main star
-	      l_elements[0].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-	      int skip_unless_moon=0;
-	      //add the reflex motion to any other bodies inside this one's orbit
+	      //reflex orbit of the planet due to the moons
+	      l_elements[1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
 	      for(auto jdx : orbsize_order)
 		{
-		  if(jdx==idx) //we've reached this object, the rest can be skipped unless they are a moon
+		  //reflex orbit of any inner moons due to the current one
+		  if(jdx==idx) break;
+		  if(Event->p_orbtype[jdx]==3)
 		    {
-		      skip_unless_moon=1;
-		      continue;
-		    }
-		  //skip if it is a moon, unless the planet is inside this idx object
-		  if(Event->p_orbtype[jdx]!=3 || planet_yet==1)
-		    {
-		      //this works because the above continue will skip it for the first planet_yet==1 which is the planet itself
 		      l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
 		    }
 		}
-	      mbary += q;
+	      mbary += Event->p_mass[idx];
+	      qbary += q;
+	      
+	    } //end loop over moons
+	  qsys = qbary*Event->p_q[0]; //mass ratio of the moon system to the first star
+	} //end if moons
+      else qsys=1.0;
+
+      //We've added the moons, now work through the other bodies, treating the planet as the combined mass of it with its moons
+
+      //Start with the first star
+      double qbary=1;
+      double q;
+      int planet_yet=0;
+      
+      for(auto idx : orbsize_order)
+	{
+	  if(Event->p_orbtype[idx]==3) continue; //ignore the moons, they are orbiting the planet
+	  
+	  if(moons>0 && Event->p_orbtype[idx]!=-1)
+	    {
+	      //if there are moons, there is only one planet
+	      q = qsys; //use the mass of the planet moon system
+	      planet_yet=1; //modify the moon system with the reflex orbit
+	    }
+	  else q = Event->p_q[idx];
+		  
+	  double acomb = (qbary+q)*Event->p_a[idx];
+	  double a1 = acomb-Event->p_a[idx];
+	  double pfix = sqrt(qbary+q);
+	  Event->p_period[idx] /= pfix;
+	  l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+	  //reflex motion of the main star
+	  l_elements[0].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+	  int skip_unless_moon=0;
+	  //add the reflex motion to any other bodies inside this one's orbit
+	  for(auto jdx : orbsize_order)
+	    {
+	      if(jdx==idx) //we've reached this object, the rest can be skipped unless they are a moon
+		{
+		  skip_unless_moon=1;
+		  continue;
+		}
+	      //skip if it is a moon, unless the planet is inside this idx object
+	      if(Event->p_orbtype[jdx]!=3 || planet_yet==1)
+		{
+		  //this works because the above continue will skip it for the first planet_yet==1 which is the planet itself
+		  l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+		}
+	    }
+	  qbary += q;
 		      
 		
-	    } //end loop over other bodies
-	} //end if multiple stars
+	} //end loop over other bodies
 
-      
-    }
+    } //end if >=2 lenses
 
 
   double* lens_parameters = new double[nlens*3];
@@ -469,7 +505,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 	      xl[i] /= Event->rE; yl[i] /= Event->rE; dl[i] /= Event->rE;
 
-	      //rotations needed here
+	      //rotations needed here?
 	      
 	      lens_parameters[3*i+0] = xl[i];
 	      lens_parameters[3*i+1] = yl[i];

@@ -56,7 +56,8 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   Event->p_dL.clear();
   Event->p_orbtype.clear();
   Event->p_period.clear();
-  Event->p_q.clear();;
+  Event->p_q.clear();
+  Event->p_s0.clear();
 
   if(int(Planets->header.size())%7 != 0)
     {
@@ -100,6 +101,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	    }
 	}
       Event->p_L0.push_back(360.0*ran2(Paramfile->seed));
+      Event->p_s0.push_back(0.0);
 
       if(orbtype==0)
 	{
@@ -155,6 +157,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	      double totmass = M1 + Event->p_mass.back();
 	      double q = Event->p_mass.back()/M1;
 	      Event->p_q.push_back(q);
+	      
 	      Event->qsum += q;
 	      double acomb = Event->p_a.back() * (1+Event->p_q.back());
 	      double period = sqrt(cube(acomb)/totmass);

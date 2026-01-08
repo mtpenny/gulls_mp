@@ -289,7 +289,7 @@ struct event{
   vector<vector<double> > scomp_fsofs1;
   vector<double> lcomp_s, lcomp_q, lcomp_phase;
   vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL; //orbital elements
-  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q;
+  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0;
   //double ljoint_thE, ljoint_tE, ljoint_rE;
   double qsum;
   int field;
