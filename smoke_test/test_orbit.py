@@ -4,70 +4,6 @@ import numpy as np
 import sys
 
 
-from matplotlib.collections import LineCollection
-
-
-def colored_line(x, y, c, ax, **lc_kwargs):
-    """
-    Plot a line with a color specified along the line by a third value.
-
-    It does this by creating a collection of line segments. Each line segment is
-    made up of two straight lines each connecting the current (x, y) point to the
-    midpoints of the lines connecting the current point with its two neighbors.
-    This creates a smooth line with no gaps between the line segments.
-
-    Parameters
-    ----------
-    x, y : array-like
-        The horizontal and vertical coordinates of the data points.
-    c : array-like
-        The color values, which should be the same size as x and y.
-    ax : Axes
-        Axis object on which to plot the colored line.
-    **lc_kwargs
-        Any additional arguments to pass to matplotlib.collections.LineCollection
-        constructor. This should not include the array keyword argument because
-        that is set to the color argument. If provided, it will be overridden.
-
-    Returns
-    -------
-    matplotlib.collections.LineCollection
-        The generated line collection representing the colored line.
-    """
-    if "array" in lc_kwargs:
-        warnings.warn('The provided "array" keyword argument will be overridden')
-
-    # Default the capstyle to butt so that the line segments smoothly line up
-    default_kwargs = {"capstyle": "butt"}
-    default_kwargs.update(lc_kwargs)
-
-    # Compute the midpoints of the line segments. Include the first and last points
-    # twice so we don't need any special syntax later to handle them.
-    x = np.asarray(x)
-    y = np.asarray(y)
-    x_midpts = np.hstack((x[0], 0.5 * (x[1:] + x[:-1]), x[-1]))
-    y_midpts = np.hstack((y[0], 0.5 * (y[1:] + y[:-1]), y[-1]))
-
-    # Determine the start, middle, and end coordinate pair of each line segment.
-    # Use the reshape to add an extra dimension so each pair of points is in its
-    # own list. Then concatenate them to create:
-    # [
-    #   [(x1_start, y1_start), (x1_mid, y1_mid), (x1_end, y1_end)],
-    #   [(x2_start, y2_start), (x2_mid, y2_mid), (x2_end, y2_end)],
-    #   ...
-    # ]
-    coord_start = np.column_stack((x_midpts[:-1], y_midpts[:-1]))[:, np.newaxis, :]
-    coord_mid = np.column_stack((x, y))[:, np.newaxis, :]
-    coord_end = np.column_stack((x_midpts[1:], y_midpts[1:]))[:, np.newaxis, :]
-    segments = np.concatenate((coord_start, coord_mid, coord_end), axis=1)
-
-    lc = LineCollection(segments, **default_kwargs)
-    lc.set_array(c)  # set the colors of each segment
-
-    return ax.add_collection(lc)
-
-
-
 if len(sys.argv)==1:
     print(f"Usage: python {sys.argv[0]} <lightcurve>")
     exit()
@@ -80,7 +16,22 @@ idx = lightcurve[lightcurve.rfind('_')+1:lightcurve.find('.')]
 print(lightcurve,outfile,idx)
 out = pd.read_csv(outfile,sep='\s+')
 outdata = out[out['EventID']==int(idx)].squeeze()
-print(outdata)
+print(list(outdata.index))
+print(list(outdata))
+
+print(outdata[['Lens2_combined_logP','Lens2_a','Lens2_P']])
+
+for i in range(5):
+    for k in ['period','a','dL']:
+        key = f'p_{i}_{k}'
+        if key in outdata.index:
+            print(key,outdata[key])
+    key=f'p_{i}_dL'
+    if key in outdata.index:
+        print(f"360/{key}",360.0/outdata[key])
+
+for k in ['Lens_Mass']:
+    print(k,outdata[k])
 
 nlens = pd.Series(list(data.columns)).str.contains('lens').sum()//2
 print(f"nlens = {nlens}")
@@ -94,14 +45,26 @@ print(f"nlens = {nlens}")
 
 ls = ['-','--','-.']
 
-plt.figure()
+fig,axtmp = plt.subplots(3,3,sharex=True,sharey=True,squeeze=True)
+ax = axtmp.flatten()
+
+print(ax)
 
 for i in range(nlens):
-    plt.plot(data[f"lens{i}_x"],data[f"lens{i}_y"],label=f'{i}')
+    ax[0].plot(data[f"lens{i}_x"],data[f"lens{i}_y"],label=f'{i}')
 
-plt.gca().set_aspect('equal')
-plt.legend()
+ax[0].set_aspect('equal')
+ax[0].legend()
 #plt.colorbar(label='Time [days]')
-plt.xlabel(r'$x$ [$r_{\rm E}$]')
-plt.xlabel(r'$y$ [$r_{\rm E}$]')
+ax[0].set_xlabel(r'$x$ [$r_{\rm E}$]')
+ax[0].set_ylabel(r'$y$ [$r_{\rm E}$]')
+
+for j in range(nlens):
+    for i in range(nlens):
+        ax[j+1].plot(data[f"lens{i}_x"]-data[f"lens{j}_x"],data[f"lens{i}_y"]-data[f"lens{j}_y"],label=f'{i}')
+        ax[j+1].set_aspect('equal')
+
+plt.tight_layout()
+
+        
 plt.show()

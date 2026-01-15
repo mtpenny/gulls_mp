@@ -20,6 +20,6 @@
 
 #F184 set
 0	1	500.0	500.0	field 0 - F184 daily exposure
-0   -1  10000.0 10500.0 other instrument
+0   -1  100.0 10500.0 other instrument
 
 # Simulation cadence is the sum of the sequence set durations

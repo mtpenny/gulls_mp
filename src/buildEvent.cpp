@@ -30,6 +30,8 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
 
   //clear the data vectors
   Event->data.clear();
+
+  Event->scompanions.clear();
   Event->scomp_rs.clear();
   Event->scomp_s.clear();
   Event->scomp_alpha.clear();
@@ -43,7 +45,7 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->scomp_dL.clear();
   Event->scomp_q.clear();
 
-  
+  Event->lcompanions.clear();  
   Event->lcomp_s.clear();
   Event->lcomp_q.clear();
   //Event->lcomp_alpha.clear();
@@ -55,6 +57,8 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->lcomp_w.clear();
   Event->lcomp_O.clear();
   Event->lcomp_dL.clear();
+  Event->lcomp_mass.clear();
+  Event->lcomp_period.clear();
 
   //Event->ljoint_thE.clear();
   //Event->ljoint_tE.clear();
@@ -511,7 +515,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double acomb = pow(P*P*(M1+M2),1.0/3.0);
 	  double a1 = M2/(M1+M2) * acomb;
 	  double a2 = M1/(M1+M2) * acomb;
-	  Event->scomp_a.push_back(a2);
+	  Event->scomp_a.push_back(acomb);
 
 	  double e = 0.0;
 	  if(Sources->datadict.count("Eccentricity")==1)
@@ -660,7 +664,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double acomb = pow(P*P*(M1+M2),1.0/3.0);
 	  double a1 = M2/(M1+M2) * acomb;
 	  double a2 = M1/(M1+M2) * acomb;
-	  Event->lcomp_a.push_back(a2);
+	  Event->lcomp_a.push_back(acomb);
 
 	  double e = 0.0;
 	  if(Lenses->datadict.count("Eccentricity")==1)
@@ -695,6 +699,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  Event->lcomp_L0.push_back(360.0*ran2(idum));
 
 	  Event->lcomp_s.push_back(acomb/(Event->thE * Lenses->data[ln][Lenses->DIST]));
+	  Event->lcomp_mass.push_back(M2);
+	  Event->lcomp_period.push_back(P);
 	  //Event->lcomp_alpha.push_back(360.0*ran2(idum));
 	  //Event->lcomp_phase.push_back(360.0*ran2(idum));
 	  

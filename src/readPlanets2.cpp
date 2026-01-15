@@ -96,6 +96,15 @@ int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets)
       cerr << endl;
     }
 
+  if(Paramfile->multiple_lenses)
+    {
+      //Add planet parameters for the binary lens companions
+      for(int i=0;i<7;i++)
+	{
+	  Planets->header.push_back(Planets->header[i]);
+	}
+    }
+
   return nlist;
 }
 

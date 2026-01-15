@@ -74,117 +74,123 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
     }
 
   int nplanets = int(pd.size()/7);
+  Event->ncatalog_planets=nplanets;
   int orbtype;
-  Event->nplanets = nplanets;
+  int skipped_planets=0;
 
   for(int i=0;i<nplanets;i++)
     {
+      double mass;
       for(int j=0;j<7;j++)
 	{
 	  int col = 7*i+j;
-	  if(Planets->header[col].rfind("Mass",0)==0)
-	    Event->p_mass.push_back(pd[col]);
-	  if(Planets->header[col].rfind("SemimajorAxis",0)==0)
-	    Event->p_a.push_back(pd[col]);
-	  if(Planets->header[col].rfind("Eccentricity",0)==0)
-	    Event->p_e.push_back(pd[col]);
-	  if(Planets->header[col].rfind("Inclination",0)==0)
-	    Event->p_I.push_back(pd[col]);
-	  if(Planets->header[col].rfind("LongitudePerihelion",0)==0)
-	    Event->p_w.push_back(pd[col]);
-	  if(Planets->header[col].rfind("LongitudeAscNode",0)==0)
-	    Event->p_O.push_back(pd[col]);
-	  if(Planets->header[col].rfind("OrbitType",0)==0)
-	    {
-	      Event->p_orbtype.push_back(int(pd[col]));
-	      orbtype = int(pd[col]);
-	    }
-	}
-      Event->p_L0.push_back(360.0*ran2(Paramfile->seed));
-      Event->p_s0.push_back(0.0);
 
-      if(orbtype==0)
-	{
-	  //Figure out the orbit type
-	  if(Event->nlens==1)
+	  if(Planets->header[col].rfind("Mass",0)==0) mass=pd[col];
+
+	  if(mass>0.0)
 	    {
-	      orbtype=1;
-	      Event->p_orbtype.back() = 1;
+	      if(Planets->header[col].rfind("Mass",0)==0)
+		Event->p_mass.push_back(pd[col]);
+	      if(Planets->header[col].rfind("SemimajorAxis",0)==0)
+		Event->p_a.push_back(pd[col]);
+	      if(Planets->header[col].rfind("Eccentricity",0)==0)
+		Event->p_e.push_back(pd[col]);
+	      if(Planets->header[col].rfind("Inclination",0)==0)
+		Event->p_I.push_back(pd[col]);
+	      if(Planets->header[col].rfind("LongitudePerihelion",0)==0)
+		Event->p_w.push_back(pd[col]);
+	      if(Planets->header[col].rfind("LongitudeAscNode",0)==0)
+		Event->p_O.push_back(pd[col]);
+	      if(Planets->header[col].rfind("OrbitType",0)==0)
+		{
+		  Event->p_orbtype.push_back(int(pd[col]));
+		  orbtype = int(pd[col]);
+		}
 	    }
-	  else
+	   
+	}
+      if(mass>0.0)
+	{
+	  Event->p_L0.push_back(360.0*ran2(Paramfile->seed));
+	  Event->p_s0.push_back(0.0);
+	  
+
+	  if(orbtype==0)
 	    {
-	      //binary star
-	      if(Event->p_a.back()<Event->lcomp_a.back())
+	      //Figure out the orbit type
+	      if(Event->nlens==1)
 		{
 		  orbtype=1;
 		  Event->p_orbtype.back() = 1;
 		}
 	      else
 		{
-		  //cicumbinary
-		  orbtype=2;
-		  Event->p_orbtype.back() = 2;
+		  //binary star
+		  if(Event->p_a.back()<Event->lcomp_a.back())
+		    {
+		      orbtype=1;
+		      Event->p_orbtype.back() = 1;
+		    }
+		  else
+		    {
+		      //cicumbinary
+		      orbtype=2;
+		      Event->p_orbtype.back() = 2;
+		    }
 		}
+	    
 	    }
-	}
-      if(orbtype==3)
-	{
-	  //moon orbits a planet
-	  double M1 = Event->p_mass[0];
-	  double totmass = M1 + Event->p_mass.back();
-	  double q = Event->p_mass.back()/M1;
-	  Event->p_q.push_back(q);
-	  Event->qsum += q*M1;
-	  double acomb = Event->p_a.back() * (1+Event->p_q.back());
-	  double period = sqrt(cube(acomb)/totmass);
-	  Event->p_period.push_back(period);
-	  Event->p_dL.push_back(360.0/period);
-	  if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " period=" << period << " acomb=" << acomb << " q=" << Event->p_q.back() << " totmass=" << totmass << " dL=" << Event->p_dL.back() << endl;
-	}
-      if(orbtype==2)
-	{
-	  //circumbinary planets
-	  if(Event->lcompanions.size()==0)
+	  if(orbtype==3)
 	    {
-	      //not a circumbinary with just one star
-	      orbtype=1;
-	      Event->p_orbtype.back()=1;
-	    }
-	  else
-	    {
-	      double M1 = Lenses->data[Event->lens][Lenses->datadict["Mass"]]
-		+ Lenses->data[Event->lcompanions[0]][Lenses->datadict["Mass"]];
-	      double totmass = M1 + Event->p_mass.back();
+	      //moon orbits a planet
+	      double M1 = Lenses->data[Event->lens][Lenses->datadict["Mass"]];
 	      double q = Event->p_mass.back()/M1;
 	      Event->p_q.push_back(q);
-	      
-	      Event->qsum += q;
-	      double acomb = Event->p_a.back() * (1+Event->p_q.back());
-	      double period = sqrt(cube(acomb)/totmass);
-	      Event->p_period.push_back(period);
-	      Event->p_dL.push_back(360.0/period);
-	      if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " period=" << period << " acomb=" << acomb << " q=" << Event->p_q.back() << " totmass=" << totmass << " dL=" << Event->p_dL.back() << endl;
+	      Event->p_period.push_back(0.0);
+	      Event->p_dL.push_back(360.0);
+	      if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " a=" << Event->p_a.back() << " mass=" << Event->p_mass.back() << endl;
 	    }
-	}
-      if(orbtype==1)
-	{
-	  //planet orbits star 1
-	  double M1 = Lenses->data[Event->lens][Lenses->datadict["Mass"]];
-	  double totmass = M1 + Event->p_mass.back();
-	  double q = Event->p_mass.back()/M1;
-	  Event->p_q.push_back(q);
-	  Event->qsum += q;
-	  double acomb = Event->p_a.back() * (1+Event->p_q.back());
-	  double period = sqrt(cube(acomb)/totmass);
-	  Event->p_period.push_back(period);
-	  Event->p_dL.push_back(360.0/period);
-	  if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " period=" << period << " acomb=" << acomb << " q=" << Event->p_q.back() << " totmass=" << totmass << " dL=" << Event->p_dL.back() << endl;
-	}
+	  if(orbtype==2)
+	    {
+	      //circumbinary planets
+	      if(Event->lcompanions.size()==0)
+		{
+		  //not a circumbinary with just one star
+		  orbtype=1;
+		  Event->p_orbtype.back()=1;
+		}
+	      else
+		{
+		  double M1 = Lenses->data[Event->lens][Lenses->datadict["Mass"]];
+		  double q = Event->p_mass.back()/M1;
+		  Event->p_q.push_back(q);
+		  Event->p_period.push_back(0.0);
+		  Event->p_dL.push_back(360.0);
+		  if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " a=" << Event->p_a.back() << " mass=" << Event->p_mass.back() << endl;		  
+		}
+	    }
+	  if(orbtype==1)
+	    {
+	      //planet orbits star 1
+	      double M1 = Lenses->data[Event->lens][Lenses->datadict["Mass"]];
+	      double q = Event->p_mass.back()/M1;
+	      Event->p_q.push_back(q);
+	      Event->p_period.push_back(0.0);
+	      Event->p_dL.push_back(360.0);
+	      if(Paramfile->verbosity>=1) cout << "Planet orbtype=" << orbtype << " a=" << Event->p_a.back() << " mass=" << Event->p_mass.back() << endl;		      
+	    }
+	  
+	  if(orbtype>3)
+	    {
+	      cerr << "Planet orbit codes above 3 aren't implemented." << endl;
+	      exit(1);
+	    }
 
-      if(orbtype>3)
+	} //end if mass >0
+      else
 	{
-	  cerr << "Planet orbit codes above 3 aren't implemented." << endl;
-	  exit(1);
+	  if(Paramfile->verbosity>=1) cout << "Skipping planet " << i << " with zero mass" << endl;
+	  skipped_planets++;
 	}
       
       //Event->lcomp_alpha.push_back(360.0*ran2(idum));
@@ -192,7 +198,8 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
     }
 
   Paramfile->parameterization=0;
-  Event->tref=Event->t0;  
+  Event->tref=Event->t0;
+  Event->nplanets = nplanets - skipped_planets;
 
   Event->nlens += Event->nplanets;
   if(Paramfile->verbosity>=2)

@@ -1,4 +1,4 @@
-// VBMicrolensing v5.2 (2025)
+// VBMicrolensing v5.3.3 (2025)
 //
 // This code has been developed by Valerio Bozza (University of Salerno) and collaborators.
 // Check the repository at https://github.com/valboz/VBMicrolensing
@@ -15,7 +15,7 @@
 // The Multipoly method for the calculation of multiple-lens microlensing was developed
 // with Vito Saggese (2024).
 // 
-// Optimizations for VBMcomplex functions and for high-mag regime have been developed 
+// Optimizations for VBcomplex functions and for high-mag regime have been developed 
 // by Jiyuan Zhang (2025).
 // 
 // GNU Lesser General Public License applies to all parts of this code.
@@ -252,7 +252,8 @@ public:
 
 #pragma endregion
 
-char VBMicrolensing::ESPLtablefile[1024] = "fatto";
+char VBMicrolensing::ESPLtablefile[1024] = "placeholder";
+char VBMicrolensing::Suntablefile[1024] = "placeholder";
 
 #pragma region Constructor/destructor
 
@@ -277,13 +278,16 @@ VBMicrolensing::VBMicrolensing() {
 	t0old = 0.;
 	Tol = 1.e-2;
 	RelTol = 0;
+	suntable = false;
+	parallaxephemeris = true;
 	tsat = 0;
 	possat = 0;
 	nsat = 0;
 	ndatasat = 0;
 	satellite = 0;
 	parallaxsystem = 1;
-	t0_par_fixed = -1;
+	t0_par_fixed = 0;
+	coordinates_set = false;
 	t0_par = 7000;
 	minannuli = 1;
 	maxannuli = 100;
@@ -308,7 +312,7 @@ VBMicrolensing::VBMicrolensing() {
 	newseeds = 0;
 	grads = 0;
 	S2s = S3s = S4s = 0;
-	s_offset = new VBMcomplex;
+	s_offset = new VBcomplex;
 	q = q_sort = 0;
 	A = 0;
 	cprec = cpres = cfoll = 0;
@@ -328,6 +332,8 @@ VBMicrolensing::VBMicrolensing() {
 	CumulativeFunction = &VBDefaultCumulativeFunction;
 	SelectedMethod = Method::Nopoly;
 	turn_off_secondary_source = turn_off_secondary_lens = false;
+	t_in_HJD = true;
+	parallaxextrapolation = 0;
 	//	testnewcoefs = true;
 }
 
@@ -341,6 +347,10 @@ VBMicrolensing::~VBMicrolensing() {
 		free(tsat);
 		free(possat);
 		free(ndatasat);
+	}
+	if (suntable) {
+		for (int j = 0; j < ndataEar; j++) free(posEar[j]);
+		free(posEar);
 	}
 
 	if (m) {
@@ -460,7 +470,7 @@ VBMicrolensing::~VBMicrolensing() {
 #pragma region single-source-mag
 
 
-void VBMicrolensing::LoadESPLTable(char* filename) {
+void VBMicrolensing::LoadESPLTable(const char* filename) {
 	FILE* f;
 
 	if ((f = fopen(filename, "rb")) != 0) {
@@ -705,9 +715,9 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 
 
 double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, _sols_for_skiplist_curve** Images) {
-	static VBMcomplex a, q, m1, m2, y;
+	static VBcomplex a, q, m1, m2, y;
 	static double av = -1.0, qv = -1.0;
-	static VBMcomplex  coefs[24], d1, d2, dy, dJ, dz;
+	static VBcomplex  coefs[24], d1, d2, dy, dJ, dz;
 	static double Mag, Ai;
 
 	static _theta* stheta;
@@ -721,12 +731,12 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 		av = a1;
 		qv = q1;
 		if (q1 < 1) {
-			a = VBMcomplex(-a1, 0);
-			q = VBMcomplex(q1, 0);
+			a = VBcomplex(-a1, 0);
+			q = VBcomplex(q1, 0);
 		}
 		else {
-			a = VBMcomplex(a1, 0);
-			q = VBMcomplex(1 / q1, 0);
+			a = VBcomplex(a1, 0);
+			q = VBcomplex(1 / q1, 0);
 		}
 		m1 = 1.0 / (1.0 + q);
 		m2 = q * m1;
@@ -743,7 +753,7 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 		coefs[23] = 0;
 
 	}
-	y = VBMcomplex(y1v, y2v);
+	y = VBcomplex(y1v, y2v);
 	(*Images) = new _sols_for_skiplist_curve;
 	corrquad = corrquad2 = 0;
 	safedist = 10;
@@ -870,9 +880,9 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 }
 
 double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
-	static VBMcomplex a, q, m1, m2, y0, y, yc, z, zc;
+	static VBcomplex a, q, m1, m2, y0, y, yc, z, zc;
 	static double av = -1.0, qv = -1.0;
-	static VBMcomplex coefs[24], d1, d2, dy, dJ, dz;
+	static VBcomplex coefs[24], d1, d2, dy, dJ, dz;
 	static double thoff = 0.01020304, errbuff;
 	static double Mag, th;
 	////////////////////////////  
@@ -915,12 +925,12 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 		av = a1;
 		qv = q1;
 		if (q1 < 1) {
-			a = VBMcomplex(-a1, 0);
-			q = VBMcomplex(q1, 0);
+			a = VBcomplex(-a1, 0);
+			q = VBcomplex(q1, 0);
 		}
 		else {
-			a = VBMcomplex(a1, 0);
-			q = VBMcomplex(1 / q1, 0);
+			a = VBcomplex(a1, 0);
+			q = VBcomplex(1 / q1, 0);
 		}
 		m1 = 1.0 / (1.0 + q);
 		m2 = q * m1;
@@ -938,7 +948,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 	}
 	coefs[23] = RSv;
 
-	y0 = VBMcomplex(y1v, y2v);
+	y0 = VBcomplex(y1v, y2v);
 	NPS = 1;
 	if (Tol > 1.) {
 		errimage = 0.;
@@ -960,7 +970,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 	stheta->Mag = 0.;
 	stheta->astrox1 = 0.;
 	stheta->astrox2 = 0.;
-	y = y0 + VBMcomplex(RSv * cos(thoff), RSv * sin(thoff));
+	y = y0 + VBcomplex(RSv * cos(thoff), RSv * sin(thoff));
 	itheta = stheta;				// let itheta point to the first _theta variable. 
 	// because stheta will point to the last _theta variable later, 
 	// while we need a pointer to the first _theta variable when inserting the third _theta variable
@@ -983,7 +993,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 				delete Thetas;
 				return -1;
 			}
-			y = y0 + VBMcomplex(RSv * cos(stheta->th), RSv * sin(stheta->th));
+			y = y0 + VBcomplex(RSv * cos(stheta->th), RSv * sin(stheta->th));
 		}
 	}
 	APQ.push_augmented_heap(0., itheta);	// this element will be first popped out anyway, 
@@ -1040,7 +1050,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 		//
 		// however, we already know new element should be inserted in interval [itheta, itheta->next] and
 		// th is calculated to be between itheta->th and itheta->next->th
-		y = y0 + VBMcomplex(RSv * cos(th), RSv * sin(th));
+		y = y0 + VBcomplex(RSv * cos(th), RSv * sin(th));
 #ifdef _PRINT_TIMES
 		tim0 = Environment::TickCount;
 #endif
@@ -1425,7 +1435,7 @@ void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2
 	J2=-2.*(coefs[21]/(za2*dza)+coefs[22]/(zb2*z));
 
 #define _Jacobians2\
-	dy = VBMcomplex(-sin(theta->th), cos(theta->th))*coefs[23];\
+	dy = VBcomplex(-sin(theta->th), cos(theta->th))*coefs[23];\
 	dz = (dy - J1c*conj(dy)) / dJ.re;\
 	Prov->last->x1 -= coefs[11].re;\
 	Prov->last->dJ = dJ.re;\
@@ -1453,9 +1463,9 @@ void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2
 	cq=(dJ.re<-100)? 0.0 : (J3.re*J3.re+J3.im*J3.im);
 
 
-_curve* VBMicrolensing::NewImages(VBMcomplex yi, VBMcomplex* coefs, _theta* theta) {
-	static VBMcomplex  y, yc, z, zc, J1, J1c, dy, dz, dJ, J2, J3, dza, za2, zb2, zaltc, Jalt, Jaltc, JJalt2;
-	static VBMcomplex zr[5] = { 0.,0.,0.,0.,0. };
+_curve* VBMicrolensing::NewImages(VBcomplex yi, VBcomplex* coefs, _theta* theta) {
+	static VBcomplex  y, yc, z, zc, J1, J1c, dy, dz, dJ, J2, J3, dza, za2, zb2, zaltc, Jalt, Jaltc, JJalt2;
+	static VBcomplex zr[5] = { 0.,0.,0.,0.,0. };
 	static double dlmin = 1.0e-4, dlmax = 1.0e-3, good[5], dJ2, ob2, cq;
 	static int worst1, worst2, worst3, bad, f1, checkJac;
 	static double av = 0.0, m1v = 0.0, disim, disisso;
@@ -2376,7 +2386,7 @@ void VBMicrolensing::OrderImages(_sols_for_skiplist_curve* Sols, _curve* Newpts)
 ////// Input parameters
 // nn: number of lenses; 
 // q: array of size n-1 with the mass ratios assuming the first lens to have mass 1;
-// s: array of size n-1 with the separations in VBMcomplex coordinates from the first mass.
+// s: array of size n-1 with the separations in VBcomplex coordinates from the first mass.
 ////////// What does it make?
 // VBML::n is set to the number of lenses.
 // VBML::m is an array of size n with the masses (normalized to 1 total mass)
@@ -2388,13 +2398,13 @@ void VBMicrolensing::OrderImages(_sols_for_skiplist_curve* Sols, _curve* Newpts)
 
 void VBMicrolensing::SetLensGeometry(int nn, double* pr) {
 	double* q = (double*)malloc(sizeof(double) * (nn));
-	VBMcomplex* s = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nn));
+	VBcomplex* s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nn));
 
 	for (int i = 0, j = 2; i < nn; ++i, j += 3) {
 		q[i] = pr[j];
 	}
 	for (int i = 0, j = 0; i < nn; ++i, j += 3) {
-		s[i] = VBMcomplex(pr[j], pr[j + 1]);
+		s[i] = VBcomplex(pr[j], pr[j + 1]);
 	}
 
 	SetLensGeometry(nn, q, s);
@@ -2403,7 +2413,7 @@ void VBMicrolensing::SetLensGeometry(int nn, double* pr) {
 	free(s);
 }
 
-void VBMicrolensing::SetLensGeometry(int nn, double* q, VBMcomplex* s) {
+void VBMicrolensing::SetLensGeometry(int nn, double* q, VBcomplex* s) {
 	switch (SelectedMethod)
 	{
 	case Method::Singlepoly:
@@ -2422,10 +2432,10 @@ void VBMicrolensing::SetMethod(Method Met) {
 	SelectedMethod = Met;
 }
 
-void VBMicrolensing::SetLensGeometry_spnp(int nn, double* q, VBMcomplex* s) {
+void VBMicrolensing::SetLensGeometry_spnp(int nn, double* q, VBcomplex* s) {
 	static double sumq, qmin, Jac;
 	static int iqmin, dg;
-	static VBMcomplex pbin[2], z, S2, fac;
+	static VBcomplex pbin[2], z, S2, fac;
 	static int i, j;
 
 	change_n(nn);
@@ -2486,10 +2496,10 @@ void VBMicrolensing::SetLensGeometry_spnp(int nn, double* q, VBMcomplex* s) {
 	}
 }
 
-void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBMcomplex* s) {
+void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBcomplex* s) {
 	static int j, i, x, k, p, dg;
 	static double tempq, sumq;
-	static VBMcomplex temps, pbin[2];
+	static VBcomplex temps, pbin[2];
 
 	change_n_mp(nn);
 
@@ -2536,7 +2546,7 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBMcomplex* s)
 	}
 	for (j = 1; j < n; j++) {
 		m_mp[j][0] = q_sort[j];
-		a_mp[j][0] = VBMcomplex(0, 0);
+		a_mp[j][0] = VBcomplex(0, 0);
 		for (i = 1; i < n; i++) {
 			if (i == j) {
 				m_mp[j][i] = q_sort[0];
@@ -2605,7 +2615,7 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBMcomplex* s)
 
 double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curve** Images) {
 	static double Mag = -1.0, Ai;
-	VBMcomplex yi;
+	VBcomplex yi;
 	_theta* stheta;
 	static _curve* Prov;
 	static _skiplist_curve* Prov2;
@@ -2613,7 +2623,7 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 
 	stheta = new _theta(-1.);
 
-	yi = VBMcomplex(y1s, y2s);
+	yi = VBcomplex(y1s, y2s);
 	y = yi - *s_offset; // Source position relative to first (lowest) mass
 	rho = rho2 = 0;
 	(*Images) = new _sols_for_skiplist_curve;
@@ -2622,7 +2632,7 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 
 	EXECUTE_METHOD(SelectedMethod, stheta)
 
-		Mag = 0.;
+	Mag = 0.;
 	nim0 = 0;
 	astrox1 = 0;
 	astrox2 = 0;
@@ -2662,7 +2672,7 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s) {
 }
 
 double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
-	static VBMcomplex y0, yi;
+	static VBcomplex y0, yi;
 	static double Mag = -1.0, th, thoff = 0.01020304, thoff2 = 0.7956012033974483; //0.01020304
 	static double errimage, maxerr, currerr, Magold, rhorad2, th2;
 	static int NPSmax, flag, NPSold, isquare, flagfinal;
@@ -2674,7 +2684,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 	static int lsquares[4];
 
 
-	yi = VBMcomplex(y1s, y2s);
+	yi = VBcomplex(y1s, y2s);
 	static std::minstd_rand engine_start{ std::random_device{}() };
 
 	static _augmented_priority_queue APQ;
@@ -2722,7 +2732,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		stheta->Mag = 0.;
 		stheta->astrox1 = 0.;
 		stheta->astrox2 = 0.;
-		y = y0 + VBMcomplex(RSv * cos(thoff), RSv * sin(thoff)); // first image
+		y = y0 + VBcomplex(RSv * cos(thoff), RSv * sin(thoff)); // first image
 
 
 
@@ -2766,7 +2776,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		for (int i = 0; i < 3; i++) {
 			th += M_PI_2;
 			stheta = Thetas->insert(th);
-			y = y0 + VBMcomplex(RSv * cos(th), RSv * sin(th));
+			y = y0 + VBcomplex(RSv * cos(th), RSv * sin(th));
 
 			EXECUTE_METHOD(SelectedMethod, stheta)
 
@@ -2776,23 +2786,23 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 
 		currerr = Mag = 0.;
 
-		astrox1 = 0.;
+    astrox1 = 0.;
 		astrox2 = 0.;
 
 		stheta = Thetas->first;
 		while (stheta->next)
 		{
 			Mag += stheta->Mag;
-			if (astrometry) {
-				astrox1 += stheta->astrox1;
-				astrox2 += stheta->astrox2;
+			if (astrometry) { 
+				astrox1 += stheta->astrox1; 
+				astrox2 += stheta->astrox2; 
 			}
 			if (stheta->next->th - stheta->th > 1.e-8)
 			{
 				APQ.push_augmented_heap(stheta->maxerr, stheta);
 			}
 
-			stheta = stheta->next;
+      stheta = stheta->next;
 		}
 
 		itheta = APQ.apq_array[0].stheta;
@@ -2816,7 +2826,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			// however, we already know new element should be inserted in interval [itheta, itheta->next] and
 			// th is calculated to be between itheta->th and itheta->next->th
 
-			y = y0 + VBMcomplex(RSv * cos(th), RSv * sin(th));
+			y = y0 + VBcomplex(RSv * cos(th), RSv * sin(th));
 #ifdef _PRINT_TIMES
 			tim0 = Environment::TickCount;
 #endif
@@ -2846,7 +2856,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 				astrox2 += stheta->astrox2;
 			}
 
-			if ((stheta->th - stheta->prev->th) < 1.e-8) {
+      if ((stheta->th - stheta->prev->th) < 1.e-8) {
 				stheta->maxerr = 0;
 				stheta->prev->maxerr = 0;				// stop to insert new theta behind stheta and stheta->prev
 			}
@@ -3246,7 +3256,7 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 
 
 #define _MJacobiansgood\
-	dy = VBMcomplex(-sin(theta->th)*rho, cos(theta->th)*rho);\
+	dy = VBcomplex(-sin(theta->th)*rho, cos(theta->th)*rho);\
 	dz = (dy - J1c[worst[i]]*conj(dy)) / Jacs[worst[i]];\
 	Prov->last->d = dz;\
 	Prov->last->ds = (imag(dy*dz*dz*J2) + rho2) / Jacs[worst[i]];\
@@ -3288,7 +3298,7 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 
 
 void VBMicrolensing::initroot() {
-	static VBMcomplex fac, fac2, z, S2;
+	static VBcomplex fac, fac2, z, S2;
 	static double Jac;
 
 	// Main image, should be positive and close to source
@@ -3303,7 +3313,7 @@ void VBMicrolensing::initroot() {
 	z = init[n];
 	_Jac
 		while (Jac <= 0) {	// Check if main image has positive parity. Otherwise displace
-			z = z + ((abs2(y) > 1.e-6) ? y : VBMcomplex(0, 1));
+			z = z + ((abs2(y) > 1.e-6) ? y : VBcomplex(0, 1));
 			_Jac
 		}
 	init[n] = z;
@@ -3323,8 +3333,8 @@ void VBMicrolensing::initroot() {
 	// Central images are calculated in SetLensGeometry
 }
 
-int VBMicrolensing::froot(VBMcomplex zi) {
-	static VBMcomplex z, zc, S1, S2, S2v, S3, zo, zo2, epso, epsbase, epsn, epsl, gradL, zl, fac, fac2, dz, dzo, TJold, TJnew, Lv, den;
+int VBMicrolensing::froot(VBcomplex zi) {
+	static VBcomplex z, zc, S1, S2, S2v, S3, zo, zo2, epso, epsbase, epsn, epsl, gradL, zl, fac, fac2, dz, dzo, TJold, TJnew, Lv, den;
 	static int iter3, iter4, ipseudo, flagmain, flag;
 	static double Lnew, Lold, fad, Jac, Jacold, prefac, epsbo;
 
@@ -3406,7 +3416,7 @@ int VBMicrolensing::froot(VBMcomplex zi) {
 					// If correction is higher than step shorten correction and increase iter2. We want to break cycles that do not converge
 					fad = abs(epsn / dz);
 					if (abs2(epsn + dz) < 0.25 * abs2(epsn) || fad < 2) {
-						dz = VBMcomplex(0.33, 0.01) * dz * fad;
+						dz = VBcomplex(0.33, 0.01) * dz * fad;
 						flagmain = 3;
 						if (abs2(epsn + dz) < abs2(zo2 - zo)) iter2++;
 					}
@@ -3502,7 +3512,7 @@ int VBMicrolensing::froot(VBMcomplex zi) {
 bool VBMicrolensing::checkroot(_theta* theta) {
 	static double mn, fac;
 	static int imn;
-	static VBMcomplex S3, z, S4;
+	static VBcomplex S3, z, S4;
 	static double fad;
 	if ((iter2 < 9 && iter < maxiter) || L0f < 1.e-29) {
 		mn = 1.e100;
@@ -3551,10 +3561,10 @@ bool VBMicrolensing::checkroot(_theta* theta) {
 _curve* VBMicrolensing::NewImages(_theta* theta) {
 	static _curve* Prov;
 	static int nminus, nplus;
-	static VBMcomplex z, zc, dy, dz, J2, J3, Jalt, JJalt2, Jaltc, J1c2;
-	static VBMcomplex S2, S2c, S3, S3c, vec, newseed0;
+	static VBcomplex z, zc, dy, dz, J2, J3, Jalt, JJalt2, Jaltc, J1c2;
+	static VBcomplex S2, S2c, S3, S3c, vec, newseed0;
 	static double ob2, dJ2, cq, Jac, imul, phi;
-	static VBMcomplex newseedtrial[6] = { VBMcomplex(1,0.5),VBMcomplex(1,-0.5), 0.5, 0.75, 2., 4., };
+	static VBcomplex newseedtrial[6] = { VBcomplex(1,0.5),VBcomplex(1,-0.5), 0.5, 0.75, 2., 4., };
 	static int imass, iphi, nsafe;
 
 	yc = conj(y);
@@ -3573,7 +3583,7 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 	while (ngood > ngoodold) {
 		lennewseeds = 0;
 		for (int i = ngoodold; i < ngood; i++) {
-			vec = VBMcomplex(2, 1 + sqrt(errs[i]) / abs(grads[i]));
+			vec = VBcomplex(2, 1 + sqrt(errs[i]) / abs(grads[i]));
 			newseeds[lennewseeds] = zr[i] + grads[i] * vec;
 			z = newseeds[lennewseeds];
 			_Jac
@@ -3622,7 +3632,7 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 	while (nminus - nplus + 1 != n) {
 
 		phi = iphi * 2.61799; // 5*M_PI/6.
-		z = imul * sqrt(m[imass]) * VBMcomplex(cos(phi), sin(phi)) + a[imass];
+		z = imul * sqrt(m[imass]) * VBcomplex(cos(phi), sin(phi)) + a[imass];
 		froot(z);
 		checkroot(theta);
 		if (ngood > ngoodold) {
@@ -3678,7 +3688,7 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 
 void VBMicrolensing::initrootpoly() {
 	static double mrt;
-	static VBMcomplex dev, dev2, zplus, shear, alpha0;
+	static VBcomplex dev, dev2, zplus, shear, alpha0;
 	static int ir;
 	zplus = y;
 	ir = nroots - 1;
@@ -3708,14 +3718,14 @@ void VBMicrolensing::initrootpoly() {
 		dev2 = dev / abs(dev) * J1[i] / 1.;
 		for (int j = 0; j < 2 * (n - 1); j++) {
 			dev = M_PI * (j / (n - 1.) + 0.5);
-			zr[ir] = a[i] + dev2 * VBMcomplex(cos(dev.re), sin(dev.re));
+			zr[ir] = a[i] + dev2 * VBcomplex(cos(dev.re), sin(dev.re));
 			ir--;
 		}
 	}
 }
 
 int VBMicrolensing::findimagepoly(int i) {
-	static VBMcomplex z, zc, yc, LL, zo, delta, lambda;
+	static VBcomplex z, zc, yc, LL, zo, delta, lambda;
 	static double dlmax = 1.0e-12, LLold, Jold, deltafac;
 	static int iter, iter2, success;
 	yc = conj(y);
@@ -3758,7 +3768,7 @@ int VBMicrolensing::findimagepoly(int i) {
 	return success;
 }
 _curve* VBMicrolensing::NewImagespoly(_theta* theta) {
-	static VBMcomplex  yc, z, zc, zo, delta, dy, dz, J2, J3, Jalt, Jaltc, JJalt2, LL, J1c2, dzita;
+	static VBcomplex  yc, z, zc, zo, delta, dy, dz, J2, J3, Jalt, Jaltc, JJalt2, LL, J1c2, dzita;
 	static double dlmax = 1.0e-12, dzmax = 1.e-10, dJ2, ob2, cq, Jold, LLold;
 	static int ngood, nplus, nminus, bad, isso, ncrit, igood, iter, iter2;
 	static double mi, tst, isgood;
@@ -3856,7 +3866,7 @@ _curve* VBMicrolensing::NewImagespoly(_theta* theta) {
 }
 
 _curve* VBMicrolensing::NewImagesmultipoly(_theta* theta) {
-	static VBMcomplex  yc, z, zc, zo, delta, dy, dz, J2, J3, Jalt, Jaltc, JJalt2, LL, J1c2, dzita;
+	static VBcomplex  yc, z, zc, zo, delta, dy, dz, J2, J3, Jalt, Jaltc, JJalt2, LL, J1c2, dzita;
 	static double dlmax = 1.0e-12, dzmax = 1.e-10, dJ2, ob2, cq, Jold, LLold;
 	static int ngood, nplus, nminus, bad, isso, ncrit, igood, iter, iter2;
 	static double mi, tst, isgood;
@@ -4845,8 +4855,8 @@ void VBMicrolensing::ComputeCentroids(double* pr, double t, double* c1s, double*
 	c1 = c1prov;            // Now centroid coordinates are in North-East system, but still relative to lens
 
 	// Lens centroid in the sky
-	c1l[0] = muL1 * (t - t0_par) + paiL * (Ehel[0] - Et0[0]); // Note that Ehel is in South-West system
-	c2l[0] = muL2 * (t - t0_par) + paiL * (Ehel[1] - Et0[1]);
+	c1l[0] = muL1 * (t +lighttravel - t0_par - lighttravel0) + paiL * (Ehel[0] - Et0[0]); // Note that Ehel is in South-West system
+	c2l[0] = muL2 * (t +lighttravel - t0_par - lighttravel0) + paiL * (Ehel[1] - Et0[1]);
 	// Image centroid is finally composed with lens centroid
 	c1s[0] = c1 + c1l[0];
 	c2s[0] = c2 + c2l[0];
@@ -4872,10 +4882,11 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 	iastro = 5;
 	dPosAng = 0;
 	t0old = 1.e200;
+	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u1 = u0 + pai1 * Et[1] - pai2 * Et[0];
 		u = sqrt(tn * tn + u1 * u1);
 
@@ -4903,10 +4914,11 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 	iastro = 6;
 	dPosAng = 0;
 	t0old = 1.e200;
+	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] +lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u1 = u0 + pai1 * Et[1] - pai2 * Et[0];
 		u = sqrt(tn * tn + u1 * u1);
 
@@ -4934,10 +4946,11 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 	double salpha = sin(pr[3]), calpha = cos(pr[3]);
 	dPosAng = 0;
 	t0old = 1.e200;
+	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] - t0_par) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0_par) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
 
 		y1s[i] = u * salpha - tn * calpha;
@@ -4969,6 +4982,7 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 	double w, phi0, inc, phi, Cinc, Sinc, Cphi, Sphi, Cphi0, Sphi0, pphi0, COm, SOm, s_true;
 	double w13, w123, den, den0;
 	t0old = 1.e200;
+	parallaxextrapolation = 0;
 
 	w13 = w1 * w1 + w3 * w3;
 	w123 = sqrt(w13 + w2 * w2);
@@ -4997,14 +5011,14 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
 
-		phi = (ts[i] - t0_par) * w + phi0;
+		phi = (ts[i] + lighttravel - t0_par - lighttravel0) * w + phi0;
 		Cphi = cos(phi);
 		Sphi = sin(phi);
 		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
 		seps[i] = s_true * den; // projected separation at time ts[i]
 
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
-		tn = (ts[i] - t0_par) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		y1s[i] = (Cphi * (u * SOm - tn * COm) + Cinc * Sphi * (u * COm + tn * SOm)) / den;
 		y2s[i] = (-Cphi * (u * COm + tn * SOm) - Cinc * Sphi * (tn * COm - u * SOm)) / den;
 		mags[i] = BinaryMag2(seps[i], q, y1s[i], y2s[i], rho);
@@ -5037,6 +5051,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 	double arm1, arm2;
 	double X[3], Y[3], Z[3], r[2], x[2];
 	t0old = 1.e200;
+	parallaxextrapolation = 0;
 
 	smix = 1 + szs * szs;
 	sqsmix = sqrt(smix);
@@ -5081,7 +5096,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
-		M = n * (ts[i] - tperi);
+		M = n * (ts[i] + lighttravel - tperi - lighttravel0);
 		while (M > M_PI) M -= 2 * M_PI;
 		while (M < -M_PI) M += 2 * M_PI;
 		EE = M + e * sin(M);
@@ -5102,7 +5117,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 		St = sqrt(x[0] * x[0] + x[1] * x[1]);
 		psi = atan2(x[1], x[0]);// +((ar > 1) ? 0 : M_PI);
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
-		tn = (ts[i] - t0_par) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		y1s[i] = -tn * cos(alpha + psi) + u * sin(alpha + psi);
 		y2s[i] = -u * cos(alpha + psi) - tn * sin(alpha + psi);
 		seps[i] = St;
@@ -5113,7 +5128,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 			c1s[i] = astrox1;
 			c2s[i] = astrox2;
 			ComputeCentroids(pr, ts[i], &c1s[i], &c2s[i], &c1l[i], &c2l[i]);
-			FR = (turn_off_secondary_lens) ? 0 : pow(q, lens_mass_luminosity_exponent); // Flux ratio between the two lenses
+			FR = (turn_off_secondary_lens)? 0 : pow(q, lens_mass_luminosity_exponent); // Flux ratio between the two lenses
 			c1l[i] += (-q + FR) * s * thetaE / (1 + q) * cos(PosAng) / (1 + FR); // Flux center of the two lenses from barycenter
 			c2l[i] += (-q + FR) * s * thetaE / (1 + q) * sin(PosAng) / (1 + FR);
 		}
@@ -5137,6 +5152,7 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 	iastro = 12;
 	dPosAng = 0;
 	t0old = 1.e200;
+	parallaxextrapolation = 0;
 
 	s[2] = -(s[0] * w[0] + s[1] * w[1]) / w[2]; // Impose velocity orthogonal to position
 	s3D = sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
@@ -5200,11 +5216,11 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 		paiuB = pai1 * Et[1] - pai2 * Et[0]; // Parallax correction referred to tB
 
 		// Position of barycenter
-		tnB = (ts[i] - t0) * vt0B - t0B + paitB * cos(alpha) - paiuB * sin(alpha);
-		uB = u0B + vuB * (ts[i] - t0) + paitB * sin(alpha) + paiuB * cos(alpha);
+		tnB = (ts[i] + lighttravel - t0) * vt0B - t0B + paitB * cos(alpha) - paiuB * sin(alpha);
+		uB = u0B + vuB * (ts[i]+ lighttravel - t0) + paitB * sin(alpha) + paiuB * cos(alpha);
 
 		// Position of relative particle
-		phi = wtot * (ts[i] - t0) + phi0;
+		phi = wtot * (ts[i] + lighttravel - t0) + phi0;
 		xt = (Om[0] * cos(phi) + Y[0] * sin(phi));
 		xu = (Om[1] * cos(phi) + Y[1] * sin(phi));
 
@@ -5249,15 +5265,16 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 }
 
 
-void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, double* seps, int np) {
+void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, double *seps, int np) {
 	double tn, u, FRl, s = exp(pr[0]), q = exp(pr[1]), w1 = pr[9], w2 = pr[10], w3 = pr[11];
 	tE_inv = exp(-pr[5]);
 
 	double ws[3] = { pr[15] + 1.01e-15, pr[16] + 1.01e-15, pr[17] + 1.01e-15 };
 	double t01 = pr[6], t02 = pr[13] + ws[0] * (pr[13] - pr[6]) / tE_inv, u1 = pr[2], u2 = pr[12] + ws[1] * (pr[6] - pr[13]), FR = exp(pr[14]), rho2, xt, xu;
 	double ss[3] = { (t01 - t02) * tE_inv,u2 - u1,0 };
-	double L[3], Om[3], Y[3], norm, normOm, s3D, wstot, qs, phis0;
+	double L[3], Om[3], Y[3], norm, normOm, s3D, wstot, qs,phis0;
 	double u0B, t0B, vuB, vt0B, s1, s2, uB, tnB, paitB, paiuB, alphas;
+	parallaxextrapolation = 0;
 
 	// Binary lens calculations
 	u0 = pr[2];
@@ -5359,7 +5376,7 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 		ComputeParallax(ts[i], t0);
 
 		// Binary lens calculation
-		phi = (ts[i] - t0) * w + phi0;
+		phi = (ts[i] + lighttravel - t0) * w + phi0;
 		Cphi = cos(phi);
 		Sphi = sin(phi);
 		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
@@ -5370,11 +5387,11 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 		paiuB = pai1 * Et[1] - pai2 * Et[0]; // Parallax correction referred to tB
 
 		// Position of barycenter
-		tnB = (ts[i] - t0) * vt0B - t0B + paitB * cos(alphas) - paiuB * sin(alphas);
-		uB = u0B + vuB * (ts[i] - t0) + paitB * sin(alphas) + paiuB * cos(alphas);
+		tnB = (ts[i] + lighttravel - t0) * vt0B - t0B + paitB * cos(alphas) - paiuB * sin(alphas);
+		uB = u0B + vuB * (ts[i] + lighttravel - t0) + paitB * sin(alphas) + paiuB * cos(alphas);
 
 		// Position of relative particle
-		phi = wstot * (ts[i] - t0) + phis0;
+		phi = wstot * (ts[i]+lighttravel - t0) + phis0;
 		xt = (Om[0] * cos(phi) + Y[0] * sin(phi));
 		xu = (Om[1] * cos(phi) + Y[1] * sin(phi));
 
@@ -5426,18 +5443,18 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
 	double rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), di, mindi, u, u0 = pr[2], t0 = pr[6], pai1 = pr[10], pai2 = pr[11];
 	double q[3] = { 1, exp(pr[1]),exp(pr[8]) };
-	double FR[3];
+	double FR[3]; 
 	double FRtot;
-	VBMcomplex s[3];
+	VBcomplex s[3];
 	double salpha = sin(pr[3]), calpha = cos(pr[3]), sbeta = sin(pr[9]), cbeta = cos(pr[9]);
-	double Et[2];
 	iastro = 12;
 	dPosAng = 0;
+	parallaxextrapolation = 0;
 
 	s[0] = exp(pr[0]) / (q[0] + q[1]);
 	s[1] = s[0] * q[0];
 	s[0] = -q[1] * s[0];
-	s[2] = exp(pr[7]) * VBMcomplex(cbeta, sbeta) + s[0];
+	s[2] = exp(pr[7]) * VBcomplex(cbeta, sbeta) + s[0];
 	//	_sols *Images; double Mag; // For debugging
 	if (astrometry) {
 		FR[0] = 1;
@@ -5450,7 +5467,7 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] +lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
 		y1s[i] = u * salpha - tn * calpha;
 		y2s[i] = -u * calpha - tn * salpha;
@@ -5465,13 +5482,13 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 		//	mags[i] = 1.;
 		//}
 		//else {
-		mags[i] = MultiMag2(y1s[i], y2s[i], rho);
+			mags[i] = MultiMag2(y1s[i], y2s[i], rho);
 		//}
 		if (astrometry) {
 			c1s[i] = astrox1;
 			c2s[i] = astrox2;
 			ComputeCentroids(pr, ts[i], &c1s[i], &c2s[i], &c1l[i], &c2l[i]);
-			c1l[i] += (s[0].re * FR[0] + s[1].re * FR[1] + s[2].re * FR[2]) * cos(PosAng) / FRtot; // Flux center of the three lenses from origin
+			c1l[i] += (s[0].re * FR[0] + s[1].re * FR[1] + s[2].re * FR[2])*cos(PosAng)/FRtot; // Flux center of the three lenses from origin
 			c2l[i] += (s[0].im * FR[0] + s[1].im * FR[1] + s[2].im * FR[2]) * sin(PosAng) / FRtot;
 		}
 
@@ -5586,7 +5603,7 @@ void VBMicrolensing::BinaryLightCurveKepler(double* pr, double* ts, double* mags
 }
 
 void VBMicrolensing::BinSourceLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	double u1 = pr[2], u2 = pr[3], t01 = pr[4], t02 = pr[5], tE_inv = exp(-pr[0]), FR = exp(pr[1]), tn, u;
+	double u1 = pr[2], u2 = pr[3], t01 = pr[4], t02 = pr[5], tE_inv = exp(-pr[0]), FR=exp(pr[1]), tn, u;
 
 	for (int i = 0; i < np; i++) {
 		tn = (ts[i] - t01) * tE_inv;
@@ -5612,11 +5629,12 @@ void VBMicrolensing::BinSourceLightCurve(double* pr, double* ts, double* mags, d
 void VBMicrolensing::BinSourceLightCurveParallax(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
 	double u1 = pr[2], u2 = pr[3], t01 = pr[4], t02 = pr[5], tE_inv = exp(-pr[0]), FR = exp(pr[1]), tn, u, u0, pai1 = pr[6], pai2 = pr[7], w1 = pr[8], w2 = pr[9], w3 = pr[10];
 	t0old = 0;
+	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
 
-		tn = (ts[i] - t01) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t01) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u0 = u1 + pai1 * Et[1] - pai2 * Et[0];
 		u = tn * tn + u0 * u0;
 
@@ -5624,7 +5642,7 @@ void VBMicrolensing::BinSourceLightCurveParallax(double* pr, double* ts, double*
 		y2s[i] = -u0;
 		mags[i] = (u + 2) / sqrt(u * (u + 4));
 
-		tn = (ts[i] - t02) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t02) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u0 = u2 + pai1 * Et[1] - pai2 * Et[0];
 		u = tn * tn + u0 * u0;
 
@@ -5642,6 +5660,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 	double s, s_true, w, phi0, inc, phi, Cinc, Sinc, Cphi, Sphi, Cphi0, Sphi0, COm, SOm;
 	double w13, w123, den, den0, du0, dt0;
 	t0old = 0;
+	parallaxextrapolation = 0;
 
 
 	s = sqrt((u1 - u2) * (u1 - u2) + (t01 - t02) * (t01 - t02) * (tE_inv * tE_inv));
@@ -5678,7 +5697,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
 
-		phi = (ts[i] - t0_par) * w + phi0;
+		phi = (ts[i] + lighttravel - t0_par-lighttravel0) * w + phi0;
 		Cphi = cos(phi);
 		Sphi = sin(phi);
 		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
@@ -5687,7 +5706,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 		dt0 = s_true * (COm * Cphi - Cinc * SOm * Sphi) / (1 + q) * q;  //Position of the primary component with respect to center of mass
 		du0 = s_true * (SOm * Cphi + Cinc * COm * Sphi) / (1 + q) * q;
 
-		tn = -((ts[i] - t0_par) * tE_inv + dt0 + pai1 * Et[0] + pai2 * Et[1]);
+		tn = -((ts[i] + lighttravel - t0_par- lighttravel0) * tE_inv + dt0 + pai1 * Et[0] + pai2 * Et[1]);
 		u = -(u0 + du0 + pai1 * Et[1] - pai2 * Et[0]);
 		y1s[i] = tn;
 		y2s[i] = u;
@@ -5695,7 +5714,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 
 		mags[i] = (u + 2) / sqrt(u * (u + 4));
 
-		tn = -((ts[i] - t0_par) * tE_inv - dt0 / q + pai1 * Et[0] + pai2 * Et[1]); // Position of the secondary component
+		tn = -((ts[i] + lighttravel - t0_par- lighttravel0) * tE_inv - dt0 / q + pai1 * Et[0] + pai2 * Et[1]); // Position of the secondary component
 		u = -(u0 - du0 / q + pai1 * Et[1] - pai2 * Et[0]);
 		u = tn * tn + u * u;
 
@@ -5828,7 +5847,7 @@ void VBMicrolensing::BinSourceSingleLensXallarap(double* pr, double* ts, double*
 }
 
 
-void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* y1s2, double* y2s2, double* seps, int np) {
+void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* y1s2, double* y2s2, double *seps, int np) {
 	astrometry = false;
 	BinSourceBinLensAstroLightCurve(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, y1s2, y2s2, seps, np);
 }
@@ -5838,13 +5857,13 @@ void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* 
 void VBMicrolensing::TripleLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
 	double rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), di, mindi;
 	double q[3] = { 1, exp(pr[1]),exp(pr[8]) };
-	VBMcomplex s[3];
+	VBcomplex s[3];
 	double salpha = sin(pr[3]), calpha = cos(pr[3]), sbeta = sin(pr[9]), cbeta = cos(pr[9]);
 
 	s[0] = exp(pr[0]) / (q[0] + q[1]);
 	s[1] = s[0] * q[0];
 	s[0] = -q[1] * s[0];
-	s[2] = exp(pr[7]) * VBMcomplex(cbeta, sbeta) + s[0];
+	s[2] = exp(pr[7]) * VBcomplex(cbeta, sbeta) + s[0];
 	//	_sols *Images; double Mag; // For debugging
 
 	SetLensGeometry(3, q, s);
@@ -5878,16 +5897,16 @@ void VBMicrolensing::LightCurve(double* pr, double* ts, double* mags, double* y1
 	double rho = exp(pr[2]), tn, tE_inv = exp(-pr[1]), di, mindi;
 
 	double* q = (double*)malloc(sizeof(double) * (nl));
-	VBMcomplex* s = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nl));
+	VBcomplex* s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nl));
 
 	q[0] = 1.;
 	for (int i = 1, j = 1; i < nl; ++i, j += 3) {
 		q[i] = pr[j + 5];
 	}
 
-	s[0] = VBMcomplex(0, pr[3]);
+	s[0] = VBcomplex(0, pr[3]);
 	for (int i = 1, j = 1; i < nl; ++i, j += 3) {
-		s[i] = VBMcomplex(pr[j + 3], pr[j + 4]);
+		s[i] = VBcomplex(pr[j + 3], pr[j + 4]);
 	}
 
 	SetLensGeometry(nl, q, s);
@@ -6029,89 +6048,6 @@ double VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double t) {
 	return mag;
 }
 
-
-double VBMicrolensing::BinSourceBinLensPOX(double* pr, double t) {
-	double s = exp(pr[0]), q = exp(pr[1]), u0 = pr[2], rho = exp(pr[4]), tE_inv = exp(-pr[5]), t0 = pr[6];
-	double pai1 = pr[7], pai2 = pr[8], w1 = pr[9], w2 = pr[10], w3 = pr[11];
-	double salpha = sin(pr[3]), calpha = cos(pr[3]);
-	double tn, w, phi0, phil, incl, Cinc, Sinc, Cphi, Sphi, Cphi0, Sphi0, COm, SOm, s_true;
-	double w13, w123, den, den0, u;
-
-	double xi1 = pr[12], xi2 = pr[13], omega = pr[14], inc = pr[15], phi = pr[16], qs = exp(pr[17]);
-	double Xal[2], phit, disp[2], Xal2[2], disp2[2];
-	double Mag, Mag2, u01, u02, rho2, tn1, tn2, mags, qs4;
-
-	w13 = w1 * w1 + w3 * w3;
-	w123 = sqrt(w13 + w2 * w2);
-	w13 = sqrt(w13);
-	if (w13 > 1.e-8) {
-		w3 = (w3 > 1.e-8) ? w3 : 1.e-8;
-		w = w3 * w123 / w13;
-		incl = acos(w2 * w3 / w13 / w123);
-		phi0 = atan2(-w1 * w123, w3 * w13);
-	}
-	else {
-		w = w2;
-		incl = 0.;
-		phi0 = 0.;
-	}
-
-	Cphi0 = cos(phi0);
-	Sphi0 = sin(phi0);
-	Cinc = cos(incl);
-	Sinc = sin(incl);
-	den0 = sqrt(Cphi0 * Cphi0 + Cinc * Cinc * Sphi0 * Sphi0);
-	s_true = s / den0;
-	COm = (Cphi0 * calpha + Cinc * salpha * Sphi0) / den0;
-	SOm = (Cphi0 * salpha - Cinc * calpha * Sphi0) / den0;
-
-	ComputeParallax(t, t0);
-
-	phil = (t - t0_par) * w + phi0;
-	Cphi = cos(phil);
-	Sphi = sin(phil);
-	den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
-	av = s_true * den;
-	u = u0 + pai1 * Et[1] - pai2 * Et[0];
-	tn = (t - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
-
-	phit = omega * (t - t0_par);
-
-	disp[0] = sin(inc) * (-cos(phi) + cos(phi + phit) + phit * sin(phi));
-	disp[1] = -phit * cos(phi) - sin(phi) + sin(phi + phit);
-	disp2[0] = -sin(inc) * (cos(phi) + cos(phi + phit) / qs - phit * sin(phi));
-	disp2[1] = phit * cos(phi) + sin(phi) + sin(phi + phit) / qs;
-
-	Xal[0] = xi1 * disp[0] + xi2 * disp[1];
-	Xal[1] = xi2 * disp[0] - xi1 * disp[1];
-	Xal2[0] = xi1 * disp2[0] - xi2 * disp2[1];
-	Xal2[1] = xi2 * disp2[0] + xi1 * disp2[1];
-
-	tn1 = tn + Xal[0];
-	u01 = u + Xal[1];
-	tn2 = tn + Xal2[0];
-	u02 = u + Xal2[1];
-	rho2 = rho * pow(qs, mass_radius_exponent);
-	qs4 = pow(qs, mass_luminosity_exponent);
-
-
-	/*	y1s = u01 * salpha - tn1 * calpha;
-		y2s = -u01 * calpha - tn1 * salpha;
-		y1s2 = u02 * salpha - tn2 * calpha;
-		y2s2 = -u02 * calpha - tn2 * salpha;*/
-
-	y_1 = (Cphi * (u02 * SOm - tn2 * COm) + Cinc * Sphi * (u02 * COm + tn2 * SOm)) / den;
-	y_2 = (-Cphi * (u02 * COm + tn2 * SOm) - Cinc * Sphi * (tn2 * COm - u02 * SOm)) / den;
-	Mag2 = BinaryMag2(av, q, y_1, y_2, rho2);
-
-	y_1 = (Cphi * (u01 * SOm - tn1 * COm) + Cinc * Sphi * (u01 * COm + tn1 * SOm)) / den;
-	y_2 = (-Cphi * (u01 * COm + tn1 * SOm) - Cinc * Sphi * (tn1 * COm - u01 * SOm)) / den;
-	Mag = BinaryMag2(av, q, y_1, y_2, rho);
-
-	mags = (Mag + qs4 * Mag2) / (1 + qs4);
-
-	return mags;
-}
 
 
 double VBMicrolensing::TripleLightCurve(double* pr, double t) {
@@ -6341,6 +6277,113 @@ void VBMicrolensing::SetLDprofile(LDprofiles LDval) {
 //////////////////////////////
 //////////////////////////////
 
+void VBMicrolensing::LoadSunTable(char* filename) {
+	FILE* f;
+	double RA, Dec, dis, phiprec;
+
+	if ((f = fopen(filename, "r")) != 0) {
+		if (suntable) {
+			// Removing existing table if any
+			for (int j = 0; j < ndataEar; j++) free(posEar[j]);
+			free(posEar);
+			suntable = false;
+		}
+		// Reading Sun table files
+		int flag2 = 0;
+//		long startpos = 0;
+		char teststring[1000];
+		ndataEar = 1;
+
+		// Finding start of data
+		while (!feof(f)) {
+			fscanf(f, "%s", teststring);
+			if (!feof(f)) {
+				fgetc(f); //fseek(f, 1, SEEK_CUR);
+				teststring[5] = 0;
+				if (strcmp(teststring, "$$SOE") == 0) {
+					flag2 = 1;
+					break;
+				}
+			}
+		}
+		// Finding end of data
+		if (flag2) {
+			flag2 = 0;
+//			startpos = ftell(f);
+			while (!feof(f)) {
+				fscanf(f, "%[^\n]s", teststring);
+				if (!feof(f)) {
+					//fseek(f, 1, SEEK_CUR);
+					fgetc(f);
+					teststring[5] = 0;
+					if (strcmp(teststring, "$$EOE") == 0) {
+						flag2 = 1;
+						break;
+					}
+					else {
+						ndataEar++;
+					}
+				}
+			}
+		}
+
+		// Allocating memory according to the length of the table
+		posEar = (double**)malloc(sizeof(double*) * ndataEar);
+
+		for (int j = 0; j < ndataEar; j++) {
+			posEar[j] = (double*)malloc(sizeof(double) * 3);
+		}
+		ndataEar--;
+		fclose(f);
+
+		// Reading data
+		f = fopen(filename, "r");
+		double tcur;
+		startEar = stepEar = -1;
+//		fseek(f, startpos, SEEK_SET);
+		
+		// Finding start of data
+		while (!feof(f)) {
+			fscanf(f, "%s", teststring);
+			if (!feof(f)) {
+				fgetc(f); //fseek(f, 1, SEEK_CUR);
+				teststring[5] = 0;
+				if (strcmp(teststring, "$$SOE") == 0) {
+					flag2 = 1;
+					break;
+				}
+			}
+		}
+		for (int id = 0; id < ndataEar; id++) {
+			if (fscanf(f, "%lf %lf %lf %lf %lf", &tcur, &RA, &Dec, &dis, &phiprec) == 5) {
+				if (stepEar < 0) {
+					if (startEar < 0) {
+						startEar = tcur;
+					}
+					else {
+						stepEar = tcur - startEar;
+						startEar -= 2450000.0;
+					}
+				}
+				RA *= M_PI / 180;
+				Dec *= M_PI / 180;
+				for (int i = 0; i < 3; i++) {
+					posEar[id][i] = -dis * (cos(RA) * cos(Dec) * Eq2000[i] + sin(RA) * cos(Dec) * Quad2000[i] + sin(Dec) * North2000[i]);
+				}
+			}
+			else {
+				ndataEar = id;
+				break;
+			}
+		}
+		fclose(f);
+		suntable = true;
+	}
+	else {
+		printf("\nSun ephemeris table not found !");
+		suntable = false;
+	}
+}
 
 void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) {
 	double RA, Dec, dis, phiprec;
@@ -6354,7 +6397,18 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 		fscanf(f, "%[^\n]s", CoordinateString);
 		fclose(f);
 		SetObjectCoordinates(CoordinateString);
-
+		
+		// Removing any preiovusly loaded satellite table files
+		if (nsat) {
+			for (int i = 0; i < nsat; i++) {
+				for (int j = 0; j < ndatasat[i]; j++) free(possat[i][j]);
+				free(tsat[i]);
+				free(possat[i]);
+			}
+			free(tsat);
+			free(possat);
+			free(ndatasat);
+		}
 		// Looking for satellite table files in the specified directory
 		sprintf(filename, "%s%csatellite*.txt", sateltabledir, systemslash);
 		nsat = 0;
@@ -6379,7 +6433,6 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 			f = fopen(filename, "r");
 			if (f != 0) {
 				int flag2 = 0;
-				long startpos = 0;
 				char teststring[1000];
 				ndatasat[ic] = 1;
 
@@ -6398,7 +6451,6 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 				// Finding end of data
 				if (flag2) {
 					flag2 = 0;
-					startpos = ftell(f);
 					while (!feof(f)) {
 						fscanf(f, "%[^\n]s", teststring);
 						if (!feof(f)) {
@@ -6415,18 +6467,34 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 						}
 					}
 				}
+				fclose(f);
 
 				// Allocating memory according to the length of the table
 				tsat[ic] = (double*)malloc(sizeof(double) * ndatasat[ic]);
 				possat[ic] = (double**)malloc(sizeof(double*) * ndatasat[ic]);
+				
 				for (int j = 0; j < ndatasat[ic]; j++) {
 					possat[ic][j] = (double*)malloc(sizeof(double) * 3);
 				}
 				ndatasat[ic]--;
 
+				f = fopen(filename, "r");
+				// Finding start of data
+				while (!feof(f)) {
+					fscanf(f, "%s", teststring);
+					if (!feof(f)) {
+						fgetc(f); //fseek(f, 1, SEEK_CUR);
+						teststring[5] = 0;
+						if (strcmp(teststring, "$$SOE") == 0) {
+							flag2 = 1;
+							break;
+						}
+					}
+				}
+
 				// Reading data
 				if (f) {
-					fseek(f, startpos, SEEK_SET);
+					double tcur;
 					for (int id = 0; id < ndatasat[ic]; id++) {
 
 						if (fscanf(f, "%lf %lf %lf %lf %lf", &(tsat[ic][id]), &RA, &Dec, &dis, &phiprec) == 5) {
@@ -6455,34 +6523,44 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* CoordinateString) {
-	double RA, Dec, hr, mn, sc, deg, pr, ssc;
+	double RA, Dec, hr, mn, sc, deg, pr, ssc, sp, r;
 
-	if (nsat) {
-		for (int i = 0; i < nsat; i++) {
-			for (int j = 0; j < ndatasat[i]; j++) free(possat[i][j]);
-			free(tsat[i]);
-			free(possat[i]);
-		}
-		free(tsat);
-		free(possat);
-		free(ndatasat);
-	}
+	hr = mn = sc = deg = pr = ssc = -1.e100;
 	sscanf(CoordinateString, "%lf:%lf:%lf %lf:%lf:%lf", &hr, &mn, &sc, &deg, &pr, &ssc);
-	RA = (hr + mn / 60 + sc / 3600) * M_PI / 12,
+	if (hr >= 0 && hr < 24 && mn >= 0 && mn < 60 && sc >= 0 && sc < 60 && deg >= -90 && deg <= 90 && pr >= 0 && pr < 60 && ssc >= 0 && ssc < 60) {
+		RA = (hr + mn / 60 + sc / 3600) * M_PI / 12;
 		Dec = (fabs(deg) + pr / 60 + ssc / 3600) * M_PI / 180;
-	if (deg < 0) Dec = -Dec;
+		if (deg < 0) Dec = -Dec;
 
-	for (int i = 0; i < 3; i++) {
-		Obj[i] = (cos(RA) * cos(Dec) * Eq2000[i] + sin(RA) * cos(Dec) * Quad2000[i] + sin(Dec) * North2000[i]);
-		rad[i] = Eq2000[i];
-		tang[i] = North2000[i];
+		for (int i = 0; i < 3; i++) {
+			Obj[i] = (cos(RA) * cos(Dec) * Eq2000[i] + sin(RA) * cos(Dec) * Quad2000[i] + sin(Dec) * North2000[i]);
+			//rad[i] = Eq2000[i];
+			//tang[i] = North2000[i];
+		}
+		sp = 0;
+		for (int i = 0; i < 3; i++) sp += North2000[i] * Obj[i];
+		for (int i = 0; i < 3; i++) rad[i] = -North2000[i] + sp * Obj[i];
+
+		r = sqrt(rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]); // Celestial South projected orthogonal to LOS
+		rad[0] /= r;
+		rad[1] /= r;
+		rad[2] /= r;
+		tang[0] = rad[1] * Obj[2] - rad[2] * Obj[1]; // Celestial West projected orthogonal to LOS
+		tang[1] = rad[2] * Obj[0] - rad[0] * Obj[2];
+		tang[2] = rad[0] * Obj[1] - rad[1] * Obj[0];
+
+		coordinates_set = true;
 	}
+	else coordinates_set = false;
+}
 
-	if (t0_par_fixed == -1) t0_par_fixed = 0;
-
+bool VBMicrolensing::AreCoordinatesSet() {
+	return coordinates_set;
 }
 
 void VBMicrolensing::ComputeParallax(double t, double t0) {
+	static double dtflight = 0.0000993512; // = angle covered by Earth as light covers 1 au.
+	static double au_c = 0.005775518331436995; // au/c in days.
 	static double a0 = 1.00000261, adot = 0.00000562; // Ephemeris from JPL website 
 	static double e0 = 0.01671123, edot = -0.00004392;
 	static double inc0 = -0.00001531, incdot = -0.01294668;
@@ -6491,15 +6569,120 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 	static double deg = M_PI / 180;
 	static double a, e, inc, L, om, M, EE, dE, dM;
 	static double x1, y1, vx, vy, Ear[3], vEar[3];
-	static double r, sp, ty, Spit;
+	static double r, sp, ty, Spit, dLtof;
 	int c = 0, ic;
+	
+	if (!coordinates_set) {
+		printf("\nUse SetObjectCoordinates to input target coordinates");
+		return;
+	}
+	if (satellite > nsat) {
+		printf("\nSatellite %d not available", satellite);
+		return;
+	}
 
 	if (t0_par_fixed == 0) t0_par = t0;
-	if (t0_par_fixed == -1) {
-		printf("\nUse SetObjectCoordinates to input target coordinates");
+
+	if (parallaxephemeris) {
+		// Calculation with lookup ephemeris table 
+		if (!suntable) {
+			LoadSunTable(Suntablefile);
+		}
+		if (t0_par != t0old) {
+			t0old = t0_par;
+			ty = (t0_par - startEar) / stepEar;
+			ic = (int)floor(ty);
+			ty -= ic;
+			for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
+			if (t_in_HJD) {
+				double told = t, tnew;
+				lighttravel0 = 0;
+				for (int i = 0; i < 3; i++) lighttravel0 += Ear[i] * Obj[i];
+				lighttravel0 *= au_c;
+				tnew = t0_par - lighttravel0;
+				while (fabs(told - tnew) > 1.e-8) {
+					told = tnew;
+					ty = (told - startEar) / stepEar;
+					ic = (int)floor(ty);
+					ty -= ic;
+					for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
+					lighttravel0 = 0;
+					for (int i = 0; i < 3; i++) lighttravel0 += Ear[i] * Obj[i];
+					lighttravel0 *= au_c;
+					tnew = t0_par - lighttravel0;
+				}
+			}
+			for (int i = 0; i < 3; i++) {
+				if (ty > 0.5) {
+					vEar[i] = ((posEar[ic+2][i]- posEar[ic+1][i]) * (ty-0.5) + (posEar[ic+1][i] - posEar[ic][i]) * (1.5-ty)) / stepEar;
+				}
+				else {
+					vEar[i] = ((posEar[ic][i] - posEar[ic-1][i]) * (0.5 - ty) + (posEar[ic+1][i] - posEar[ic][i]) * (ty+0.5)) / stepEar;
+				}
+			}
+			if (parallaxsystem != 1) {
+				sp = 0;
+				for (int i = 0; i < 3; i++) sp += Ear[i] * Obj[i];
+				for (int i = 0; i < 3; i++) rad[i] = Ear[i] - sp * Obj[i];
+				r = sqrt(rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]); // Celestial South projected orthogonal to LOS
+				rad[0] /= r;
+				rad[1] /= r;
+				rad[2] /= r;
+				tang[0] = rad[1] * Obj[2] - rad[2] * Obj[1]; // Celestial West projected orthogonal to LOS
+				tang[1] = rad[2] * Obj[0] - rad[0] * Obj[2];
+				tang[2] = rad[0] * Obj[1] - rad[1] * Obj[0];
+			}
+
+
+			Et0[0] = Et0[1] = vt0[0] = vt0[1] = 0;
+			lighttravel0 = 0;
+			for (int i = 0; i < 3; i++) {
+				Et0[0] += Ear[i] * rad[i];           // Earth position projected along South at time t0_par
+				Et0[1] += Ear[i] * tang[i];          // Earth position projected along West at time t0_par
+				lighttravel0 += Ear[i] * Obj[i];
+				vt0[0] += vEar[i] * rad[i];          // Earth velocity projected along South at time t0_par
+				vt0[1] += vEar[i] * tang[i];		// Earth velocity projected along West at time t0_par
+			}
+			lighttravel0 *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
+		}
+		ty = (t - startEar) / stepEar;
+		ic = (int)floor(ty);
+		ty -= ic;
+		if (ic < 0) { parallaxextrapolation = 1; ic = 0; ty = 0; }
+		if (ic >= ndataEar) { parallaxextrapolation = 1; ic = ndataEar - 1; ty = 1; }
+		for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
+		lighttravel = 0;
+		for (int i = 0; i < 3; i++) lighttravel += Ear[i] * Obj[i];
+		lighttravel *= au_c;
+		if (t_in_HJD) {
+			double told = t, tnew;
+			tnew = t - lighttravel;
+			while (fabs(told - tnew) > 1.e-8) {
+				told = tnew;
+				ty = (told - startEar) / stepEar;
+				ic = (int)floor(ty);
+				ty -= ic;
+				if (ic < 0) { parallaxextrapolation = 1; ic = 0; ty = 0; }
+				if (ic >= ndataEar) { parallaxextrapolation = 1; ic = ndataEar - 1; ty = 1; }
+				for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
+				lighttravel = 0;
+				for (int i = 0; i < 3; i++) lighttravel += Ear[i] * Obj[i];
+				lighttravel *= au_c;
+				tnew = t - lighttravel;
+			}
+			lighttravel = 0;
+		}
+		Ehel[0] = Ehel[1] = 0;
+		for (int i = 0; i < 3; i++) {
+			Ehel[0] += Ear[i] * rad[i]; // Ehel is the heliocentric position of Earth along South and West at time t
+			Ehel[1] += Ear[i] * tang[i];
+		}
+		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t+lighttravel - t0_par-lighttravel0); // Earth shift along South wrt extrapolation from t0_par
+		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t+lighttravel - t0_par-lighttravel0); // Earth shift along West wrt extrapolation from t0_par
+
 	}
 	else {
-
+		// Calculation with Kepler equation
 		if (t0_par != t0old) {
 			t0old = t0_par;
 			ty = (t0_par - 1545) / 36525.0;
@@ -6515,8 +6698,20 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 			EE = M + e * sin(M);
 			dE = 1;
+			dLtof = 0;
 			while (fabs(dE) > 1.e-8) {
-				dM = M - (EE - e * sin(EE));
+				if (t_in_HJD) {
+					// Correction to calculate Earth position at JD not HJD
+					x1 = a * (cos(EE) - e);
+					y1 = a * sqrt(1 - e * e) * sin(EE);
+					Ear[0] = x1 * cos(om) - y1 * sin(om);
+					Ear[1] = x1 * sin(om) * cos(inc) + y1 * cos(om) * cos(inc);
+					Ear[2] = x1 * sin(om) * sin(inc) + y1 * cos(om) * sin(inc);
+					dLtof = 0;
+					for (int i = 0; i < 3; i++) dLtof -= Ear[i] * Obj[i];
+					dLtof *= dtflight;
+				}
+				dM = M + dLtof - (EE - e * sin(EE));
 				dE = dM / (1 - e * cos(EE));
 				EE += dE;
 			}
@@ -6535,33 +6730,30 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			// Ear is the Earth position in AU in ecliptic coordinates  at time t0_par
 			// vEar is the Earth velocity vector in AU/day in ecliptic coordinates at time t0_par
 
-			sp = 0;
-			switch (parallaxsystem) {
-			case 1:
-				for (int i = 0; i < 3; i++) sp += North2000[i] * Obj[i];
-				for (int i = 0; i < 3; i++) rad[i] = -North2000[i] + sp * Obj[i];
-				break;
-			default:
+			if (parallaxsystem != 1) {
+				sp = 0;
 				for (int i = 0; i < 3; i++) sp += Ear[i] * Obj[i];
 				for (int i = 0; i < 3; i++) rad[i] = Ear[i] - sp * Obj[i];
-				break;
+				r = sqrt(rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]); // Celestial South projected orthogonal to LOS
+				rad[0] /= r;
+				rad[1] /= r;
+				rad[2] /= r;
+				tang[0] = rad[1] * Obj[2] - rad[2] * Obj[1]; // Celestial West projected orthogonal to LOS
+				tang[1] = rad[2] * Obj[0] - rad[0] * Obj[2];
+				tang[2] = rad[0] * Obj[1] - rad[1] * Obj[0];
 			}
 
-			r = sqrt(rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]); // Celestial South projected orthogonal to LOS
-			rad[0] /= r;
-			rad[1] /= r;
-			rad[2] /= r;
-			tang[0] = rad[1] * Obj[2] - rad[2] * Obj[1]; // Celestial West projected orthogonal to LOS
-			tang[1] = rad[2] * Obj[0] - rad[0] * Obj[2];
-			tang[2] = rad[0] * Obj[1] - rad[1] * Obj[0];
 
 			Et0[0] = Et0[1] = vt0[0] = vt0[1] = 0;
+			lighttravel0 = 0;
 			for (int i = 0; i < 3; i++) {
 				Et0[0] += Ear[i] * rad[i];           // Earth position projected along South at time t0_par
 				Et0[1] += Ear[i] * tang[i];          // Earth position projected along West at time t0_par
+				lighttravel0 += Ear[i] * Obj[i];
 				vt0[0] += vEar[i] * rad[i];          // Earth velocity projected along South at time t0_par
 				vt0[1] += vEar[i] * tang[i];		// Earth velocity projected along West at time t0_par
 			}
+			lighttravel0 *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
 		}
 
 		ty = (t - 1545) / 36525.0;
@@ -6577,8 +6769,21 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 		EE = M + e * sin(M);
 		dE = 1;
-		while (dE > 1.e-8) {
-			dM = M - (EE - e * sin(EE));
+		dLtof = 0;
+		while (fabs(dE) > 1.e-8) {
+			if (t_in_HJD) {
+				// Correction to calculate Earth position at JD not HJD
+				x1 = a * (cos(EE) - e);
+				y1 = a * sqrt(1 - e * e) * sin(EE);
+				Ear[0] = x1 * cos(om) - y1 * sin(om);
+				Ear[1] = x1 * sin(om) * cos(inc) + y1 * cos(om) * cos(inc);
+				Ear[2] = x1 * sin(om) * sin(inc) + y1 * cos(om) * sin(inc);
+				dLtof = 0;
+				for (int i = 0; i < 3; i++) dLtof -= Ear[i] * Obj[i];
+				dLtof *= dtflight;
+			}
+
+			dM = M + dLtof - (EE - e * sin(EE));
 			dE = dM / (1 - e * cos(EE));
 			EE += dE;
 		}
@@ -6593,45 +6798,68 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 		Ear[2] = x1 * sin(om) * sin(inc) + y1 * cos(om) * sin(inc);
 		// Ear is the Earth position in AU in ecliptic coordinates  at time t
 
-		Ehel[0] = Ehel[1] = 0;
+		Ehel[0] = Ehel[1] = lighttravel = 0;
 		for (int i = 0; i < 3; i++) {
 			Ehel[0] += Ear[i] * rad[i]; // Ehel is the heliocentric position of Earth along South and West at time t
 			Ehel[1] += Ear[i] * tang[i];
+			lighttravel += Ear[i] * Obj[i];
 		}
-		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t - t0_par); // Earth shift along South wrt extrapolation from t0_par
-		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t - t0_par); // Earth shift along West wrt extrapolation from t0_par
+		lighttravel *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
+		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t + lighttravel - t0_par - lighttravel0); // Earth shift along South wrt extrapolation from t0_par
+		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t + lighttravel - t0_par - lighttravel0); // Earth shift along West wrt extrapolation from t0_par
 
-		if (satellite > 0 && satellite <= nsat) {
-			if (ndatasat[satellite - 1] > 2) {
-				int left, right;
-				if (t < tsat[satellite - 1][0]) {
-					ic = 0;
+	}
+
+
+	//// For debugging: writes Sun coordinates from Earth to file for comparison with exact ephemerides.
+	//{
+	//	FILE* f = fopen("C:\\Users\\valboz\\Personali\\MicroModels\\test-dev\\ephemeris_test\\outapp.txt", "a");
+	//	double RA, Dec, ran,x,y,z;
+	//	ran = a * (1 - e * cos(EE));
+	//	z = x = y = 0;
+	//	for (int i = 0; i < 3; i++) z += Ear[i] * North2000[i];
+	//	for (int i = 0; i < 3; i++) x += Ear[i] * Eq2000[i];
+	//	for (int i = 0; i < 3; i++) y += Ear[i] * Quad2000[i];
+	//	Dec = -asin(z / ran)/deg;
+	//	RA = 180 + atan2(y, x)/deg;
+	//	if (RA < 0) RA += 360;
+	//	fprintf(f,"%lf %lf %lf %lf\n", t, RA, Dec, ran);
+	//	fclose(f);
+	//}
+
+
+	if (satellite > 0 && satellite <= nsat) {
+		if (ndatasat[satellite - 1] > 2) {
+			int left, right;
+			if (t < tsat[satellite - 1][0]) {
+				ic = 0;
+				parallaxextrapolation = 2;
+			}
+			else {
+				if (t > tsat[satellite - 1][ndatasat[satellite - 1] - 1]) {
+					ic = ndatasat[satellite - 1] - 2;
+					parallaxextrapolation = 2;
 				}
 				else {
-					if (t > tsat[satellite - 1][ndatasat[satellite - 1] - 1]) {
-						ic = ndatasat[satellite - 1] - 2;
-					}
-					else {
-						left = 0;
-						right = ndatasat[satellite - 1] - 1;
-						while (right - left > 1) {
-							ic = (right + left) / 2;
-							if (tsat[satellite - 1][ic] > t) {
-								right = ic;
-							}
-							else {
-								left = ic;
-							}
+					left = 0;
+					right = ndatasat[satellite - 1] - 1;
+					while (right - left > 1) {
+						ic = (right + left) / 2;
+						if (tsat[satellite - 1][ic] > t) {
+							right = ic;
 						}
-						ic = left;
+						else {
+							left = ic;
+						}
 					}
+					ic = left;
 				}
-				ty = (t - tsat[satellite - 1][ic]) / (tsat[satellite - 1][ic + 1] - tsat[satellite - 1][ic]);
-				for (int i = 0; i < 3; i++) {
-					Spit = possat[satellite - 1][ic][i] * (1 - ty) + possat[satellite - 1][ic + 1][i] * ty;
-					Et[0] += Spit * rad[i];
-					Et[1] += Spit * tang[i];
-				}
+			}
+			ty = (t - tsat[satellite - 1][ic])/(tsat[satellite - 1][ic+1]- tsat[satellite - 1][ic]);
+			for (int i = 0; i < 3; i++) {
+				Spit = possat[satellite - 1][ic][i] * (1 - ty) + possat[satellite - 1][ic + 1][i] * ty;
+				Et[0] += Spit * rad[i];
+				Et[1] += Spit * tang[i];
 			}
 		}
 	}
@@ -6652,7 +6880,7 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 _sols* VBMicrolensing::PlotCrit() {
-	VBMcomplex ej, y, z;
+	VBcomplex ej, y, z;
 	int NPS = 200;
 	_sols* CriticalCurves;
 	_curve* Prov, * Prov2, * isso;
@@ -6666,7 +6894,7 @@ _sols* VBMicrolensing::PlotCrit() {
 	}
 
 	for (int j = 0; j < NPcrit; j++) {
-		ej = VBMcomplex(cos(2 * j * M_PI / NPcrit), -sin(2 * j * M_PI / NPcrit));
+		ej = VBcomplex(cos(2 * j * M_PI / NPcrit), -sin(2 * j * M_PI / NPcrit));
 		polycritcoefficients(ej);
 		cmplx_roots_gen(zcr, coefs, 2 * n, true, true);
 		if (j > 0) {
@@ -6715,7 +6943,7 @@ _sols* VBMicrolensing::PlotCrit() {
 	for (Prov = CriticalCurves->last; Prov; Prov = Prov->prev) {
 		Prov2 = new _curve;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
-			y = z = VBMcomplex(scanpoint->x1 - s_offset->re, scanpoint->x2 - s_offset->im);
+			y = z = VBcomplex(scanpoint->x1 - s_offset->re, scanpoint->x2 - s_offset->im);
 			for (int i = 0; i < n; i++) {
 				y = y - m[i] / conj(z - a[i]);
 			}
@@ -6727,15 +6955,15 @@ _sols* VBMicrolensing::PlotCrit() {
 }
 
 _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
-	VBMcomplex  a, q, ej, zr[4], x1, x2;
+	VBcomplex  a, q, ej, zr[4], x1, x2;
 	int NPS = 200;
 	_sols* CriticalCurves;
 	_curve* Prov, * Prov2, * isso;
 	_point* pisso;
 	double SD, MD, CD, centeroffset;
 
-	a = VBMcomplex(a1, 0.0);
-	q = VBMcomplex(q1, 0.0);
+	a = VBcomplex(a1, 0.0);
+	q = VBcomplex(q1, 0.0);
 	centeroffset = a1 / 2.0 * (1.0 - q1) / (1.0 + q1);
 
 	CriticalCurves = new _sols;
@@ -6745,8 +6973,8 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 	}
 
 	for (int j = 0; j < NPcrit; j++) {
-		ej = VBMcomplex(cos(2 * j * M_PI / NPcrit), -sin(2 * j * M_PI / NPcrit));
-		VBMcomplex  coefs[5] = { a * a / 16.0 * (4.0 - a * a * ej) * (1.0 + q),a * (q - 1.0),(q + 1.0) * (1.0 + a * a * ej / 2.0),0.0,-(1.0 + q) * ej };
+		ej = VBcomplex(cos(2 * j * M_PI / NPcrit), -sin(2 * j * M_PI / NPcrit));
+		VBcomplex  coefs[5] = { a * a / 16.0 * (4.0 - a * a * ej) * (1.0 + q),a * (q - 1.0),(q + 1.0) * (1.0 + a * a * ej / 2.0),0.0,-(1.0 + q) * ej };
 		cmplx_roots_gen(zr, coefs, 4, true, true);
 		if (j > 0) {
 			Prov2 = new _curve();
@@ -6794,8 +7022,8 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 	for (Prov = CriticalCurves->last; Prov; Prov = Prov->prev) {
 		Prov2 = new _curve;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
-			x1 = VBMcomplex(scanpoint->x1 - centeroffset, 0.0);
-			x2 = VBMcomplex(scanpoint->x2, 0.0);
+			x1 = VBcomplex(scanpoint->x1 - centeroffset, 0.0);
+			x2 = VBcomplex(scanpoint->x2, 0.0);
 			Prov2->append(real(_L_1) + centeroffset, real(_L_2));
 		}
 		CriticalCurves->append(Prov2);
@@ -6815,7 +7043,7 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 //////////////////////////////
 
 
-void VBMicrolensing::polyproduct(VBMcomplex* __restrict p1, int n1, VBMcomplex* __restrict p2, int n2, VBMcomplex* __restrict pdest) {
+void VBMicrolensing::polyproduct(VBcomplex* __restrict p1, int n1, VBcomplex* __restrict p2, int n2, VBcomplex* __restrict pdest) {
 	// polynomials are with increasing degree: p1[0]+p1[1]*z+p1[2]*z^2 + ...
 	for (int i = 0; i <= n1 + n2; i++) pdest[i] = 0;
 	for (int i = 0; i <= n1; i++) {
@@ -6825,7 +7053,7 @@ void VBMicrolensing::polyproduct(VBMcomplex* __restrict p1, int n1, VBMcomplex* 
 	}
 }
 
-void VBMicrolensing::copypol(VBMcomplex* __restrict p1, int n1, VBMcomplex* __restrict pdest) {
+void VBMicrolensing::copypol(VBcomplex* __restrict p1, int n1, VBcomplex* __restrict pdest) {
 	for (int i = 0; i <= n1; i++) {
 
 		pdest[i] = p1[i];
@@ -6969,29 +7197,29 @@ void VBMicrolensing::change_n(int nn) {
 	n2 = n * n;
 	nnm1 = n2 - n;
 	nroots = 2 * n2 + 1;
-	coefs = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
-	pmza = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	pmza2 = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	pyaza = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	ppmy = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	za = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	za2 = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
+	coefs = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
+	pmza = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	pmza2 = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	pyaza = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	ppmy = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	za = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	za2 = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int i = 0; i < n; i++) {
-		pmza[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
-		pmza2[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * n - 1));
-		pyaza[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-		ppmy[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nnm1 + 1));
-		za[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-		za2[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
+		pmza[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
+		pmza2[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * n - 1));
+		pyaza[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+		ppmy[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1 + 1));
+		za[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+		za2[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 	}
 
-	pza = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-	pza2 = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * n + 1));
-	pdum = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
-	ppy = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
+	pza = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+	pza2 = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * n + 1));
+	pdum = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
+	ppy = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
 
-	zr = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	zcr = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * n));
+	zr = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	zcr = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * n));
 	for (int i = 0; i < nroots; i++) {
 		zr[i] = 0;
 	}
@@ -7002,24 +7230,24 @@ void VBMicrolensing::change_n(int nn) {
 
 	good = (double*)malloc(sizeof(double) * (nroots));
 	Jacs = (double*)malloc(sizeof(double) * (nroots));
-	J1 = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	J1c = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	zaltc = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
+	J1 = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	J1c = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	zaltc = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 	worst = (int*)malloc(sizeof(int) * (nroots));
-	pert = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
+	pert = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
 
 	m = (double*)malloc(sizeof(double) * n);
-	a = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
+	a = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
 	prodevs = (double*)malloc(sizeof(double) * n);
-	devs = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
-	init = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-	centralimages = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nnm1) / 2);
+	devs = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
+	init = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+	centralimages = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1) / 2);
 	errs = (double*)malloc(sizeof(double) * nroots);
-	newseeds = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * nroots));
-	grads = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	S2s = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	S3s = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	S4s = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
+	newseeds = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * nroots));
+	grads = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	S2s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	S3s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	S4s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 
 
 	cprec = (_skiplist_curve**)malloc(sizeof(_skiplist_curve*) * nroots);
@@ -7144,71 +7372,71 @@ void VBMicrolensing::change_n_mp(int nn) {
 	nrootsmp_mp = (int*)malloc(sizeof(int) * n);
 
 	q_sort = (double*)malloc(sizeof(double) * n);
-	s_sort = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
-	y_mp = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
+	s_sort = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
+	y_mp = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
 
 	m_mp = (double**)malloc(sizeof(double*) * n);
-	a_mp = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
+	a_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int i = 0; i < n; i++) {
 		m_mp[i] = (double*)malloc(sizeof(double) * n);
-		a_mp[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
+		a_mp[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
 	}
 
-	coefs_mp = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	pza_mp = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	ppy_mp = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
+	coefs_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	pza_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	ppy_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int j = 0; j < n; j++) {
-		coefs_mp[j] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
-		pza_mp[j] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-		ppy_mp[j] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
+		coefs_mp[j] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
+		pza_mp[j] = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+		ppy_mp[j] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
 	}
 
-	pmza_mp = (VBMcomplex***)malloc(sizeof(VBMcomplex**) * n);
-	pyaza_mp = (VBMcomplex***)malloc(sizeof(VBMcomplex**) * n);
-	ppmy_mp = (VBMcomplex***)malloc(sizeof(VBMcomplex**) * n);
+	pmza_mp = (VBcomplex***)malloc(sizeof(VBcomplex**) * n);
+	pyaza_mp = (VBcomplex***)malloc(sizeof(VBcomplex**) * n);
+	ppmy_mp = (VBcomplex***)malloc(sizeof(VBcomplex**) * n);
 	for (int j = 0; j < n; j++) {
-		pmza_mp[j] = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-		pyaza_mp[j] = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-		ppmy_mp[j] = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
+		pmza_mp[j] = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+		pyaza_mp[j] = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+		ppmy_mp[j] = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 		for (int i = 0; i < n; i++) {
-			pmza_mp[j][i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
-			pyaza_mp[j][i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-			ppmy_mp[j][i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nnm1 + 1));
+			pmza_mp[j][i] = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
+			pyaza_mp[j][i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+			ppmy_mp[j][i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1 + 1));
 		}
 	}
 	dist_mp = (double*)malloc(sizeof(double) * n);
 
-	zr_mp = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
+	zr_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int j = 0; j < n; j++) {
-		zr_mp[j] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * nroots);
+		zr_mp[j] = (VBcomplex*)malloc(sizeof(VBcomplex) * nroots);
 		for (int i = 0; i < n; i++) {
 			zr_mp[j][i] = 0;
 		}
 	}
 
-	coefs = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
-	pmza = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	pmza2 = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	pyaza = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	ppmy = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	za = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
-	za2 = (VBMcomplex**)malloc(sizeof(VBMcomplex*) * n);
+	coefs = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
+	pmza = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	pmza2 = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	pyaza = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	ppmy = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	za = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
+	za2 = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int i = 0; i < n; i++) {
-		pmza[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
-		pmza2[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * n - 1));
-		pyaza[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-		ppmy[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nnm1 + 1));
-		za[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-		za2[i] = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
+		pmza[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
+		pmza2[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * n - 1));
+		pyaza[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+		ppmy[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1 + 1));
+		za[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+		za2[i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 	}
 
-	pza = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-	pza2 = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * n + 1));
-	pdum = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
-	ppy = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots + 1));
+	pza = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+	pza2 = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * n + 1));
+	pdum = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
+	ppy = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots + 1));
 
-	zr = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	zcr = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * n));
+	zr = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	zcr = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * n));
 	for (int i = 0; i < nroots; i++) {
 		zr[i] = 0;
 	}
@@ -7219,21 +7447,21 @@ void VBMicrolensing::change_n_mp(int nn) {
 
 	good = (double*)malloc(sizeof(double) * (nroots));
 	Jacs = (double*)malloc(sizeof(double) * (nroots));
-	J1 = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	J1c = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
-	zaltc = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
+	J1 = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	J1c = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	zaltc = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 	worst = (int*)malloc(sizeof(int) * (nroots));
-	pert = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
+	pert = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
 
 	m = (double*)malloc(sizeof(double) * n);
-	a = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
+	a = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
 	prodevs = (double*)malloc(sizeof(double) * n);
-	devs = (VBMcomplex*)malloc(sizeof(VBMcomplex) * n);
-	init = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (n + 1));
-	centralimages = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nnm1) / 2);
+	devs = (VBcomplex*)malloc(sizeof(VBcomplex) * n);
+	init = (VBcomplex*)malloc(sizeof(VBcomplex) * (n + 1));
+	centralimages = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1) / 2);
 	errs = (double*)malloc(sizeof(double) * nroots);
-	newseeds = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (2 * nroots));
-	grads = (VBMcomplex*)malloc(sizeof(VBMcomplex) * (nroots));
+	newseeds = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * nroots));
+	grads = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 
 
 	cprec = (_skiplist_curve**)malloc(sizeof(_skiplist_curve*) * nroots);
@@ -7246,9 +7474,9 @@ void VBMicrolensing::change_n_mp(int nn) {
 	}
 }
 
-void VBMicrolensing::polycritcoefficients(VBMcomplex eiphi) {
+void VBMicrolensing::polycritcoefficients(VBcomplex eiphi) {
 	static int dg;
-	static VBMcomplex pbin[3];
+	static VBcomplex pbin[3];
 
 	for (int i = 0; i < n; i++) {
 		pmza2[i][0] = m[i];
@@ -7287,7 +7515,7 @@ void VBMicrolensing::polycritcoefficients(VBMcomplex eiphi) {
 void VBMicrolensing::polycoefficients() {
 
 	static int dg;
-	static VBMcomplex pbin[2], lam;
+	static VBcomplex pbin[2], lam;
 
 
 	for (int k = 0; k < n; k++) {
@@ -7347,7 +7575,7 @@ void VBMicrolensing::polycoefficients() {
 void VBMicrolensing::polycoefficients_multipoly() {
 
 	static int dg;
-	static VBMcomplex pbin[2], lam;
+	static VBcomplex pbin[2], lam;
 
 	for (int l = 0; l < n; l++) {
 		for (int i = 0; i < nnm1 + 1; i++) {
@@ -7423,7 +7651,7 @@ void VBMicrolensing::polycoefficients_multipoly() {
 // See copyright notice for these functions
 
 
-void VBMicrolensing::cmplx_roots_gen(VBMcomplex* roots, VBMcomplex* poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
+void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
 	//roots - array which will hold all roots that had been found.
 	//If the flag 'use_roots_as_starting_points' is set to
 	//.true., then instead of point(0, 0) we use value from
@@ -7446,16 +7674,16 @@ void VBMicrolensing::cmplx_roots_gen(VBMcomplex* roots, VBMcomplex* poly, int de
 	//very rough idea where some of the roots can be.
 	//
 
-	static VBMcomplex poly2[MAXM];
+	static VBcomplex poly2[MAXM];
 	static int i, j, n, iter;
 	static bool success;
-	static VBMcomplex coef, prev;
+	static VBcomplex coef, prev;
 	static int ismallest;
 	static double abssmall;
 
 	if (!use_roots_as_starting_points) {
 		for (int jj = 0; jj < degree; jj++) {
-			roots[jj] = VBMcomplex(0, 0);
+			roots[jj] = VBcomplex(0, 0);
 		}
 	}
 
@@ -7483,7 +7711,7 @@ void VBMicrolensing::cmplx_roots_gen(VBMcomplex* roots, VBMcomplex* poly, int de
 		// Find root
 		cmplx_laguerre2newton(poly2, n, &roots[n - 1], iter, success, 2);
 		if (!success) {
-			roots[n - 1] = VBMcomplex(0, 0);
+			roots[n - 1] = VBcomplex(0, 0);
 			cmplx_laguerre(poly2, n, &roots[n - 1], iter, success);
 		}
 
@@ -7517,20 +7745,20 @@ void VBMicrolensing::cmplx_roots_gen(VBMcomplex* roots, VBMcomplex* poly, int de
 	return;
 }
 
-void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
+void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
 
-	static VBMcomplex poly2[MAXM];
+	static VBcomplex poly2[MAXM];
 	static int l, j, i, k, ind, degreenew, croots, m;
 	static double dif0, br;
 	static bool success;
-	static VBMcomplex coef, prev, przr;
+	static VBcomplex coef, prev, przr;
 
 
 	//	n = (int) round(sqrt(degree - 1));
 	for (l = 0; l < n; l++) nrootsmp_mp[l] = 0;
 	for (l = 0; l < n; l++) {
 		for (i = 0; i < degree; i++) {
-			zr_mp[l][i] = VBMcomplex(0., 0.);
+			zr_mp[l][i] = VBcomplex(0., 0.);
 		}
 	}
 	//Cycle reference systems
@@ -7550,7 +7778,7 @@ void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, 
 			for (m = degree; m >= 3; m--) {
 				cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
 				if (!success) {
-					zr_mp[l][m - 1] = VBMcomplex(0, 0);
+					zr_mp[l][m - 1] = VBcomplex(0, 0);
 					cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
 				}
 				nrootsmp_mp[l]++;
@@ -7559,7 +7787,7 @@ void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, 
 				for (i = 1; i < n; i++) {
 					if (abs2(zr_mp[l][m - 1] - a_mp[l][i]) < dif0) {
 						dist_mp[l] = abs2(zr_mp[l][m - 1] - a_mp[l][i]);
-						zr_mp[l][m - 1] = VBMcomplex(0, 0);
+						zr_mp[l][m - 1] = VBcomplex(0, 0);
 						br = true;
 						nrootsmp_mp[l]--;
 						break;
@@ -7582,7 +7810,7 @@ void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, 
 			for (i = 1; i < n; i++) {
 				if (abs2(zr_mp[l][1] - a_mp[l][i]) < abs2(zr_mp[l][1])) {
 					zr_mp[l][1] = zr_mp[l][0];
-					zr_mp[l][0] = VBMcomplex(0, 0);
+					zr_mp[l][0] = VBcomplex(0, 0);
 					dist_mp[l] = abs2(zr_mp[l][1] - a_mp[l][i]);
 					nrootsmp_mp[l]--;
 					break;
@@ -7591,7 +7819,7 @@ void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, 
 			k = degree - nrootsmp_mp[l];
 			for (i = 1; i < n; i++) {
 				if (abs2(zr_mp[l][k] - a_mp[l][i]) < abs2(zr_mp[l][k])) {
-					zr_mp[l][k] = VBMcomplex(0, 0);
+					zr_mp[l][k] = VBcomplex(0, 0);
 					nrootsmp_mp[l]--;
 					break;
 				}
@@ -7636,7 +7864,7 @@ void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, 
 			for (m = degreenew; m >= 3; m--) {
 				cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
 				if (!success) {
-					zr_mp[l][m - 1] = VBMcomplex(0, 0);
+					zr_mp[l][m - 1] = VBcomplex(0, 0);
 					cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
 				}
 				nrootsmp_mp[l] += 1;
@@ -7671,8 +7899,8 @@ void VBMicrolensing::cmplx_roots_multigen(VBMcomplex* roots, VBMcomplex** poly, 
 	return;
 }
 
-void VBMicrolensing::solve_quadratic_eq(VBMcomplex& x0, VBMcomplex& x1, VBMcomplex* poly) {
-	static VBMcomplex a, b, c, b2, delta;
+void VBMicrolensing::solve_quadratic_eq(VBcomplex& x0, VBcomplex& x1, VBcomplex* poly) {
+	static VBcomplex a, b, c, b2, delta;
 	a = poly[2];
 	b = poly[1];
 	c = poly[0];
@@ -7684,8 +7912,8 @@ void VBMicrolensing::solve_quadratic_eq(VBMcomplex& x0, VBMcomplex& x1, VBMcompl
 	else {
 		x0 = -0.5 * (b - delta);
 	}
-	if (x0 == VBMcomplex(0., 0.)) {
-		x1 = VBMcomplex(0., 0.);
+	if (x0 == VBcomplex(0., 0.)) {
+		x1 = VBcomplex(0., 0.);
 	}
 	else { //Viete's formula
 		x1 = c / x0;
@@ -7695,22 +7923,22 @@ void VBMicrolensing::solve_quadratic_eq(VBMcomplex& x0, VBMcomplex& x1, VBMcompl
 
 }
 
-void VBMicrolensing::solve_cubic_eq(VBMcomplex& x0, VBMcomplex& x1, VBMcomplex& x2, VBMcomplex* poly) {
+void VBMicrolensing::solve_cubic_eq(VBcomplex& x0, VBcomplex& x1, VBcomplex& x2, VBcomplex* poly) {
 	//Cubic equation solver for comples polynomial (degree=3)
 	//http://en.wikipedia.org/wiki/Cubic_function   Lagrange's method
 	// poly is an array of polynomial cooefs, length = degree+1, poly[0] is constant
 	//	0				1				2			3
 	//poly[0] x^0 + poly[1] x^1 + poly[2] x^2 + poly[3] x^3
-	static VBMcomplex zeta = VBMcomplex(-0.5, 0.8660254037844386);
-	static VBMcomplex zeta2 = VBMcomplex(-0.5, -0.8660254037844386);
+	static VBcomplex zeta = VBcomplex(-0.5, 0.8660254037844386);
+	static VBcomplex zeta2 = VBcomplex(-0.5, -0.8660254037844386);
 	static double third = 0.3333333333333333;
-	static VBMcomplex s0, s1, s2;
-	static VBMcomplex E1; //x0+x1+x2
-	static VBMcomplex E2; //x0*x1+x1*x2+x2*x0
-	static VBMcomplex E3; //x0*x1*x2
-	static VBMcomplex A, B, a_1, E12, delta, A2;
+	static VBcomplex s0, s1, s2;
+	static VBcomplex E1; //x0+x1+x2
+	static VBcomplex E2; //x0*x1+x1*x2+x2*x0
+	static VBcomplex E3; //x0*x1*x2
+	static VBcomplex A, B, a_1, E12, delta, A2;
 
-	static VBMcomplex val, x;
+	static VBcomplex val, x;
 	a_1 = 1 / poly[3];
 	E1 = -poly[2] * a_1;
 	E2 = poly[1] * a_1;
@@ -7731,7 +7959,7 @@ void VBMicrolensing::solve_cubic_eq(VBMcomplex& x0, VBMcomplex& x1, VBMcomplex& 
 		s1 = cbrt(0.5 * (A - delta));
 	}
 	if (s1.re == 0.0 && s1.im == 0.0) {
-		s2 = VBMcomplex(0, 0);
+		s2 = VBcomplex(0, 0);
 	}
 	else {
 		s2 = B / s1;
@@ -7745,8 +7973,8 @@ void VBMicrolensing::solve_cubic_eq(VBMcomplex& x0, VBMcomplex& x1, VBMcomplex& 
 
 }
 
-void VBMicrolensing::cmplx_laguerre(VBMcomplex* poly, int degree, VBMcomplex* root, int& iter, bool& success) {
-	//Subroutine finds one root of a VBMcomplex polynomial using
+void VBMicrolensing::cmplx_laguerre(VBcomplex* poly, int degree, VBcomplex* root, int& iter, bool& success) {
+	//Subroutine finds one root of a VBcomplex polynomial using
 	//Laguerre's method. In every loop it calculates simplified 
 	//Adams' stopping criterion for the value of the polynomial.
 	//
@@ -7781,15 +8009,15 @@ void VBMicrolensing::cmplx_laguerre(VBMcomplex* poly, int degree, VBMcomplex* ro
 
 	static double faq; //jump length
 	static double FRAC_ERR = 2.0e-15; //Fractional Error for double precision
-	static VBMcomplex p, dp, d2p_half; //value of polynomial, 1st derivative, and 2nd derivative
+	static VBcomplex p, dp, d2p_half; //value of polynomial, 1st derivative, and 2nd derivative
 	static int i, j, k;
 	static bool good_to_go;
-	static VBMcomplex denom, denom_sqrt, dx, newroot;
+	static VBcomplex denom, denom_sqrt, dx, newroot;
 	static double ek, absroot, abs2p;
-	static VBMcomplex fac_newton, fac_extra, F_half, c_one_nth;
+	static VBcomplex fac_newton, fac_extra, F_half, c_one_nth;
 	static double one_nth, n_1_nth, two_n_div_n_1;
-	static VBMcomplex c_one = VBMcomplex(1, 0);
-	static VBMcomplex zero = VBMcomplex(0, 0);
+	static VBcomplex c_one = VBcomplex(1, 0);
+	static VBcomplex zero = VBcomplex(0, 0);
 	static double stopping_crit2;
 
 	//--------------------------------------------------------------------------------------------
@@ -7800,7 +8028,7 @@ void VBMicrolensing::cmplx_laguerre(VBMcomplex* poly, int degree, VBMcomplex* ro
 			printf("Error: cmplx_laguerre: degree<0");
 			return;
 		}
-		if (poly[degree] == VBMcomplex(0, 0)) {
+		if (poly[degree] == VBcomplex(0, 0)) {
 			if (degree == 0) return;
 			cmplx_laguerre(poly, degree - 1, root, iter, success);
 		}
@@ -7821,7 +8049,7 @@ void VBMicrolensing::cmplx_laguerre(VBMcomplex* poly, int degree, VBMcomplex* ro
 	one_nth = 1.0 / degree;
 	n_1_nth = (degree - 1.0) * one_nth;
 	two_n_div_n_1 = 2.0 / n_1_nth;
-	c_one_nth = VBMcomplex(one_nth, 0.0);
+	c_one_nth = VBcomplex(one_nth, 0.0);
 	for (i = 1; i <= MAXIT; i++) {
 		ek = abs(poly[degree]); // Preparing stopping criterion
 		absroot = abs(*root);
@@ -7871,7 +8099,7 @@ void VBMicrolensing::cmplx_laguerre(VBMcomplex* poly, int degree, VBMcomplex* ro
 		}
 
 		if (denom == 0) {
-			dx = (absroot + 1.0) * expcmplx(VBMcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI));
+			dx = (absroot + 1.0) * expcmplx(VBcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI));
 		}
 		else {
 			dx = fac_newton / denom;
@@ -7894,8 +8122,8 @@ void VBMicrolensing::cmplx_laguerre(VBMcomplex* poly, int degree, VBMcomplex* ro
 	return;
 }
 
-void VBMicrolensing::cmplx_newton_spec(VBMcomplex* poly, int degree, VBMcomplex* root, int& iter, bool& success) {
-	//Subroutine finds one root of a VBMcomplex polynomial
+void VBMicrolensing::cmplx_newton_spec(VBcomplex* poly, int degree, VBcomplex* root, int& iter, bool& success) {
+	//Subroutine finds one root of a VBcomplex polynomial
 	//Newton's method. It calculates simplified Adams' stopping 
 	//criterion for the value of the polynomial once per 10 iterations (!),
 	//after initial iteration. This is done to speed up calculations
@@ -7926,13 +8154,13 @@ void VBMicrolensing::cmplx_newton_spec(VBMcomplex* poly, int degree, VBMcomplex*
 	static double FRAC_JUMPS[FRAC_JUMP_LEN] = { 0.64109297, 0.91577881, 0.25921289, 0.50487203, 0.08177045, 0.13653241, 0.306162, 0.37794326, 0.04618805, 0.75132137 }; //some random numbers
 	static double faq; //jump length
 	static double FRAC_ERR = 2e-15;
-	static VBMcomplex p; //value of polynomial
-	static VBMcomplex dp; //value of 1st derivative
+	static VBcomplex p; //value of polynomial
+	static VBcomplex dp; //value of 1st derivative
 	static int i, k;
 	static bool good_to_go;
-	static VBMcomplex dx, newroot;
+	static VBcomplex dx, newroot;
 	static double ek, absroot, abs2p;
-	static VBMcomplex zero = VBMcomplex(0, 0);
+	static VBcomplex zero = VBcomplex(0, 0);
 	static double stopping_crit2;
 
 	iter = 0;
@@ -8010,7 +8238,7 @@ void VBMicrolensing::cmplx_newton_spec(VBMcomplex* poly, int degree, VBMcomplex*
 		}
 		if (dp == zero) {
 			//problem with zero
-			dx = (abs(*root) + 1.0) * expcmplx(VBMcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI));
+			dx = (abs(*root) + 1.0) * expcmplx(VBcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI));
 		}
 		else {
 			dx = p / dp; // Newton method, see http://en.wikipedia.org/wiki/Newton's_method
@@ -8032,8 +8260,8 @@ void VBMicrolensing::cmplx_newton_spec(VBMcomplex* poly, int degree, VBMcomplex*
 	//too many iterations here
 }
 
-void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomplex* root, int& iter, bool& success, int starting_mode) {
-	//Subroutine finds one root of a VBMcomplex polynomial using
+void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomplex* root, int& iter, bool& success, int starting_mode) {
+	//Subroutine finds one root of a VBcomplex polynomial using
 	//Laguerre's method, Second-order General method and Newton's
 	//method - depending on the value of function F, which is a 
 	//combination of second derivative, first derivative and
@@ -8080,19 +8308,19 @@ void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomp
 	static double faq; //jump length
 	static double FRAC_ERR = 2.0e-15;
 
-	static VBMcomplex p; //value of polynomial
-	static VBMcomplex dp; //value of 1st derivative
-	static VBMcomplex d2p_half; //value of 2nd derivative
+	static VBcomplex p; //value of polynomial
+	static VBcomplex dp; //value of 1st derivative
+	static VBcomplex d2p_half; //value of 2nd derivative
 	static int i, j, k;
 	static bool good_to_go;
-	//VBMcomplex G, H, G2;
-	static VBMcomplex denom, denom_sqrt, dx, newroot;
+	//VBcomplex G, H, G2;
+	static VBcomplex denom, denom_sqrt, dx, newroot;
 	static double ek, absroot, abs2p, abs2_F_half;
-	static VBMcomplex fac_netwon, fac_extra, F_half, c_one_nth;
+	static VBcomplex fac_netwon, fac_extra, F_half, c_one_nth;
 	static double one_nth, n_1_nth, two_n_div_n_1;
 	static int mode;
-	static VBMcomplex c_one = VBMcomplex(1, 0);
-	static VBMcomplex zero = VBMcomplex(0, 0);
+	static VBcomplex c_one = VBcomplex(1, 0);
+	static VBcomplex zero = VBcomplex(0, 0);
 	static double stopping_crit2;
 
 	iter = 0;
@@ -8139,7 +8367,7 @@ void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomp
 			one_nth = 1.0 / (degree); ///
 			n_1_nth = (degree - 1) * one_nth; ////
 			two_n_div_n_1 = 2.0 / n_1_nth;
-			c_one_nth = VBMcomplex(one_nth, 0.0);
+			c_one_nth = VBcomplex(one_nth, 0.0);
 
 			for (i = 1; i <= MAXIT; i++) {
 				faq = 1.0;
@@ -8202,7 +8430,7 @@ void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomp
 					denom = c_one_nth + n_1_nth * denom_sqrt;		// denom = 1/n + (n-1)/n * sqrt( 1 - n/(n-1) * F(z) ), 
 				}
 				if (denom == zero) {//test if demoninators are > 0.0 not to divide by zero
-					dx = (abs(*root) + 1.0) + expcmplx(VBMcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI)); //make some random jump
+					dx = (abs(*root) + 1.0) + expcmplx(VBcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI)); //make some random jump
 				}
 				else {
 					dx = fac_netwon / denom;
@@ -8283,7 +8511,7 @@ void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomp
 					good_to_go = false; //reset if we are outside the zone of the root
 				}
 				if (dp == zero) {//test if denominators are > 0.0 not to divide by zero
-					dx = (abs(*root) + 1.0) * expcmplx(VBMcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI)); //make some random jump
+					dx = (abs(*root) + 1.0) * expcmplx(VBcomplex(0.0, FRAC_JUMPS[i % FRAC_JUMP_LEN] * 2 * M_PI)); //make some random jump
 				}
 				else {
 					fac_netwon = p / dp;
@@ -8363,7 +8591,7 @@ void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomp
 				}
 
 				if (dp == zero) {
-					dx = (abs(*root) + 1.0) * expcmplx(VBMcomplex(0.0, 2 * M_PI * FRAC_JUMPS[i % FRAC_JUMP_LEN])); // make a random jump
+					dx = (abs(*root) + 1.0) * expcmplx(VBcomplex(0.0, 2 * M_PI * FRAC_JUMPS[i % FRAC_JUMP_LEN])); // make a random jump
 				}
 				else {
 					dx = p / dp;
@@ -8387,6 +8615,277 @@ void VBMicrolensing::cmplx_laguerre2newton(VBMcomplex* poly, int degree, VBMcomp
 
 	}/// end of infinite loop
 }
+
+#define _Jacobians1_shear \
+        z=conj(zr[i]);\
+        dza=z-coefs[20];\
+        za2 = dza*dza;\
+        zb2=z*z;\
+        J1= coefs[21]/za2+coefs[22]/zb2 - coefs[27];\
+        J1c=conj(J1);\
+        dJ=(1-coefs[26])*(1-coefs[26])-J1*J1c;\
+        J2=-2.*(coefs[21]/(za2*dza)+coefs[22]/(zb2*z));
+
+#define _LL_shear (y-(1.0-coefs[26])*z)+coefs[27]*zc+coefs[21]/(zc-coefs[20])+coefs[22]/zc //Lens equation test
+
+double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi, _sols **Images) {
+	// by Lawrence Pierson (https://github.com/alpv95)
+	static VBcomplex a, q, m1, m2, y, yc, mdiff, mtot, K, G;
+	static double av = -1.0, qv = -1.0, Kv = -1.0, Gv = -1.0, Giv = -1.0, cq;
+	static VBcomplex  coefs[28], d1, d2, dy, dJ, dz;
+	double Mag = -1.0;
+	_theta *stheta;
+	_curve *Prov, *Prov2;
+	_point *scan1, *scan2;
+
+	stheta = new _theta(-1.);
+	if ((a1 != av) || (q1 != qv) || (K1 != Kv) || (G1 != Gv) || (Gi != Giv)) {
+		av = a1;
+		qv = q1;
+		Kv = K1;
+		Gv = G1;
+		Giv = Gi;
+		if (q1<1) {
+			a = VBcomplex(-a1, 0);
+			q = VBcomplex(q1, 0);
+		}
+		else {
+			a = VBcomplex(a1, 0);
+			q = VBcomplex(1 / q1, 0);
+		}
+		m1 = 1.0 / (1.0 + q);
+		m2 = q*m1;
+		mdiff = (m2 - m1) / 2; //this might be the opposite sign
+		mtot = (m2 + m1) / 2;
+		K = VBcomplex(K1,0);
+		G = VBcomplex(G1,Gi);
+
+
+		coefs[20] = a;
+		coefs[21] = m1;
+		coefs[22] = m2;
+		coefs[6] = a*a;
+		coefs[7] = coefs[6] * a;
+		coefs[8] = m2*m2;
+		coefs[9] = coefs[6] * coefs[8];
+		coefs[10] = a*m2;
+		coefs[11] = a*m1;
+		coefs[23] = 0;
+		coefs[24] = (m2 - m1) / 2;
+		coefs[25] = (m2 + m1) / 2;
+		coefs[26] = K;
+		coefs[27] = G;
+
+	}
+	y = VBcomplex(y1v, y2v);
+	(*Images) = new _sols;
+	corrquad = corrquad2 = 0;
+	safedist = 10;
+	Prov = NewImages_shear(y, coefs, stheta);
+	if (q.re < 0.01) {
+		safedist = y1v + coefs[11].re-1/a.re;
+		safedist *= safedist;
+		safedist += y2v*y2v - 36 * q1/(a1*a1);
+	}
+	Mag = 0.;
+	nim0 = 0;
+	for (scan1 = Prov->first; scan1; scan1 = scan2) {
+		scan2 = scan1->next;
+		Prov2 = new _curve(scan1);
+		(*Images)->append(Prov2);
+		Mag += fabs(1 / scan1->dJ);
+		nim0++;
+	}
+	Prov->length = 0;
+	delete Prov;
+	delete stheta;
+	return Mag;
+
+}
+
+double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi) {
+	_sols *images;
+	double mag;
+	mag = BinaryMag0_shear(a1, q1, y1v, y2v, K1, G1, Gi, &images);
+	delete images;
+	return mag;
+}
+
+_curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta *theta) {
+    // by Lawrence Pierson (https://github.com/alpv95)
+	static VBcomplex  y, yc, z, zc, Gc, J1, J1c, dy, dz, dJ,J2,J3,dza,za2,zb2,zaltc,Jalt,Jaltc,JJalt2;
+	static VBcomplex zr[9] = { 0.,0.,0.,0.,0.,0.,0.,0.,0.};
+	static double dzmax, dlmax = 1.0e-6, good[9], dJ2,ob2,cq;
+	static int worst1, worst2, worst3, bad, f1;
+	static double av = 0.0, m1v = 0.0, disim, disisso;
+	static _curve *Prov;
+	static _point *scan, *prin, *fifth, *left, *right, *center;
+
+#ifdef _PRINT_TIMES
+	static double tim0, tim1;
+#endif
+
+	y = yi + coefs[11]; // Coordinate transformation to centre of mass frame
+	yc = conj(y);
+	Gc = conj(coefs[27]);
+
+	coefs[9] = -coefs[27]*Gc*Gc*Gc + Gc*Gc*coefs[26]*coefs[26] - 2*Gc*Gc*coefs[26] + Gc*Gc;
+	coefs[8] = y*Gc*Gc*coefs[26] - y*Gc*Gc + 3*coefs[20]*coefs[27]*Gc*Gc*Gc - coefs[20]*coefs[27]*Gc*Gc*coefs[26] + coefs[20]*coefs[27]*Gc*Gc - 3*coefs[20]*Gc*Gc*coefs[26]*coefs[26] + 6*coefs[20]*Gc*Gc*coefs[26] - 3*coefs[20]*Gc*Gc + coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] - 3*coefs[20]*Gc*coefs[26]*coefs[26] + 3*coefs[20]*Gc*coefs[26] - coefs[20]*Gc - 3*coefs[27]*Gc*Gc*yc + 2*Gc*coefs[26]*coefs[26]*yc - 4*Gc*coefs[26]*yc + 2*Gc*yc;
+	coefs[7] = -6*coefs[25]*coefs[27]*Gc*Gc + 2*coefs[25]*Gc*coefs[26]*coefs[26] - 4*coefs[25]*Gc*coefs[26] + 2*coefs[25]*Gc - 3*y*coefs[20]*Gc*Gc*coefs[26] + 3*y*coefs[20]*Gc*Gc + y*coefs[20]*Gc*coefs[26]*coefs[26] - 2*y*coefs[20]*Gc*coefs[26] + y*coefs[20]*Gc + 2*y*Gc*coefs[26]*yc - 2*y*Gc*yc - 3*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*Gc + 3*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[26] - 3*coefs[20]*coefs[20]*coefs[27]*Gc*Gc + 3*coefs[20]*coefs[20]*Gc*Gc*coefs[26]*coefs[26] - 6*coefs[20]*coefs[20]*Gc*Gc*coefs[26] + 3*coefs[20]*coefs[20]*Gc*Gc - 3*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] + 9*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 9*coefs[20]*coefs[20]*Gc*coefs[26] + 3*coefs[20]*coefs[20]*Gc + 9*coefs[20]*coefs[27]*Gc*Gc*yc - 2*coefs[20]*coefs[27]*Gc*coefs[26]*yc + 2*coefs[20]*coefs[27]*Gc*yc - 6*coefs[20]*Gc*coefs[26]*coefs[26]*yc + 12*coefs[20]*Gc*coefs[26]*yc - 6*coefs[20]*Gc*yc + coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc - 3*coefs[20]*coefs[26]*coefs[26]*yc + 3*coefs[20]*coefs[26]*yc - coefs[20]*yc - 3*coefs[27]*Gc*yc*yc + coefs[26]*coefs[26]*yc*yc - 2*coefs[26]*yc*yc + yc*yc;
+	coefs[6] = 4*coefs[25]*y*Gc*coefs[26] - 4*coefs[25]*y*Gc + 15*coefs[25]*coefs[20]*coefs[27]*Gc*Gc - 4*coefs[25]*coefs[20]*coefs[27]*Gc*coefs[26] + 4*coefs[25]*coefs[20]*coefs[27]*Gc - 4*coefs[25]*coefs[20]*Gc*coefs[26]*coefs[26] + 8*coefs[25]*coefs[20]*Gc*coefs[26] - 4*coefs[25]*coefs[20]*Gc + coefs[25]*coefs[20]*coefs[26]*coefs[26]*coefs[26] - 3*coefs[25]*coefs[20]*coefs[26]*coefs[26] + 3*coefs[25]*coefs[20]*coefs[26] - coefs[25]*coefs[20] - 12*coefs[25]*coefs[27]*Gc*yc + 2*coefs[25]*coefs[26]*coefs[26]*yc - 4*coefs[25]*coefs[26]*yc + 2*coefs[25]*yc + 3*y*coefs[20]*coefs[20]*Gc*Gc*coefs[26] - 3*y*coefs[20]*coefs[20]*Gc*Gc - 3*y*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] + 6*y*coefs[20]*coefs[20]*Gc*coefs[26] - 3*y*coefs[20]*coefs[20]*Gc - 6*y*coefs[20]*Gc*coefs[26]*yc + 6*y*coefs[20]*Gc*yc + y*coefs[20]*coefs[26]*coefs[26]*yc - 2*y*coefs[20]*coefs[26]*yc + y*coefs[20]*yc + y*coefs[26]*yc*yc - y*yc*yc + coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*Gc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[26] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc - coefs[20]*coefs[20]*coefs[20]*Gc*Gc*coefs[26]*coefs[26] + 2*coefs[20]*coefs[20]*coefs[20]*Gc*Gc*coefs[26] - coefs[20]*coefs[20]*coefs[20]*Gc*Gc + 3*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] - 9*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] + 9*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] - 3*coefs[20]*coefs[20]*coefs[20]*Gc - 9*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*yc + 6*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*yc - 6*coefs[20]*coefs[20]*coefs[27]*Gc*yc + 6*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*yc - 12*coefs[20]*coefs[20]*Gc*coefs[26]*yc + 6*coefs[20]*coefs[20]*Gc*yc - 3*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc + 9*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 9*coefs[20]*coefs[20]*coefs[26]*yc + 3*coefs[20]*coefs[20]*yc + 3*coefs[20]*coefs[27]*Gc*Gc*coefs[24] + 9*coefs[20]*coefs[27]*Gc*yc*yc - coefs[20]*coefs[27]*coefs[26]*yc*yc + coefs[20]*coefs[27]*yc*yc - 2*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[24] + 4*coefs[20]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*Gc*coefs[24] - coefs[20]*coefs[26]*coefs[26]*coefs[26]*coefs[24] + 3*coefs[20]*coefs[26]*coefs[26]*coefs[24] - 3*coefs[20]*coefs[26]*coefs[26]*yc*yc - 3*coefs[20]*coefs[26]*coefs[24] + 6*coefs[20]*coefs[26]*yc*yc + coefs[20]*coefs[24] - 3*coefs[20]*yc*yc - coefs[27]*yc*yc*yc;
+	coefs[5] = -12*coefs[25]*coefs[25]*coefs[27]*Gc - 10*coefs[25]*y*coefs[20]*Gc*coefs[26] + 10*coefs[25]*y*coefs[20]*Gc + 2*coefs[25]*y*coefs[20]*coefs[26]*coefs[26] - 4*coefs[25]*y*coefs[20]*coefs[26] + 2*coefs[25]*y*coefs[20] + 4*coefs[25]*y*coefs[26]*yc - 4*coefs[25]*y*yc - 12*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc + 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26] - 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc + 2*coefs[25]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 4*coefs[25]*coefs[20]*coefs[20]*Gc*coefs[26] + 2*coefs[25]*coefs[20]*coefs[20]*Gc - 2*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26] + 6*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26] - 6*coefs[25]*coefs[20]*coefs[20]*coefs[26] + 2*coefs[25]*coefs[20]*coefs[20] + 30*coefs[25]*coefs[20]*coefs[27]*Gc*yc - 4*coefs[25]*coefs[20]*coefs[27]*coefs[26]*yc + 4*coefs[25]*coefs[20]*coefs[27]*yc - 4*coefs[25]*coefs[20]*coefs[26]*coefs[26]*yc + 8*coefs[25]*coefs[20]*coefs[26]*yc - 4*coefs[25]*coefs[20]*yc - 6*coefs[25]*coefs[27]*yc*yc - y*coefs[20]*coefs[20]*coefs[20]*Gc*Gc*coefs[26] + y*coefs[20]*coefs[20]*coefs[20]*Gc*Gc + 3*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 6*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] + 3*y*coefs[20]*coefs[20]*coefs[20]*Gc + 6*y*coefs[20]*coefs[20]*Gc*coefs[26]*yc - 6*y*coefs[20]*coefs[20]*Gc*yc - 3*y*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc + 6*y*coefs[20]*coefs[20]*coefs[26]*yc - 3*y*coefs[20]*coefs[20]*yc - 2*y*coefs[20]*Gc*coefs[26]*coefs[24] + 2*y*coefs[20]*Gc*coefs[24] - 3*y*coefs[20]*coefs[26]*yc*yc + 3*y*coefs[20]*yc*yc + coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[26] - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc - coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] + coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*yc - 6*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*yc + 6*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc - 2*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*yc + 4*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*yc - 2*coefs[20]*coefs[20]*coefs[20]*Gc*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc - 9*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc + 9*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc - 3*coefs[20]*coefs[20]*coefs[20]*yc - 6*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[24] + 2*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] - 9*coefs[20]*coefs[20]*coefs[27]*Gc*yc*yc + 3*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc*yc - 3*coefs[20]*coefs[20]*coefs[27]*yc*yc + 4*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[24] - 8*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] + 4*coefs[20]*coefs[20]*Gc*coefs[24] + 2*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*coefs[24] - 6*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc*yc + 6*coefs[20]*coefs[20]*coefs[26]*coefs[24] - 6*coefs[20]*coefs[20]*coefs[26]*yc*yc - 2*coefs[20]*coefs[20]*coefs[24] + 3*coefs[20]*coefs[20]*yc*yc + 6*coefs[20]*coefs[27]*Gc*coefs[24]*yc + 3*coefs[20]*coefs[27]*yc*yc*yc - 2*coefs[20]*coefs[26]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[24]*yc;
+	coefs[4] = 4*coefs[25]*coefs[25]*y*coefs[26] - 4*coefs[25]*coefs[25]*y + 24*coefs[25]*coefs[25]*coefs[20]*coefs[27]*Gc - 4*coefs[25]*coefs[25]*coefs[20]*coefs[27]*coefs[26] + 4*coefs[25]*coefs[25]*coefs[20]*coefs[27] + 2*coefs[25]*coefs[25]*coefs[20]*coefs[26]*coefs[26] - 4*coefs[25]*coefs[25]*coefs[20]*coefs[26] + 2*coefs[25]*coefs[25]*coefs[20] - 12*coefs[25]*coefs[25]*coefs[27]*yc + 8*coefs[25]*y*coefs[20]*coefs[20]*Gc*coefs[26] - 8*coefs[25]*y*coefs[20]*coefs[20]*Gc - 5*coefs[25]*y*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 10*coefs[25]*y*coefs[20]*coefs[20]*coefs[26] - 5*coefs[25]*y*coefs[20]*coefs[20] - 10*coefs[25]*y*coefs[20]*coefs[26]*yc + 10*coefs[25]*y*coefs[20]*yc + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc - 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26] + 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc + coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26] - 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26] - coefs[25]*coefs[20]*coefs[20]*coefs[20] - 24*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*yc + 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc - 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*yc + 2*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 4*coefs[25]*coefs[20]*coefs[20]*coefs[26]*yc + 2*coefs[25]*coefs[20]*coefs[20]*yc + 12*coefs[25]*coefs[20]*coefs[27]*Gc*coefs[24] + 15*coefs[25]*coefs[20]*coefs[27]*yc*yc - 2*coefs[25]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 4*coefs[25]*coefs[20]*coefs[26]*coefs[24] - 2*coefs[25]*coefs[20]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc - 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*yc + 3*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 6*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc + 3*y*coefs[20]*coefs[20]*coefs[20]*yc + 4*y*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] - 4*y*coefs[20]*coefs[20]*Gc*coefs[24] - y*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 3*y*coefs[20]*coefs[20]*coefs[26]*yc*yc - y*coefs[20]*coefs[20]*coefs[24] - 3*y*coefs[20]*coefs[20]*yc*yc - 2*y*coefs[20]*coefs[26]*coefs[24]*yc + 2*y*coefs[20]*coefs[24]*yc + 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc + coefs[20]*coefs[20]*coefs[20]*coefs[20]*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[24] - 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*coefs[24] + 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc*yc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc - 2*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[24] + 4*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc*yc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 2*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc*yc + coefs[20]*coefs[20]*coefs[20]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*yc*yc - 12*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*yc + 2*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc - 3*coefs[20]*coefs[20]*coefs[27]*yc*yc*yc + 4*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*yc - 8*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[20]*coefs[24]*yc + 3*coefs[20]*coefs[27]*coefs[24]*yc*yc;
+	coefs[3] = -8*coefs[25]*coefs[25]*coefs[25]*coefs[27] - 8*coefs[25]*coefs[25]*y*coefs[20]*coefs[26] + 8*coefs[25]*coefs[25]*y*coefs[20] - 15*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc + 8*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[26] - 8*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27] - 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 6*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[26] - 3*coefs[25]*coefs[25]*coefs[20]*coefs[20] + 24*coefs[25]*coefs[25]*coefs[20]*coefs[27]*yc - 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*Gc + 4*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] - 8*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26] + 4*coefs[25]*y*coefs[20]*coefs[20]*coefs[20] + 8*coefs[25]*y*coefs[20]*coefs[20]*coefs[26]*yc - 8*coefs[25]*y*coefs[20]*coefs[20]*yc - 4*coefs[25]*y*coefs[20]*coefs[26]*coefs[24] + 4*coefs[25]*y*coefs[20]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26] - 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc - 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc + 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc - 18*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] + 4*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24] - 4*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24] - 12*coefs[25]*coefs[20]*coefs[20]*coefs[27]*yc*yc + 2*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] - 4*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[24] + 12*coefs[25]*coefs[20]*coefs[27]*coefs[24]*yc - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*yc - 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] - 4*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[24] + y*coefs[20]*coefs[20]*coefs[20]*yc*yc + 4*y*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc - 4*y*coefs[20]*coefs[20]*coefs[24]*yc + 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc*yc - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc + 6*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*yc - 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc + coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[24]*yc - 3*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*coefs[24] - 6*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc*yc + coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[24]*coefs[24];
+	coefs[2] = 12*coefs[25]*coefs[25]*coefs[25]*coefs[20]*coefs[27] + 5*coefs[25]*coefs[25]*y*coefs[20]*coefs[20]*coefs[26] - 5*coefs[25]*coefs[25]*y*coefs[20]*coefs[20] + 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc - 5*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26] + 5*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27] + coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] - 2*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26] + coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20] - 15*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*yc + 12*coefs[25]*coefs[25]*coefs[20]*coefs[27]*coefs[24] - coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26] - coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[20] - 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*yc + 6*coefs[25]*y*coefs[20]*coefs[20]*coefs[26]*coefs[24] - 6*coefs[25]*y*coefs[20]*coefs[20]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc - 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] - 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24] + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24] + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc - 18*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[24] - 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[24]*yc + y*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] - y*coefs[20]*coefs[20]*coefs[24]*coefs[24] + 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc*yc - coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*coefs[24] + 2*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[24]*coefs[24] - 3*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24]*yc;
+	coefs[1] = -6*coefs[25]*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27] - coefs[25]*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26] + coefs[25]*coefs[25]*y*coefs[20]*coefs[20]*coefs[20] + coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26] - coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27] + 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc - 12*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24] - 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24] - 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24] + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc - 6*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] + y*coefs[20]*coefs[20]*coefs[20]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24]*yc;
+	coefs[0] = coefs[25]*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27] + 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24] + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24]*coefs[24];
+
+	bad = 1;
+	dzmax = 1.0e-12;
+	disim = -1.;
+	f1 = 0;
+	while (bad) {
+
+#ifdef _PRINT_TIMES
+		tim0 = Environment::TickCount;
+#endif
+		cmplx_roots_gen(zr, coefs, 9, true, true);
+#ifdef _PRINT_TIMES
+		tim1 = Environment::TickCount;
+		inc += tim1 - tim0;
+#endif
+		// apply lens equation to check if it is really solved
+		for (int i = 0; i<9; i++) {
+			z = zr[i];
+			zc = conj(z);
+			good[i] = abs(_LL_shear); // Lens equation check
+			switch (i) {
+			case 0:
+				worst1 = i;
+				break;
+			case 1:
+				if (good[i]>good[worst1]) {
+					worst2 = worst1;
+					worst1 = i;
+				}
+				else worst2 = i;
+				break;
+			case 2:
+				if (good[i]>good[worst1]) {
+					worst3 = worst2;
+					worst2 = worst1;
+					worst1 = i;
+				}
+				else if (good[i]>good[worst2]) {
+					worst3 = worst2;
+					worst2 = i;
+				}
+				else worst3 = i;
+				break;
+			default:
+				if (good[i]>good[worst1]) {
+					worst3 = worst2;
+					worst2 = worst1;
+					worst1 = i;
+				}
+				else if (good[i]>good[worst2]) {
+					worst3 = worst2;
+					worst2 = i;
+				}
+				else if (good[i]>good[worst3]) {
+					worst3 = i;
+				}
+			}
+		}
+		if ((good[worst3]<dlmax) && ((good[worst1]<dlmax) || (good[worst2]>1.e2*good[worst3]))) {
+			bad = 0;
+		}
+		else {
+			if ((disim>0) && (good[worst3] / disim>0.99)) {
+				if (f1>1) {
+					bad = 0;
+				}
+				else {
+					dzmax /= 10;
+					f1++;
+				}
+			}
+			else {
+				disim = good[worst3];
+				dzmax /= 10;
+			}
+		}
+	}
+	Prov = new _curve;
+	f1 = 0;
+	for (int i = 0; i<9; i++) {
+		if ( (good[i] < dlmax) && ((fabs(zr[i].re) > dlmax) || (fabs(zr[i].im) > dlmax)) && ((fabs(zr[i].re - coefs[20].re) > dlmax) || (fabs(zr[i].im) > dlmax)) ) {
+			Prov->append(zr[i].re, zr[i].im);
+
+			_Jacobians1_shear
+			if (theta->th >= 0) {
+				_Jacobians2
+			}else {
+				_Jacobians3
+				corrquad += cq;
+			}
+
+			Prov->last->theta = theta;
+
+			if (fabs(dJ.re)<1.e-5) f1 = 1;
+		}
+	}
+	theta->errworst = -1.e100;
+	// check Jacobians in ambiguous cases
+	if (f1) {
+		left = right = center = fifth = 0;
+		dJ.re = 0;
+		for (scan = Prov->first; scan; scan = scan->next) {
+			if (_sign(scan->x2) == _sign(y.im)) {
+				prin = scan;
+			}
+			else {
+				dz.re = fabs(scan->dJ);
+				if (dz.re>dJ.re) {
+					fifth = scan;
+					dJ.re = dz.re;
+				}
+			}
+		}
+		for (scan = Prov->first; scan; scan = scan->next) {
+			if ((scan != prin) && (scan != fifth)) {
+				if (left) {
+					if (scan->x1<left->x1) {
+						if (left != right) {
+							center = left;
+						}
+						left = scan;
+					}
+					else {
+						if (scan->x1>right->x1) {
+							if (left != right) {
+								center = right;
+							}
+							right = scan;
+						}
+						else {
+							center = scan;
+						}
+					}
+				}
+				else {
+					left = right = center = scan;
+				}
+			}
+		}
+		if (left->dJ>0) left->dJ = -left->dJ;
+		if (center->dJ<0) center->dJ = -center->dJ;
+		if (right->dJ>0) right->dJ = -right->dJ;
+	}
+	// }
+	return Prov;
+}
+
 
 #pragma endregion
 
@@ -9188,3 +9687,4 @@ void _thetas::remove(_theta* stheta) {
 
 
 #pragma endregion
+

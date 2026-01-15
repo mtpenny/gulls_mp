@@ -1,4 +1,4 @@
-// VBMicrolensing v5.2 (2025)
+// VBMicrolensing v5.3 (2025)
 //
 // This code has been developed by Valerio Bozza (University of Salerno) and collaborators.
 // Check the repository at https://github.com/valboz/VBMicrolensing
@@ -15,7 +15,7 @@
 // The Multipoly method for the calculation of multiple-lens microlensing was developed
 // with Vito Saggese (2024).
 // 
-// Optimizations for VBMcomplex functions and for high-mag regime have been developed 
+// Optimizations for VBcomplex functions and for high-mag regime have been developed 
 // by Jiyuan Zhang (2025).
 //
 // GNU Lesser General Public License applies to all parts of this code.
@@ -52,17 +52,17 @@ class _skiplist_curve;
 class _curve;
 class _sols;
 class _theta;
-class VBMcomplex;
+class VBcomplex;
 struct annulus;
 
 
-class VBMcomplex {
+class VBcomplex {
 public:
 	double re;
 	double im;
-	VBMcomplex(double a, double b) { re = a; im = b; }
-	VBMcomplex(double a) { re = a; im = 0; }
-	VBMcomplex(void) { re = 0; im = 0; }
+	VBcomplex(double a, double b) { re = a; im = b; }
+	VBcomplex(double a) { re = a; im = 0; }
+	VBcomplex(void) { re = 0; im = 0; }
 };
 
 
@@ -75,17 +75,19 @@ class VBMicrolensing
 
 	int* ndatasat;
 	double** tsat, *** possat;
+	double** posEar, startEar, stepEar;
+	int ndataEar;
 	double Mag0;
 	double* dist_mp, * q;
 	int nim0, n, n2, nnm1, nroots, nrootsmp, * nrootsmp_mp;
-	VBMcomplex* zr, * zcr, ** pmza, ** pyaza, ** ppmy, * pza, * pza2, ** pmza2, * pdum, * ppy, * a, * s_offset, * pert, y, yc, * s;
-	VBMcomplex* y_mp, *** pmza_mp, ** pza_mp, *** pyaza_mp, *** ppmy_mp, ** ppy_mp, ** zr_mp;
-	VBMcomplex* zaltc, * J1, * J1c, ** za, ** za2;
-	VBMcomplex* coefs, ** coefs_mp;
-	VBMcomplex** a_mp, * s_sort;
+	VBcomplex* zr, * zcr, ** pmza, ** pyaza, ** ppmy, * pza, * pza2, ** pmza2, * pdum, * ppy, * a, * s_offset, * pert, y, yc, * s;
+	VBcomplex* y_mp, *** pmza_mp, ** pza_mp, *** pyaza_mp, *** ppmy_mp, ** ppy_mp, ** zr_mp;
+	VBcomplex* zaltc, * J1, * J1c, ** za, ** za2;
+	VBcomplex* coefs, ** coefs_mp;
+	VBcomplex** a_mp, * s_sort;
 
 	double* prodevs, * errs, err, L0f, Jacf;
-	VBMcomplex* devs, * init, * centralimages, * newseeds, * grads, zf, S2f, * S2s, * S3s, * S4s;
+	VBcomplex* devs, * init, * centralimages, * newseeds, * grads, zf, S2f, * S2s, * S3s, * S4s;
 	int lencentralimages, lennewseeds, ngoodold, ngood, iter, iter2;
 	////
 	double* good, * Jacs, rho, rho2, * m;
@@ -95,8 +97,9 @@ class VBMicrolensing
 	int iastro;
 	double Obj[3], rad[3], tang[3], t0old;
 	double Eq2000[3], Quad2000[3], North2000[3];
-	double Et0[2], vt0[2], Et[2], Ehel[2];
+	double Et0[2], vt0[2], Et[2], Ehel[2], lighttravel, lighttravel0;
 	double ESPLout[__rsize_ESPL][__zsize_ESPL], ESPLin[__rsize_ESPL][__zsize_ESPL], ESPLoutastro[__rsize_ESPL][__zsize_ESPL], ESPLinastro[__rsize_ESPL][__zsize_ESPL];
+	bool coordinates_set;
 	bool multidark;
 	double* LDtab, * rCLDtab, * CLDtab;
 	double scr2, sscr2;
@@ -110,33 +113,34 @@ class VBMicrolensing
 	double LDprofile(double r);
 	double rCLDprofile(double tc, annulus*, annulus*);
 	void initroot();
-	int froot(VBMcomplex);
+	int froot(VBcomplex);
 	bool checkroot(_theta*);
 
-	void SetLensGeometry_spnp(int n, double* q, VBMcomplex* s);
-	void SetLensGeometry_multipoly(int n, double* q, VBMcomplex* s);
+	void SetLensGeometry_spnp(int n, double* q, VBcomplex* s);
+	void SetLensGeometry_multipoly(int n, double* q, VBcomplex* s);
 	void initrootpoly();
-	_curve* NewImages(VBMcomplex, VBMcomplex*, _theta*);
+	_curve* NewImages(VBcomplex, VBcomplex*, _theta*);
 	_curve* NewImages(_theta*);
 	_curve* NewImagespoly(_theta*);
 	_curve* NewImagesmultipoly(_theta*);
+	_curve* NewImages_shear(VBcomplex, VBcomplex*, _theta *);
 	double BinaryMagSafe(double s, double q, double y1, double y2, double rho, _sols_for_skiplist_curve** images);
 	double MultiMagSafe(double y1, double y2, double rho, _sols_for_skiplist_curve** images);
 	void OrderImages(_sols_for_skiplist_curve*, _curve*);
 
 	void OrderMultipleImages(_sols_for_skiplist_curve*, _curve*);
-	void cmplx_laguerre(VBMcomplex*, int, VBMcomplex*, int&, bool&);
-	void cmplx_newton_spec(VBMcomplex*, int, VBMcomplex*, int&, bool&);
-	void cmplx_laguerre2newton(VBMcomplex*, int, VBMcomplex*, int&, bool&, int);
-	void solve_quadratic_eq(VBMcomplex&, VBMcomplex&, VBMcomplex*);
-	void solve_cubic_eq(VBMcomplex&, VBMcomplex&, VBMcomplex&, VBMcomplex*);
-	void polyproduct(VBMcomplex* p1, int n1, VBMcomplex* p2, int n2, VBMcomplex* pdest);
-	void copypol(VBMcomplex* p1, int n1, VBMcomplex* pdest);
+	void cmplx_laguerre(VBcomplex*, int, VBcomplex*, int&, bool&);
+	void cmplx_newton_spec(VBcomplex*, int, VBcomplex*, int&, bool&);
+	void cmplx_laguerre2newton(VBcomplex*, int, VBcomplex*, int&, bool&, int);
+	void solve_quadratic_eq(VBcomplex&, VBcomplex&, VBcomplex*);
+	void solve_cubic_eq(VBcomplex&, VBcomplex&, VBcomplex&, VBcomplex*);
+	void polyproduct(VBcomplex* p1, int n1, VBcomplex* p2, int n2, VBcomplex* pdest);
+	void copypol(VBcomplex* p1, int n1, VBcomplex* pdest);
 	void change_n(int nn);
 	void change_n_mp(int nn);
 	void polycoefficients();
 	void polycoefficients_multipoly();
-	void polycritcoefficients(VBMcomplex eiphi);
+	void polycritcoefficients(VBcomplex eiphi);
 
 public:
 	
@@ -146,13 +150,19 @@ public:
 	bool astrometry;
 	bool turn_off_secondary_source;
 	bool turn_off_secondary_lens;
-        bool ESPLoff;
+	bool ESPLoff;
+	bool t_in_HJD;
 
 	static char ESPLtablefile[1024];
 	static void SetESPLtablefile(char* instring) { strcpy(ESPLtablefile, instring); }
-	double Tol, RelTol, a1, a2, t0_par,corrquad, corrquad2, safedist;
+	static char Suntablefile[1024];
+	static void SetSuntablefile(char* instring) { strcpy(Suntablefile, instring); }
+	double Tol, RelTol, a1, a2,corrquad, corrquad2, safedist;
 	double mass_radius_exponent, mass_luminosity_exponent, lens_mass_luminosity_exponent;
 	int satellite, parallaxsystem, t0_par_fixed, nsat;
+	double t0_par;
+	bool suntable, parallaxephemeris;
+	int parallaxextrapolation;
 	int minannuli, maxannuli, nannuli, NPS, NPcrit;
 	int newtonstep;
 	double y_1, y_2, av, therr, astrox1, astrox2;
@@ -164,15 +174,16 @@ public:
 	// Initialization for parallax calculation
 	void SetObjectCoordinates(char* Coordinates_file, char* Directory_for_satellite_tables);
 	void SetObjectCoordinates(char* CoordinateString);
+	bool AreCoordinatesSet();
 	// Skowron & Gould root calculation
-	void cmplx_roots_gen(VBMcomplex*, VBMcomplex*, int, bool, bool);
-	void cmplx_roots_multigen(VBMcomplex*, VBMcomplex**, int, bool, bool);
+	void cmplx_roots_gen(VBcomplex*, VBcomplex*, int, bool, bool);
+	void cmplx_roots_multigen(VBcomplex*, VBcomplex**, int, bool, bool);
 	// Bozza optimization
 	int findimagepoly(int iroot);
 	int findimagemultipoly(int iroot);
 
 	// Set Lens Geometry
-	void SetLensGeometry(int n, double* q, VBMcomplex* s);
+	void SetLensGeometry(int n, double* q, VBcomplex* s);
 	void SetLensGeometry(int n, double* pr);
 
 	// Magnification calculation functions.
@@ -193,6 +204,9 @@ public:
 	double MultiMag2(double y1, double y2, double rho);
 	double MultiMagDark(double y1, double y2, double rho, double accuracy);
 
+	double BinaryMag0_shear(double s, double q, double y1, double y2, double K1, double G1, double Gi, _sols **Images);
+	double BinaryMag0_shear(double s, double q, double y1, double y2, double K1, double G1, double Gi);
+
 	// Limb Darkening control
 	enum LDprofiles { LDlinear, LDquadratic, LDsquareroot, LDlog, LDuser };
 	void SetLDprofile(double(*UserLDprofile)(double), int tablesampling);
@@ -203,7 +217,7 @@ public:
 	void SetMethod(Method);
 
 	//ESPL functions
-	void LoadESPLTable(char* tablefilename);
+	void LoadESPLTable(const char* tablefilename);
 	double ESPLMag(double u, double rho);
 	double ESPLMag2(double u, double rho);
 	double ESPLMagDark(double u, double rho);
@@ -212,6 +226,7 @@ public:
 
 	// New (v2) light curve functions, operating on arrays
 
+	void LoadSunTable(char* tablefilename);
 	void PSPLLightCurve(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, int np);
 	void PSPLLightCurveParallax(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, int np);
 	void ESPLLightCurve(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, int np);
@@ -255,7 +270,6 @@ public:
 	double BinSourceExtLightCurveXallarap(double* parameters, double t);
 	double BinSourceBinLensXallarap(double* parameters, double t);
 	double BinSourceSingleLensXallarap(double* parameters, double t);
-	double BinSourceBinLensPOX(double* parameters, double t);
 	double BinSourceBinLensLightCurve(double* parameters, double t);
 
 
@@ -324,7 +338,7 @@ public:
 	// 		   i.e. *first's 'th' < current 'th' < *last's 'th'
 	// 		   and the new element is forced to be inserted between itheta and itheta->next, 
 	// 		   which means it's the programmer's responsibility to guarantee itheta->th < th < itheta->next->th holds
-	//         (O(1) VBMcomplexity)
+	//         (O(1) VBcomplexity)
 	void remove(_theta*);
 
 };
@@ -336,7 +350,7 @@ public:
 	double x1;
 	double x2;
 	double parab, ds, dJ, Mag, err, parabastrox1;
-	VBMcomplex d;								  	  // d is z'(theta) at this point
+	VBcomplex d;								  	  // d is z'(theta) at this point
 	_theta* theta;							  // pointer
 	_point* next, * prev;                       // pointers that point to _point variable
 	_point* next_array[max_skiplist_level + 1];
@@ -433,148 +447,148 @@ public:
 
 //////////////////////////////
 //////////////////////////////
-////////VBMcomplex methods and operators
+////////VBcomplex methods and operators
 //////////////////////////////
 //////////////////////////////
 
-inline double abs2(VBMcomplex z) {
+inline double abs2(VBcomplex z) {
 	return (z.re * z.re + z.im * z.im);
 }
 
-inline double abs(VBMcomplex z) {
+inline double abs(VBcomplex z) {
 	return sqrt(z.re * z.re + z.im * z.im);
 }
 
-inline VBMcomplex conj(VBMcomplex z) {
-	return VBMcomplex(z.re, -z.im);
+inline VBcomplex conj(VBcomplex z) {
+	return VBcomplex(z.re, -z.im);
 }
 
-inline VBMcomplex sqrt(VBMcomplex z) {
+inline VBcomplex sqrt(VBcomplex z) {
 	double md = sqrt(z.re * z.re + z.im * z.im);
-	return (md > 0) ? VBMcomplex(sqrt((md + z.re) / 2), (sqrt((md - z.re) / 2) * ((z.im > 0) ? 1 : -1))) : 0.0;
+	return (md > 0) ? VBcomplex(sqrt((md + z.re) / 2), (sqrt((md - z.re) / 2) * ((z.im > 0) ? 1 : -1))) : 0.0;
 }
 
 
 
-inline double real(VBMcomplex z) {
+inline double real(VBcomplex z) {
 	return z.re;
 }
 
-inline double imag(VBMcomplex z) {
+inline double imag(VBcomplex z) {
 	return z.im;
 }
 
-inline VBMcomplex operator+(VBMcomplex p1, VBMcomplex p2) {
-	return VBMcomplex(p1.re + p2.re, p1.im + p2.im);
+inline VBcomplex operator+(VBcomplex p1, VBcomplex p2) {
+	return VBcomplex(p1.re + p2.re, p1.im + p2.im);
 }
 
-inline VBMcomplex operator-(VBMcomplex p1, VBMcomplex p2) {
-	return VBMcomplex(p1.re - p2.re, p1.im - p2.im);
+inline VBcomplex operator-(VBcomplex p1, VBcomplex p2) {
+	return VBcomplex(p1.re - p2.re, p1.im - p2.im);
 }
 
-inline VBMcomplex operator*(VBMcomplex p1, VBMcomplex p2) {
-	return VBMcomplex(p1.re * p2.re - p1.im * p2.im, p1.re * p2.im + p1.im * p2.re);
+inline VBcomplex operator*(VBcomplex p1, VBcomplex p2) {
+	return VBcomplex(p1.re * p2.re - p1.im * p2.im, p1.re * p2.im + p1.im * p2.re);
 }
 
-inline VBMcomplex operator/(VBMcomplex p1, VBMcomplex p2) {
+inline VBcomplex operator/(VBcomplex p1, VBcomplex p2) {
 	double md = p2.re * p2.re + p2.im * p2.im;
-	return VBMcomplex((p1.re * p2.re + p1.im * p2.im) / md, (p1.im * p2.re - p1.re * p2.im) / md);
+	return VBcomplex((p1.re * p2.re + p1.im * p2.im) / md, (p1.im * p2.re - p1.re * p2.im) / md);
 }
 
-inline VBMcomplex operator+(VBMcomplex z, double a) {
-	return VBMcomplex(z.re + a, z.im);
+inline VBcomplex operator+(VBcomplex z, double a) {
+	return VBcomplex(z.re + a, z.im);
 }
 
-inline VBMcomplex operator-(VBMcomplex z, double a) {
-	return VBMcomplex(z.re - a, z.im);
+inline VBcomplex operator-(VBcomplex z, double a) {
+	return VBcomplex(z.re - a, z.im);
 }
 
-inline VBMcomplex operator*(VBMcomplex z, double a) {
-	return VBMcomplex(z.re * a, z.im * a);
+inline VBcomplex operator*(VBcomplex z, double a) {
+	return VBcomplex(z.re * a, z.im * a);
 }
 
-inline VBMcomplex operator/(VBMcomplex z, double a) {
-	return VBMcomplex(z.re / a, z.im / a);
+inline VBcomplex operator/(VBcomplex z, double a) {
+	return VBcomplex(z.re / a, z.im / a);
 }
 
-inline VBMcomplex operator+(double a, VBMcomplex z) {
-	return VBMcomplex(z.re + a, z.im);
+inline VBcomplex operator+(double a, VBcomplex z) {
+	return VBcomplex(z.re + a, z.im);
 }
 
-inline VBMcomplex operator-(double a, VBMcomplex z) {
-	return VBMcomplex(a - z.re, -z.im);
+inline VBcomplex operator-(double a, VBcomplex z) {
+	return VBcomplex(a - z.re, -z.im);
 }
 
-inline VBMcomplex operator*(double a, VBMcomplex z) {
-	return VBMcomplex(a * z.re, a * z.im);
+inline VBcomplex operator*(double a, VBcomplex z) {
+	return VBcomplex(a * z.re, a * z.im);
 }
 
-inline VBMcomplex operator/(double a, VBMcomplex z) {
+inline VBcomplex operator/(double a, VBcomplex z) {
 	double md = z.re * z.re + z.im * z.im;
-	return VBMcomplex(a * z.re / md, -a * z.im / md);
+	return VBcomplex(a * z.re / md, -a * z.im / md);
 }
 
-inline VBMcomplex operator+(VBMcomplex z, int a) {
-	return VBMcomplex(z.re + a, z.im);
+inline VBcomplex operator+(VBcomplex z, int a) {
+	return VBcomplex(z.re + a, z.im);
 }
 
-inline VBMcomplex operator-(VBMcomplex z, int a) {
-	return VBMcomplex(z.re - a, z.im);
+inline VBcomplex operator-(VBcomplex z, int a) {
+	return VBcomplex(z.re - a, z.im);
 }
 
-inline VBMcomplex operator*(VBMcomplex z, int a) {
-	return VBMcomplex(z.re * a, z.im * a);
+inline VBcomplex operator*(VBcomplex z, int a) {
+	return VBcomplex(z.re * a, z.im * a);
 }
 
-inline VBMcomplex operator/(VBMcomplex z, int a) {
-	return VBMcomplex(z.re / a, z.im / a);
+inline VBcomplex operator/(VBcomplex z, int a) {
+	return VBcomplex(z.re / a, z.im / a);
 }
 
-inline VBMcomplex operator+(int a, VBMcomplex z) {
-	return VBMcomplex(z.re + a, z.im);
+inline VBcomplex operator+(int a, VBcomplex z) {
+	return VBcomplex(z.re + a, z.im);
 }
 
-inline VBMcomplex operator-(int a, VBMcomplex z) {
-	return VBMcomplex(a - z.re, -z.im);
+inline VBcomplex operator-(int a, VBcomplex z) {
+	return VBcomplex(a - z.re, -z.im);
 }
 
-inline VBMcomplex operator*(int a, VBMcomplex z) {
-	return VBMcomplex(a * z.re, a * z.im);
+inline VBcomplex operator*(int a, VBcomplex z) {
+	return VBcomplex(a * z.re, a * z.im);
 }
 
-inline VBMcomplex operator/(int a, VBMcomplex z) {
+inline VBcomplex operator/(int a, VBcomplex z) {
 	double md = z.re * z.re + z.im * z.im;
-	return VBMcomplex(a * z.re / md, -a * z.im / md);
+	return VBcomplex(a * z.re / md, -a * z.im / md);
 }
 
-inline VBMcomplex operator-(VBMcomplex z) {
-	return VBMcomplex(-z.re, -z.im);
+inline VBcomplex operator-(VBcomplex z) {
+	return VBcomplex(-z.re, -z.im);
 }
 
-inline bool operator==(VBMcomplex p1, VBMcomplex p2) {
+inline bool operator==(VBcomplex p1, VBcomplex p2) {
 	if (p1.re == p2.re && p1.im == p2.im) return true;
 	return false;
 }
 
-inline bool operator!=(VBMcomplex p1, VBMcomplex p2) {
+inline bool operator!=(VBcomplex p1, VBcomplex p2) {
 	if (p1.re == p2.re && p1.im == p2.im) return false;
 	return true;
 }
 
-inline VBMcomplex expcmplx(VBMcomplex p1) {
+inline VBcomplex expcmplx(VBcomplex p1) {
 	double r = exp(p1.re);
 	double theta = atan2(p1.im, p1.re);
-	return VBMcomplex(r * cos(theta), r * sin(theta));
+	return VBcomplex(r * cos(theta), r * sin(theta));
 }
 
-inline VBMcomplex cbrt(VBMcomplex z) {
-	VBMcomplex zout;
+inline VBcomplex cbrt(VBcomplex z) {
+	VBcomplex zout;
 	double r, r_cube, theta, theta_cube;
 	r = abs(z);
 	r_cube = pow(r, 0.333333333333);
 	theta = atan2(z.im, z.re);
 	theta_cube = theta / 3.;
-	return 	VBMcomplex(r_cube * cos(theta_cube), r_cube * sin(theta_cube));
+	return 	VBcomplex(r_cube * cos(theta_cube), r_cube * sin(theta_cube));
 }
 
 
@@ -599,3 +613,4 @@ inline double _point::operator-(_point p2) {
 
 
 #endif
+

@@ -32,8 +32,8 @@ class orbitalElements
   double O, O0, dO; //longitude of asc node    (deg) \Omega
   double b, c, s, f; //aditional terms for outer planet long range ephem (deg)
 
-  double t; //current time in days
-  double T; //current time in centuries
+  double t; //current time in Julian days
+  double T; //current time in years
 
   double W; //argument of perihelion \omega
   double M; //mean anomaly

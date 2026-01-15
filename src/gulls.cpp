@@ -323,6 +323,9 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   /* For every Galaxy model event */
   for(idx=0; idx<int(Planets.data.size()); idx++)
     {
+      cout << string(80,'#') << endl;
+      cout << string(80,'#') << endl;
+      cout << string(80,'#') << endl;
       cout << "Starting event " << idx << endl;
       
       /* Read in event parameters */

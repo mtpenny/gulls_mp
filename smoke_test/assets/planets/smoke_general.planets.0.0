@@ -1,3 +1,6 @@
-Mass SemimajorAxis Eccentricity Inclination LongitudePerihelion LongitudeAscNode OrbitType
-5.0e-2 1.5 0.8 90.0 30.0 30.0 1
-5.0e-2 1.5 0.8 90.0 30.0 30.0 1
+Mass SemimajorAxis Eccentricity Inclination LongitudePerihelion LongitudeAscNode OrbitType Mass SemimajorAxis Eccentricity Inclination LongitudePerihelion LongitudeAscNode OrbitType Mass SemimajorAxis Eccentricity Inclination LongitudePerihelion LongitudeAscNode OrbitType Mass SemimajorAxis Eccentricity Inclination LongitudePerihelion LongitudeAscNode OrbitType
+1.0e-3 2.5 0.5 90.0 30.0 30.0 1 1.0e-3 1.5 0.5 90.0 30.0 30.0 1 1.0e-3 0.5 0.5 90.0 30.0 30.0 1 0 0.0015 0.5 90.0 30.0 30.0 1
+1.0e-3 2.5 0.5 90.0 30.0 30.0 1 1.0e-3 1.5 0.5 90.0 30.0 30.0 1 1.0e-3 0.5 0.5 90.0 30.0 30.0 1 0 0.0015 0.5 90.0 30.0 30.0 1
+1.0e-3 2.5 0.5 90.0 30.0 30.0 1 1.0e-7 0.007 0.5 90.0 30.0 30.0 3 1.0e-7 0.003 0.5 90.0 30.0 30.0 3 0 0.0015 0.5 90.0 30.0 30.0 3
+1.0e-3 2.5 0.5 90.0 30.0 30.0 1 1.0e-7 0.007 0.5 90.0 30.0 30.0 3 1.0e-7 0.003 0.5 90.0 30.0 30.0 3 0 0.0015 0.5 90.0 30.0 30.0 3
+1.0e-3 2.5 0.5 90.0 30.0 30.0 1 1.0e-7 0.007 0.5 90.0 30.0 30.0 3 1.0e-7 0.003 0.5 90.0 30.0 30.0 3 1.0e-7 0.0015 0.5 90.0 30.0 30.0 3

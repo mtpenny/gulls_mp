@@ -64,7 +64,8 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"VBM_ABSTOL","1.0e-4"},
     {"LC_TIMEOUT","60.0"},
     {"MULTIPLE_SOURCES","0"},
-    {"MULTIPLE_LENSES","0"}
+    {"MULTIPLE_LENSES","0"},
+    {"SKIP_MAGNIFICATION","0"}
   };
 
   //For testing which parameters are at their default values
@@ -231,6 +232,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->lc_timeout = stod(pfile["LC_TIMEOUT"]);
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
+  Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];

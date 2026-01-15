@@ -183,7 +183,7 @@ void orbitalElements::jwst(double phase)
 void orbitalElements::settime(double jd)
 {
   t = jd;
-  T = (t-epoch)/36525.0; //time past epoch in centuries
+  T = (t-epoch)/365.25; //time past epoch in years (note different definition to explanatory supplement. Parameters adjusted accordingly
 
   a = a0 + T*da;
   e = e0 + T*de;
@@ -199,7 +199,7 @@ void orbitalElements::meananomaly()
 {
   W = w - O;
   //mean anomaly - dL handles its change with time
-  M = L - w + b*T*T + c*cos(f*T) + s*sin(f*T);
+  M = L - w + b*T*T + c*cos(f*T*d2r) + s*sin(f*T*d2r);
 
   //put into the range -180<=M<=180
   //first get into 0,360

@@ -160,6 +160,8 @@ struct filekeywords{
   int multiple_sources;
   int multiple_lenses;
 
+  int skip_magnification;
+  
   long* seed;
 
   double alltime;
@@ -282,13 +284,13 @@ struct fittedparams{
 struct event{
 
   int source, lens;
-  int nsrc, nlens, nplanets;
+  int nsrc, nlens, nplanets, ncatalog_planets;
   vector<int> scompanions, lcompanions;
   vector<double> scomp_rs, scomp_s, scomp_alpha, scomp_phase, scomp_q;
   vector<double> scomp_a, scomp_e, scomp_I, scomp_L0, scomp_w, scomp_O, scomp_dL; //orbital elements
   vector<vector<double> > scomp_fsofs1;
   vector<double> lcomp_s, lcomp_q, lcomp_phase;
-  vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL; //orbital elements
+  vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL, lcomp_mass, lcomp_period; //orbital elements
   vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0;
   //double ljoint_thE, ljoint_tE, ljoint_rE;
   double qsum;

@@ -23,6 +23,8 @@
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
 
+  cout << "lcgen Event->nlens: " << Event->nlens << endl;
+  
   if(Paramfile->verbosity>=3)
     cout << "At lightcurveGenerator start, Tol=" 
 	 << Event->vbm->Tol 
@@ -126,12 +128,15 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       //Work in ecliptic coordinates so we can use all the tools of the class
       //double a1,e,I1,L1,w1,O1,dL1;
       //double a2,e,I2,L2,w2,O2,dL2;
-      double acomb = (1.0+Event->scomp_q[0])*Event->scomp_a[0];
-      double a1 = acomb-Event->scomp_a[0];
+      //double acomb = (1.0+Event->scomp_q[0])*Event->scomp_a[0];
+      //double a1 = acomb-Event->scomp_a[0];
+      double acomb = Event->scomp_a[0];
+      double a1 = 1.0/(1.0+Event->scomp_q[0])*Event->scomp_a[0];
+      double a2 = Event->scomp_q[0]/(1.0+Event->scomp_q[0])*Event->scomp_a[0];
 
       //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
-      s_elements[1][0] = orbitalElements(Event->scomp_a[0], Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
-      s_elements[0][0] = orbitalElements(-a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
+      s_elements[1][0] = orbitalElements(a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
+      s_elements[0][0] = orbitalElements(-a2, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
 
       
 
@@ -150,7 +155,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //Setup orbits for the lens(es)
 
   vector<vector<orbitalElements> > l_elements; //Orbital elements classes for the lenses
-  int nlens = 1 + Event->lcompanions.size() + Event->p_a.size();
+  int nlens = Event->nlens; //1 + Event->lcompanions.size() + Event->p_a.size();
   l_elements.clear();
   l_elements.resize(nlens);
 
@@ -164,15 +169,19 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  //the binary lens is a binary star
 	  l_elements[0].resize(1);
 	  l_elements[1].resize(1);
-	  double acomb = (1.0+Event->lcomp_q[0])*Event->lcomp_a[0];
-	  double a1 = acomb-Event->lcomp_a[0];
+	  //double acomb = (1.0+Event->lcomp_q[0])*Event->lcomp_a[0];
+	  //double a1 = acomb-Event->lcomp_a[0];
+	  double acomb = Event->lcomp_a[0];
+	  double a1 = 1.0/(1.0+Event->lcomp_q[0])*Event->lcomp_a[0];
+	  double a2 = Event->lcomp_q[0]/(1.0+Event->lcomp_q[0])*Event->lcomp_a[0];
+
 
 	  //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
-	  l_elements[1][0] = orbitalElements(Event->lcomp_a[0], Event->lcomp_e[0],
+	  l_elements[1][0] = orbitalElements(a1, Event->lcomp_e[0],
 					     Event->lcomp_I[0], Event->lcomp_L0[0],
 					     Event->lcomp_w[0], Event->lcomp_O[0],
 					     Event->lcomp_dL[0]);
-	  l_elements[0][0] = orbitalElements(-a1, Event->lcomp_e[0],
+	  l_elements[0][0] = orbitalElements(-a2, Event->lcomp_e[0],
 					     Event->lcomp_I[0], Event->lcomp_L0[0],
 					     Event->lcomp_w[0], Event->lcomp_O[0],
 					     Event->lcomp_dL[0]);
@@ -192,12 +201,22 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  //the binary lens is a single star and planet
 	  l_elements[0].resize(1); // the star
 	  l_elements[1].resize(1); //the planet
-	  double acomb = (1.0+Event->p_q[0])*Event->p_a[0];
-	  double a1 = acomb-Event->p_a[0];
+	  //double acomb = (1.0+Event->p_q[0])*Event->p_a[0];
+	  //double a1 = acomb-Event->p_a[0];
+	  double mbary=Lenses->data[ln][Lenses->MASS];
+	  double m = Event->p_mass[0];
+	  double q = m/mbary;
+	  double acomb = Event->p_a[0];
+	  double a1 = 1.0/(1.0+q)*Event->p_a[0];
+	  double a2 = q/(1.0+q)*Event->p_a[0];
+	  mbary+=m;
+	  Event->p_period[0] = sqrt(cube(acomb)/mbary);
+	  Event->p_dL[0] = 360.0/Event->p_period[0];
+
 
 	  //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
-	  l_elements[1][0] = orbitalElements(Event->p_a[0], Event->p_e[0], Event->p_I[0], Event->p_L0[0], Event->p_w[0], Event->p_O[0], Event->p_dL[0]);
-	  l_elements[0][0] = orbitalElements(-a1, Event->p_e[0], Event->p_I[0], Event->p_L0[0], Event->p_w[0], Event->p_O[0], Event->p_dL[0]);
+	  l_elements[1][0] = orbitalElements(a1, Event->p_e[0], Event->p_I[0], Event->p_L0[0], Event->p_w[0], Event->p_O[0], Event->p_dL[0]);
+	  l_elements[0][0] = orbitalElements(-a2, Event->p_e[0], Event->p_I[0], Event->p_L0[0], Event->p_w[0], Event->p_O[0], Event->p_dL[0]);
 
 	  //Compute the origin shift relative to the center of mass of the lens
 	  //vector<double> xp;      
@@ -215,8 +234,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	{
 	  //We have planets/moons and a binary star
 	  //Add the binary star to the planet orbit array, then we can sort it
+	  if(Paramfile->verbosity>=2) cout << "lcompanions.size()=" << Event->lcompanions.size() << endl;
 	  for(int i=0;i<Event->lcompanions.size();i++)
 	    {
+	      Event->p_mass.push_back(Event->lcomp_mass[i]);
+	      Event->p_period.push_back(Event->lcomp_period[i]);
 	      Event->p_a.push_back(Event->lcomp_a[i]);
 	      Event->p_e.push_back(Event->lcomp_e[i]);
 	      Event->p_I.push_back(Event->lcomp_I[i]);
@@ -225,6 +247,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->p_O.push_back(Event->lcomp_O[i]);
 	      Event->p_dL.push_back(Event->lcomp_dL[i]);
 	      Event->p_q.push_back(Event->lcomp_q[i]);
+	      Event->p_s0.push_back(0.0);
 	      Event->p_orbtype.push_back(-1); //to represent a binary star
 	    }
 	}
@@ -297,12 +320,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       //For the moon-planet system we need a barycenter that will orbit the star,
       //then the moon and planet will orbit the barycenter
 
-      double qsys;
+      double msysmoons;
 
       if(moons>0)
 	{
 	  double mbary = Event->p_mass[0]; //ratio of the planet+moons system relative to the planet (for now)
-	  double qbary = 1.0;
 	  double q;
 	  
 	  if(Paramfile->verbosity>=1) cout << "Lens involves a planet with moons, nlens=" << nlens << " nmoons=" << moons << endl;
@@ -312,76 +334,124 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      //Work through moon orbits in order of orbit size so the more distant ones deal with a central barycenter and total inner mass
 	      
 	      if(Event->p_orbtype[idx]!=3) continue; //skip non-moons
+
+	      if(Paramfile->verbosity>=1) cout << "Adding moon idx=" << idx << " to planet 1 " << endl;
 	      
 	      q = Event->p_mass[idx]/mbary; //ratio of moon mass to all internal mass
-	      double acomb = (qbary+q)*Event->p_a[idx];
-	      double a1 = acomb-Event->p_a[idx];
-	      double pfix = sqrt(qbary+q);
-	      Event->p_period[idx] /= pfix;
-	      l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+	      double acomb = Event->p_a[idx];
+	      double a1 = 1.0/(1.0+q)*acomb;
+	      double a2 = q/(1.0+q)*acomb;
+
+	      mbary += Event->p_mass[idx];
+	      Event->p_period[idx] = sqrt(cube(acomb)/mbary);
+	      Event->p_dL[idx] = 360.0/Event->p_period[idx];
+	      if(Paramfile->verbosity>=2) cout << "Orbit moon idx=" << idx << " a1=" << a1 << " acomb=" << acomb << endl;
+	      l_elements[idx+1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
 	      //reflex orbit of the planet due to the moons
-	      l_elements[1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+	      if(Paramfile->verbosity>=2) cout << "Reflex planet jdx=" << 1 << " object idx=" << idx << " a2=" << a2 << endl;
+	      l_elements[1].push_back(orbitalElements(-a2, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
 	      for(auto jdx : orbsize_order)
 		{
 		  //reflex orbit of any inner moons due to the current one
 		  if(jdx==idx) break;
 		  if(Event->p_orbtype[jdx]==3)
 		    {
-		      l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+		      if(Paramfile->verbosity>=2) cout << "Reflex moon jdx=" << jdx << " object idx=" << idx << " a2=" << a2 << endl;
+		      l_elements[jdx+1].push_back(orbitalElements(-a2, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
 		    }
 		}
-	      mbary += Event->p_mass[idx];
-	      qbary += q;
 	      
 	    } //end loop over moons
-	  qsys = qbary*Event->p_q[0]; //mass ratio of the moon system to the first star
+	  msysmoons = mbary;
 	} //end if moons
-      else qsys=1.0;
+
 
       //We've added the moons, now work through the other bodies, treating the planet as the combined mass of it with its moons
 
       //Start with the first star
-      double qbary=1;
-      double q;
-      int planet_yet=0;
+      double mbary=Lenses->data[ln][Lenses->MASS];
+      double q,m;
+      int planet_moon=0;
       
       for(auto idx : orbsize_order)
 	{
-	  if(Event->p_orbtype[idx]==3) continue; //ignore the moons, they are orbiting the planet
+	  if(Event->p_orbtype[idx]==3) continue; //ignore the moons, they are orbiting the planet and motion is accounted for in planet barycenter, we'll shift them when we shift the planet
 	  
 	  if(moons>0 && Event->p_orbtype[idx]!=-1)
 	    {
 	      //if there are moons, there is only one planet
-	      q = qsys; //use the mass of the planet moon system
-	      planet_yet=1; //modify the moon system with the reflex orbit
+	      m = msysmoons; //use the mass of the planet moon system
+	      planet_moon=1; //modify the moon system with the reflex orbit
 	    }
-	  else q = Event->p_q[idx];
-		  
-	  double acomb = (qbary+q)*Event->p_a[idx];
-	  double a1 = acomb-Event->p_a[idx];
-	  double pfix = sqrt(qbary+q);
-	  Event->p_period[idx] /= pfix;
-	  l_elements[idx+1].push_back(orbitalElements(Event->p_a[idx], Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+	  else
+	    {
+	      m = Event->p_mass[idx];
+	    }
+
+	  q = m/mbary; //ratio of moon mass to all internal mass
+	  double acomb = Event->p_a[idx];
+	  double a1 = 1.0/(1.0+q)*acomb;
+	  double a2 = q/(1.0+q)*acomb;
+
+	  if(Paramfile->verbosity>1) cout << "Planet idx=" << idx << " acomb=" << acomb << " a1=" << a1 << " abary=" << a2 << " m1=" << m << " mbary=" << mbary << endl;
+
+	  mbary += m;
+	  Event->p_period[idx] = sqrt(cube(acomb)/mbary);
+	  Event->p_dL[idx] = 360.0/Event->p_period[idx];
+		  	    
+	  l_elements[idx+1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
 	  //reflex motion of the main star
-	  l_elements[0].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
-	  int skip_unless_moon=0;
+	  if(Paramfile->verbosity>1) cout << "Star reflex" << endl;
+	  l_elements[0].push_back(orbitalElements(-a2, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
+
+	  //If we are dealing with the planet, add the motion to the moons in the system too
+	  if(planet_moon==1)
+	    {
+	      for(auto jdx : orbsize_order)
+		{
+		  if(Event->p_orbtype[jdx]==3)
+		    {
+		      if(Paramfile->verbosity>1) cout << "Moon jdx=" << jdx << " with planet idx=" << idx << " +a=" << a1 << endl;
+		      l_elements[jdx+1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
+		    }
+		}
+	      planet_moon=2; //We've dealt with the system not
+	    }
+	  
 	  //add the reflex motion to any other bodies inside this one's orbit
+	  int outside=0;
 	  for(auto jdx : orbsize_order)
 	    {
-	      if(jdx==idx) //we've reached this object, the rest can be skipped unless they are a moon
+	      if(jdx==idx)
 		{
-		  skip_unless_moon=1;
-		  continue;
+		  //we've reached this object, the rest can be skipped unless they are a moon - they are outside this obj
+		  break; 
 		}
-	      //skip if it is a moon, unless the planet is inside this idx object
-	      if(Event->p_orbtype[jdx]!=3 || planet_yet==1)
+
+	      if(Event->p_orbtype[jdx]!=3)
 		{
-		  //this works because the above continue will skip it for the first planet_yet==1 which is the planet itself
-		  l_elements[jdx+1].push_back(orbitalElements(-a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]*pfix));
+		  if(Paramfile->verbosity>1 && Event->p_orbtype[jdx]!=3) cout << "Planet reflex jdx=" << jdx << " with planet idx=" << idx << " +a=" << Event->p_a[idx] << endl;
+		  
+		  l_elements[jdx+1].push_back(orbitalElements(-a2, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
+	      
+		  if(jdx==1)
+		    {
+		      //This is the planet, move its moons as well
+		      for(auto kdx : orbsize_order)
+			{
+			  if(Event->p_orbtype[kdx]==3)
+			    {
+			      if(Paramfile->verbosity>1) cout << "Moon reflex kdx=" << jdx << " with planet jdx=" << idx << " +a=" << Event->p_a[idx] << endl;
+		  
+			      l_elements[kdx+1].push_back(orbitalElements(-a2, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
+			    }
+			}
+		    }
+		  
+	      //skip if it is a moon whose planet hasn't been reached yet
 		}
-	    }
-	  qbary += q;
-		      
+		
+	    }		      
 		
 	} //end loop over other bodies
 
@@ -405,19 +475,26 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  cout << " " << lel.size();
 	}
       cout << endl;
+      int count=0;
       for(auto lorb : l_elements)
 	{
+	  cout << "Lens " << count << ":" << endl;
 	  for(auto lel : lorb) lel.print_elements();
+	  count++;
 	}
+      
       cout << "s_elements.size()=" << s_elements.size();
       for(auto sel : s_elements)
 	{
 	  cout << " " << sel.size();
 	}
       cout << endl;
+      count=0;
       for(auto sorb : s_elements)
 	{
+	  cout << "Source " << count << ":" << endl;
 	  for(auto sel : sorb) sel.print_elements();
+	  count++;
 	}
     }
 
@@ -532,7 +609,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       	      if(is==0) rho = Event->rs;	
 	      else rho = Event->scomp_rs[is-1];
 	      u = qAdd(xs[is],ys[is]);
-	      mu[is] = Event->vbm->ESPLMag2(u, rho);
+	      if(Paramfile->skip_magnification==0)
+		mu[is] = Event->vbm->ESPLMag2(u, rho);
+	      else mu[is]=1.0;
 	      //handle astrometry
 	    }
 	}
@@ -553,8 +632,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      double ys_com_ecl = ys[is] + l_delta[1];
 	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;
 	      double ysi = sr*xs_com_ecl + cr*ys_com_ecl;
-	      
-	      mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);
+
+	      if(Paramfile->skip_magnification==0)
+		mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);
+	      else mu[is] = 1.0;
 	      //handle astrometry
 	      //rotate astrometry back
 	    }
@@ -565,7 +646,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	    {
 	      if(is==0) rho = Event->rs;
 	      else rho = Event->scomp_rs[is-1];
-	      mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
+	      if(Paramfile->skip_magnification==0)
+		mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
+	      else mu[is] = 1.0;
 	      //handle astrometry
 	    }
 	}
