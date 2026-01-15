@@ -87,20 +87,44 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
       ofile << "Lens2_a Lens2_P ";
     }
 
-  for(int i=0;i<Event->ncatalog_planets+1;i++)
+  for(int i=0;i<Event->ncatalog_planets;i++)
     {
       ofile << "p_" << i << "_mass" << " ";
-      ofile << "p_" << i << "_period" << " ";
       ofile << "p_" << i << "_a" << " ";
       ofile << "p_" << i << "_e" << " ";
       ofile << "p_" << i << "_I" << " ";
-      ofile << "p_" << i << "_L0" << " ";
       ofile << "p_" << i << "_w" << " ";
       ofile << "p_" << i << "_O" << " ";
-      ofile << "p_" << i << "_dL" << " ";
-      ofile << "p_" << i << "_q" << " ";
       ofile << "p_" << i << "_orbtype" << " ";
     }
+
+  for(int i=0;i<Event->ncatalog_planets+Paramfile->multiple_lenses;i++)
+    {
+      ofile << "Planet_" << i << "_mass ";
+      ofile << "Planet_" << i << "_period ";
+      ofile << "Planet_" << i << "_a ";
+      ofile << "Planet_" << i << "_e ";
+      ofile << "Planet_" << i << "_I ";
+      ofile << "Planet_" << i << "_L0 ";
+      ofile << "Planet_" << i << "_w ";
+      ofile << "Planet_" << i << "_O ";
+      ofile << "Planet_" << i << "_dL ";
+      ofile << "Planet_" << i << "_q ";
+      ofile << "Planet_" << i << "_s0 "; 
+      ofile << "Planet_" << i << "_orbtype ";
+    }
+    
+  //planet data - 7+1 = 38
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  int pcount=0;
+  for(auto paramhead : Event->paramsHeader)
+    {
+      //ofile << "Planet_";
+      if(paramhead.size()>0) ofile << paramhead << " ";
+      else ofile << "Planet_" << pcount << " ";
+      pcount++;	     
+    }
+
   
   //microlensing paramters - 11+1 = 26
   ofile << "u0lens1" << " " << "alpha" << " ";
@@ -133,33 +157,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   //  pheadcount++;
   //}
 
-  for(int i=0;i<Event->ncatalog_planets;i++)
-    {
-      ofile << "Planet_" << i << "_mass ";
-      ofile << "Planet_" << i << "_period ";
-      ofile << "Planet_" << i << "_a ";
-      ofile << "Planet_" << i << "_e ";
-      ofile << "Planet_" << i << "_I ";
-      ofile << "Planet_" << i << "_L0 ";
-      ofile << "Planet_" << i << "_w ";
-      ofile << "Planet_" << i << "_O ";
-      ofile << "Planet_" << i << "_dL ";
-      ofile << "Planet_" << i << "_q ";
-      ofile << "Planet_" << i << "_orbtype ";
-    }
-    
 
-  
-  //planet data - 7+1 = 38
-  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
-  int pcount=0;
-  for(auto paramhead : Event->paramsHeader)
-    {
-      //ofile << "Planet_";
-      if(paramhead.size()>0) ofile << paramhead << " ";
-      else ofile << "Planet_" << pcount << " ";
-      pcount++;	     
-    }
   //ofile << "| ";
   
   //weights - 3+1 = 46
@@ -325,7 +323,16 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
     }
 
-  for(int i=0;i<Event->ncatalog_planets+1;i++)
+  int pdatacount=0;
+  for(auto pdata : Planets->data[Event->id])
+    {
+      ofile << pdata << " ";
+      int planetid=pdata;
+      pdatacount++;
+    }
+
+
+  for(int i=0;i<Event->ncatalog_planets+Paramfile->multiple_lenses;i++)
     {
       if(i<Event->nplanets + Event->lcompanions.size())
 	{
@@ -339,11 +346,21 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->p_O[i] << " ";
 	  ofile << Event->p_dL[i] << " ";
 	  ofile << Event->p_q[i] << " ";
+	  ofile << Event->p_s0[i] << " ";
 	  ofile << Event->p_orbtype[i] << " ";
 	}
-      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
+      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	    
     }
+
+  //planet data - 7+1 = 38
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  for(auto param : Event->params)
+    {
+      ofile << param << " ";
+    }
+  //ofile << "| ";
+  
   
   //for(int i=0;i<lOutputCols;i++)
   //  {
@@ -371,27 +388,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	<< Event->pllx[0].vtilde_N_h << " " << Event->pllx[0].vtilde_E_h << " " <<  Event->pllx[0].vtilde_N_r << " " << Event->pllx[0].vtilde_E_r << " " << Event->pllx[0].v_ref_N << " " << Event->pllx[0].v_ref_E << " "
 	<< Event->pllx[0].piEll << " " << Event->pllx[0].piErp << " "
 	<< Event->vt << " " << Event->gamma << " "; 
-
-  int pdatacount=0;
-  for(auto pdata : Planets->data[Event->id])
-    {
-      ofile << pdata << " ";
-      int planetid=pdata;
-      if(pdatacount%7==6)
-	{
-	  ofile << Event->p_period[planetid] << " " << Event->p_q[planetid] << " " << Event->p_s0[planetid] << " ";
-	}
-      pdatacount++;
-    }
-
   
-  //planet data - 7+1 = 38
-  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
-  for(auto param : Event->params)
-    {
-      ofile << param << " ";
-    }
-  //ofile << "| ";
   
   //weights - 3+1 = 46
   ofile << Event->u0max << " " << Event->t0range << " " << Event->weight_scale << " " << Event->raww << " " << Event->w << "  ";
