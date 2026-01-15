@@ -20,6 +20,7 @@ print(list(outdata.index))
 print(list(outdata))
 
 print(outdata[['Lens2_combined_logP','Lens2_a','Lens2_P']])
+print(outdata[['Lens_Mass','Lens2_Mass']])
 
 for i in range(5):
     for k in ['period','a','dL']:
@@ -35,6 +36,8 @@ for k in ['Lens_Mass']:
 
 nlens = pd.Series(list(data.columns)).str.contains('lens').sum()//2
 print(f"nlens = {nlens}")
+nsrc = pd.Series(list(data.columns)).str.contains('source').sum()//3
+print(f"nsrc = {nsrc}")
 
 #header = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=50,index_col=False)
 #fsm = header[header.iloc[:,0]=='#fs:'].squeeze(axis=0)[1:].astype(float)
@@ -51,18 +54,26 @@ ax = axtmp.flatten()
 print(ax)
 
 for i in range(nlens):
-    ax[0].plot(data[f"lens{i}_x"],data[f"lens{i}_y"],label=f'{i}')
+    ax[0].plot(data[f"lens{i}_x"],data[f"lens{i}_y"],label=f'L{i}')
+for i in range(nsrc):
+    ax[0].plot(data[f"source{i}_x"],data[f"source{i}_y"],label=f'S{i}')
 
 ax[0].set_aspect('equal')
 ax[0].legend()
 #plt.colorbar(label='Time [days]')
 ax[0].set_xlabel(r'$x$ [$r_{\rm E}$]')
 ax[0].set_ylabel(r'$y$ [$r_{\rm E}$]')
+ax[0].grid()
 
 for j in range(nlens):
     for i in range(nlens):
-        ax[j+1].plot(data[f"lens{i}_x"]-data[f"lens{j}_x"],data[f"lens{i}_y"]-data[f"lens{j}_y"],label=f'{i}')
+        ax[j+1].plot(data[f"lens{i}_x"]-data[f"lens{j}_x"],data[f"lens{i}_y"]-data[f"lens{j}_y"],label=f'L{i}')
         ax[j+1].set_aspect('equal')
+
+
+for i in range(nsrc):
+    for j in range(nlens):
+        ax[j+1].plot(data[f"source{i}_x"]-data[f"lens{j}_x"],data[f"source{i}_y"]-data[f"lens{j}_y"],label=f'S{i}')
 
 plt.tight_layout()
 

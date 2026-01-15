@@ -96,7 +96,18 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	      if(Planets->header[col].rfind("Eccentricity",0)==0)
 		Event->p_e.push_back(pd[col]);
 	      if(Planets->header[col].rfind("Inclination",0)==0)
-		Event->p_I.push_back(pd[col]);
+		{
+		  double inc=pd[col];
+		  if(inc>900) //If inclination is relative to the binary orbit, then it should have 1000 degrees added to it
+		    {
+		      if(Event->lcompanions.size()>0)
+			{
+			  inc = Event->lcomp_I[0] + (inc-1000.0);
+			}
+		      else inc = inc-1000;
+		    }
+		  Event->p_I.push_back(inc);
+		}
 	      if(Planets->header[col].rfind("LongitudePerihelion",0)==0)
 		Event->p_w.push_back(pd[col]);
 	      if(Planets->header[col].rfind("LongitudeAscNode",0)==0)

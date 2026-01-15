@@ -199,6 +199,9 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 	ofile << "Obs_" << i << "_fs2ofs1" << " ";
     }
 
+  //Binary/system type
+  ofile << "Moons Circumbinary DistantBinary MixedBinary "; 
+  
   //simulation details
   ofile << "NumObsGroups" << " " << "ErrorFlag" << " ";
   //ofile << " | ";
@@ -458,6 +461,9 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
     }
 
+  ofile << Event->moons << " " << Event->circumbinary << " " << Event->distantbinary << " " << Event->mixedbinary << " ";
+
+  
   //simulation details
   ofile << int(Event->obsgroups.size()) << " " << Event->allsat + 2*(!Event->nepochs) << " ";
 

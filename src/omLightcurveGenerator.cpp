@@ -23,7 +23,8 @@
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
 
-  cout << "lcgen Event->nlens: " << Event->nlens << endl;
+  if(Paramfile->verbosity>=1) cout << "lcgen Event->nlens: " << Event->nlens << endl;
+  cout << "Skip magnification = " << Paramfile->skip_magnification << endl;
   
   if(Paramfile->verbosity>=3)
     cout << "At lightcurveGenerator start, Tol=" 
@@ -50,7 +51,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   for(obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
     idxshift.push_back(Event->nepochsvec[obsidx]);
 
-  Event->vbm->SetMethod(VBMicrolensing::Method::Multipoly);
+  if(Event->nlens<4) Event->vbm->SetMethod(VBMicrolensing::Method::Multipoly);
+  else Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
 
   Event->xsrc.clear();
   Event->ysrc.clear();
@@ -266,14 +268,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  for(auto os : orbsize_order) cout << os << " " << Event->p_a[os] << endl;
 	  
 	}
-      int moons = 0;
+      Event->moons = 0;
       int barycenters = 0;
-      int circumbinary=0;
-      int distantbinary=0;
-      int mixedbinary=0;
+      Event->circumbinary=0;
+      Event->distantbinary=0;
+      Event->mixedbinary=0;
       for(auto oc : Event->p_orbtype)
 	{
-	  if(oc==3) moons++;
+	  if(oc==3) Event->moons++;
 	}
 
       //The possible systems
@@ -290,7 +292,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  //The binary star companion has an orbtype of -1, if the last in the orbsize_order list is it, its a distant companion
 	  if(Event->p_orbtype[orbsize_order.back()]==-1)
 	    {
-	      distantbinary=1;
+	      Event->distantbinary=1;
 	      if(Paramfile->verbosity>=1) cout << "Lens involves a distant binary star and at least one planet, nlens=" << Event->nlens << " nplanets=" << Event->nplanets << endl;
 	    }
 	  else
@@ -299,17 +301,17 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      for(auto oso : orbsize_order)
 		{
 		  if(Event->p_orbtype[oso]==3) continue;
-		  if(Event->p_orbtype[oso]==-1) circumbinary=1;
+		  if(Event->p_orbtype[oso]==-1) Event->circumbinary=1;
 		  break;
 		}
 		  
-	      if(circumbinary==1)
+	      if(Event->circumbinary==1)
 		{
 		  if(Paramfile->verbosity>=1) cout << "Lens involves a close binary star and at least one circumbinary planet, nlens " << Event->nlens << " nplanets=" << Event->nplanets << endl;		  
 		}
 	      else
 		{
-		  mixedbinary=1; //the binary star is between two planets, this is quite possibly extremely unphysical
+		  Event->mixedbinary=1; //the binary star is between two planets, this is quite possibly extremely unphysical
 		  if(Paramfile->verbosity>=1) cout << "Lens is classified as a mixed binary that might be unphysical/unstable, nlens " << Event->nlens << " nplanets=" << Event->nplanets << endl;
 		}
 	    }	 	  
@@ -322,12 +324,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       double msysmoons;
 
-      if(moons>0)
+      if(Event->moons>0)
 	{
 	  double mbary = Event->p_mass[0]; //ratio of the planet+moons system relative to the planet (for now)
 	  double q;
 	  
-	  if(Paramfile->verbosity>=1) cout << "Lens involves a planet with moons, nlens=" << nlens << " nmoons=" << moons << endl;
+	  if(Paramfile->verbosity>=1) cout << "Lens involves a planet with moons, nlens=" << nlens << " nmoons=" << Event->moons << endl;
 	  for(auto idx : orbsize_order)
 	    {
 	      //Only one planet allowed with moons, the planet will be the first in the planet list [0], the second in the orbit list [1]
@@ -377,7 +379,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	{
 	  if(Event->p_orbtype[idx]==3) continue; //ignore the moons, they are orbiting the planet and motion is accounted for in planet barycenter, we'll shift them when we shift the planet
 	  
-	  if(moons>0 && Event->p_orbtype[idx]!=-1)
+	  if(Event->moons>0 && Event->p_orbtype[idx]!=-1)
 	    {
 	      //if there are moons, there is only one planet
 	      m = msysmoons; //use the mass of the planet moon system
@@ -498,13 +500,20 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
     }
 
+  double time_elapsed=0;
+
   //Calculate the lightcurve
+  double last_progress=0;
   for(int idx=0; idx<Event->nepochs; idx++)
     {
+      double progress = (double(idx)/double(Event->nepochs)*100.0);
+      if(Paramfile->verbosity>=1 && floor(progress/10)!=floor(last_progress/10)) cout << "." << flush;
+      last_progress=progress;
       if(enforce_timeout)
 	{
 	  time_t now = time(NULL);
-	  if (difftime(now, starttime) > timeout)
+	  time_elapsed = difftime(now, starttime);
+	  if (time_elapsed > timeout)
 	    {
 	      timed_out = true;
 	      break;
@@ -647,10 +656,22 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      if(is==0) rho = Event->rs;
 	      else rho = Event->scomp_rs[is-1];
 	      if(Paramfile->skip_magnification==0)
-		mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
+		{
+		  logfile_ptr.precision(16);
+		  logfile_ptr << Event->id << " " << Event->epoch[idx] << " ";
+		  for(int ilp=0;ilp<nlens*3;ilp++)
+		    logfile_ptr << lens_parameters[ilp] << " ";
+		  logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
+		  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
+		}
 	      else mu[is] = 1.0;
 	      //handle astrometry
 	    }
+	}
+
+      for(int is=0;is<nsrc;is++)
+	{
+	  Event->mu_src[is][idx] = mu[is];
 	}
 
       //Here Atrue is magnification, but later it gets converted into fractional flux
@@ -671,6 +692,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     } //End for epoch
 
   delete [] lens_parameters;
+
+  if(Paramfile->verbosity>=2)
+    {
+      cout << "Lightcurve took " << time_elapsed << " seconds to generate" << endl;
+    }
   
   if(timed_out)
     {

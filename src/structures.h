@@ -292,6 +292,11 @@ struct event{
   vector<double> lcomp_s, lcomp_q, lcomp_phase;
   vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL, lcomp_mass, lcomp_period; //orbital elements
   vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0;
+  int moons;
+  int circumbinary;
+  int distantbinary;
+  int mixedbinary;
+
   //double ljoint_thE, ljoint_tE, ljoint_rE;
   double qsum;
   int field;
