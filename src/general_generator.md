@@ -18,4 +18,4 @@ Binary stars are included via SynthPop's conventions for binary stars; either th
 ```
 Mass SemimajorAxis Eccentricity Inclination LongitudePerihelion LongitudeAscNode OrbitType
 ```
-with angles in degrees. If inclination has a value >900, its inclination will be referenced to the binary star orbit's as `I = I_binary + (I-1000.0)`; if the star is not a binary, the inclination will be `I-1000`. OrbitType is an integer code, with a value of 1 or 2 indicating a planet, and 3 indicating a moon. 
+with angles in degrees. If inclination has a value >900, its inclination will be referenced to the binary star orbit's as `I = I_binary + (I-1000.0)`; if the star is not a binary, the inclination will be `I-1000`. OrbitType is an integer code, with a value of 1 or 2 indicating a planet, and 3 indicating a moon. Use multiple sets of these parameters for multiple planets/moons.
