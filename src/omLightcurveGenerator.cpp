@@ -51,8 +51,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   for(obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
     idxshift.push_back(Event->nepochsvec[obsidx]);
 
-  if(Event->nlens<4) Event->vbm->SetMethod(VBMicrolensing::Method::Multipoly);
-  else Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
+  //if(Event->nlens<4) Event->vbm->SetMethod(VBMicrolensing::Method::Multipoly);
+  //else Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
+  Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
 
   Event->xsrc.clear();
   Event->ysrc.clear();
@@ -663,6 +664,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		    logfile_ptr << lens_parameters[ilp] << " ";
 		  logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
 		  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
+		  logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
 		}
 	      else mu[is] = 1.0;
 	      //handle astrometry
