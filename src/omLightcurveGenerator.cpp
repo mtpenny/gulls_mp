@@ -54,6 +54,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //if(Event->nlens<4) Event->vbm->SetMethod(VBMicrolensing::Method::Multipoly);
   //else Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
   Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
+  Event->vbm->a1 = Event->gamma;
 
   Event->xsrc.clear();
   Event->ysrc.clear();
