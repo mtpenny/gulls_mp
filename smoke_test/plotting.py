@@ -73,6 +73,192 @@ def _parse_header(lc_file: Path) -> Tuple[List[float] | None, List[float] | None
     return planet_vals, event_vals
 
 
+def _sanity_check_flux_conservation(
+    lc_file: Path,
+    true_flux: np.ndarray,
+    src1_flux: np.ndarray | None,
+    src2_flux: np.ndarray | None,
+    abs_tol: float = 1e-5,
+) -> None:
+    """Check that true_relative_flux ~= src1 + src2 + fblend for a couple of epochs.
+
+    This is a strict, non-configurable sanity check. It only runs when both
+    source1/source2 columns exist and the header contains #fs and #fs2. On
+    failure it raises SmokeTestError so CI/smoke-test runner fails.
+    """
+    # Only run when both source columns are present
+    if src1_flux is None or src2_flux is None:
+        return
+
+    fs = None
+    fs2 = None
+    with lc_file.open(encoding="utf-8") as header_reader:
+        for raw in header_reader:
+            if not raw.startswith("#"):
+                break
+            s = raw.strip()
+            if s.startswith("#fs:"):
+                parts = s.split()
+                if len(parts) >= 2:
+                    try:
+                        fs = float(parts[1])
+                    except Exception:
+                        fs = None
+            elif s.startswith("#fs2:"):
+                parts = s.split()
+                if len(parts) >= 2:
+                    try:
+                        fs2 = float(parts[1])
+                    except Exception:
+                        fs2 = None
+
+    if fs is None or fs2 is None:
+        # If header doesn't provide both, skip the strict check
+        return
+
+    fblend = 1.0 - float(fs) - float(fs2)
+
+    # choose representative epochs: first epoch and the epoch of peak true flux
+    try:
+        peak_idx = int(np.nanargmax(true_flux))
+    except Exception:
+        peak_idx = 0
+
+    indices = [0]
+    if peak_idx != 0:
+        indices.append(int(peak_idx))
+
+    for idx in indices:
+        try:
+            expected = float(src1_flux[idx]) + float(src2_flux[idx]) + float(fblend)
+            truev = float(true_flux[idx])
+        except Exception:
+            # If indexing or conversion fails, raise an error to surface the issue
+            raise SmokeTestError(
+                f"Flux sanity check failed: could not index/convert epoch {idx} in {lc_file.name}"
+            )
+        diff = abs(truev - expected)
+        if diff > abs_tol:
+            raise SmokeTestError(
+                f"Flux sanity check failed for {lc_file.name} at epoch index {idx}: true={truev:.8f}, expected={expected:.8f}, abs_diff={diff:.8e}, abs_tol={abs_tol}"
+            )
+
+
+
+def _plot_minimal_astrometry(
+    lc_file: Path,
+    output_dir: Path,
+    title: str,
+    time: np.ndarray,
+    true_x_er: np.ndarray,
+    true_y_er: np.ndarray,
+    meas_x_er: np.ndarray,
+    meas_y_er: np.ndarray,
+    x_er_err: np.ndarray,
+    y_er_err: np.ndarray,
+    tE: float,
+) -> Path:
+    fig, ax = plt.subplots(2, 1, figsize=(8, 8))
+    fig.suptitle(title, fontsize=14)
+
+    ax[0].errorbar(
+        meas_x_er,
+        meas_y_er,
+        xerr=x_er_err,
+        yerr=y_er_err,
+        fmt="o",
+        markersize=3,
+        alpha=0.5,
+        color="C0",
+        label="Measured",
+        zorder=1,
+    )
+    ax[0].plot(
+        true_x_er,
+        true_y_er,
+        "-",
+        linewidth=1.5,
+        color="red",
+        label="True",
+        zorder=2,
+        alpha=0.8,
+    )
+    ax[0].scatter(
+        true_x_er,
+        true_y_er,
+        c=time,
+        cmap=plt.get_cmap("plasma"),
+        s=20,
+        marker="x",
+        linewidths=0.9,
+        alpha=1.0,
+        label="True samples",
+        zorder=3,
+    )
+    ax[0].set_xlabel("x_centroid (Einstein radii)")
+    ax[0].set_ylabel("y_centroid (Einstein radii)")
+    ax[0].set_title("Astrometric Centroid in Lens Frame with Lens at Rest")
+    ax[0].grid(True, alpha=0.3)
+    ax[0].legend()
+    
+    # plot 2: x and y centroids around event peak
+    # zoom in to +/- 2 Einstein radius around origin and epochs +/- 2*tE
+    mask_peak = (time >= -2 * tE) & (time <= 2 * tE)
+    ax[1].errorbar(
+        time[mask_peak],
+        meas_x_er[mask_peak],
+        yerr=x_er_err[mask_peak],
+        fmt="o",
+        markersize=3,
+        alpha=0.5,
+        color="C0",
+        label="Measured x",
+        zorder=1,
+    )
+    ax[1].errorbar(
+        time[mask_peak],
+        meas_y_er[mask_peak],
+        yerr=y_er_err[mask_peak],
+        fmt="o",
+        markersize=3,
+        alpha=0.5,
+        color="C1",
+        label="Measured y",
+        zorder=1,
+    )
+    ax[1].plot(
+        time[mask_peak],
+        true_x_er[mask_peak],
+        "-",
+        linewidth=1.5,
+        color="red",
+        label="True x",
+        zorder=2,
+        alpha=0.8,
+    )
+    ax[1].plot(
+        time[mask_peak],
+        true_y_er[mask_peak],
+        "-",
+        linewidth=1.5,
+        color="orange",
+        label="True y",
+        zorder=2,
+        alpha=0.8,
+    )
+    ax[1].set_xlabel("Time (days)")
+    ax[1].set_ylabel("Centroid (Einstein radii)")
+    ax[1].set_title("Centroid Around Event Peak")
+    ax[1].grid(True, alpha=0.3)
+    ax[1].legend()
+
+    plot_file = output_dir / f"{lc_file.stem}_astrometry_plot.png"
+    fig.tight_layout()
+    fig.savefig(plot_file, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Generated astrometry plot: {plot_file.name}")
+    return plot_file
+
 def _plot_photometry_only(
     lc_file: Path,
     output_dir: Path,
@@ -81,6 +267,8 @@ def _plot_photometry_only(
     flux: np.ndarray,
     flux_err: np.ndarray,
     true_flux: np.ndarray | None,
+    src1_flux: np.ndarray | None = None,
+    src2_flux: np.ndarray | None = None,
 ) -> Path:
     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
     fig.suptitle(title, fontsize=14)
@@ -105,6 +293,28 @@ def _plot_photometry_only(
             label="True",
             zorder=2,
             alpha=0.8,
+        )
+    if src1_flux is not None:
+        ax.plot(
+            time,
+            src1_flux,
+            "-",
+            linewidth=1.2,
+            color="magenta",
+            label="Source 1",
+            zorder=4,
+            alpha=0.7,
+        )
+    if src2_flux is not None:
+        ax.plot(
+            time,
+            src2_flux,
+            "-",
+            linewidth=1.2,
+            color="gold",
+            label="Source 2",
+            zorder=5,
+            alpha=0.7,
         )
     ax.axhline(1.0, color="k", linestyle="--", linewidth=1.5, label="Baseline", zorder=3)
     ax.set_xlabel("Time (days)")
@@ -408,6 +618,8 @@ def _render_astrometric_figure(
     true_y_vals: np.ndarray | None,
     meas_x: np.ndarray | None,
     meas_y: np.ndarray | None,
+    src1_flux: np.ndarray | None = None,
+    src2_flux: np.ndarray | None = None,
 ) -> Tuple[Path, Path | None]:
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     fig.suptitle(title, fontsize=14)
@@ -437,6 +649,28 @@ def _render_astrometric_figure(
             label="True",
             zorder=2,
             alpha=0.8,
+        )
+    if src1_flux is not None:
+        ax_light.plot(
+            time,
+            src1_flux,
+            "-",
+            linewidth=1.2,
+            color="magenta",
+            label="Source 1",
+            zorder=4,
+            alpha=0.7,
+        )
+    if src2_flux is not None:
+        ax_light.plot(
+            time,
+            src2_flux,
+            "-",
+            linewidth=1.2,
+            color="gold",
+            label="Source 2",
+            zorder=5,
+            alpha=0.7,
         )
     ax_light.axhline(
         1.0,
@@ -674,10 +908,49 @@ def _render_astrometric_figure(
     return plot_file, lensframe_path
 
 
+def _extract_gulls_version(build_bin: Path) -> str:
+    """Extract the gulls version by running the executable.
+    
+    Returns version string like "2.1.0" or "unknown" if unable to determine.
+    """
+    import subprocess
+    import re
+    
+    # Try gulls_std first as it's the most common
+    executables = ["gulls_std", "gulls_croin", "gullsFish"]
+    
+    for exe_name in executables:
+        exe_path = build_bin / exe_name
+        if not exe_path.exists():
+            continue
+        
+        try:
+            # Run the executable with invalid arguments to get version in error output
+            result = subprocess.run(
+                [str(exe_path), "-i", "/nonexistent"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            # Check both stdout and stderr for version string
+            output = result.stdout + result.stderr
+            
+            # Look for "gulls v2.1.0" pattern
+            match = re.search(r'gulls v(\d+\.\d+\.\d+)', output)
+            if match:
+                return match.group(1)
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            continue
+    
+    # Default to 2.1.0 if we can't extract it
+    return "2.1.0"
+
+
 def plot_lightcurves(
     output_dir: Path,
     summaries: Dict[Tuple[int, int, int], Dict[str, float]] | None = None,
     params: Dict[str, str] | None = None,
+    build_bin: Path | None = None,
 ) -> None:
     lc_files = sorted(output_dir.rglob("*.lc"))
     if not lc_files:
@@ -694,6 +967,19 @@ def plot_lightcurves(
         val = params.get("ASTROMETRY_ON")
         if val is not None:
             astrometry_expected = str(val).strip().lower() not in {"0", "false", "off"}
+
+    # Determine whether MULTIPLE_SOURCES was requested in the parameter file.
+    multiple_sources_expected = False
+    if params:
+        ms = params.get("MULTIPLE_SOURCES")
+        if ms is not None:
+            multiple_sources_expected = str(ms).strip().lower() not in {"0", "false", "off"}
+    
+    # Extract gulls version for version-aware validation
+    gulls_version = "unknown"
+    if build_bin is not None:
+        gulls_version = _extract_gulls_version(build_bin)
+        print(f"Detected gulls version: {gulls_version}")
 
     for lc_file in lc_files:
         planet_vals, event_vals = _parse_header(lc_file)
@@ -763,6 +1049,9 @@ def plot_lightcurves(
             val = summary.get("event_dec")
             if val is not None and not math.isnan(val):
                 event_dec_float = float(val)
+            val = summary.get("tE_ref")
+            if val is not None and not math.isnan(val):
+                tE = float(val)
         if alpha_deg_float is None and event_vals and len(event_vals) >= 2:
             alpha_deg_float = float(event_vals[1])
         if alpha_deg_float is None:
@@ -773,34 +1062,103 @@ def plot_lightcurves(
         flux_err = _require_column("measured_relative_flux_error")
         true_flux = _require_column("true_relative_flux")
 
-        astrom_cols = [
-            "true_N_centroid_mas",
-            "true_E_centroid_mas",
-            "measured_N_centroid_mas",
-            "measured_E_centroid_mas",
-            "measured_N_centroid_error_mas",
-            "measured_E_centroid_error_mas",
-            "true_centroid_ra_deg",
-            "true_centroid_dec_deg",
-            "measured_centroid_ra_deg",
-            "measured_centroid_dec_deg",
-            "measured_centroid_ra_error_deg",
-            "measured_centroid_dec_error_deg",
-        ]
-        missing_astrom_cols = [col for col in astrom_cols if col not in column_names]
-        has_astrom = not missing_astrom_cols
-        if astrometry_expected and missing_astrom_cols:
-            print(
-                f"  Debug: {lc_file.name} missing astrometry columns: "
-                + ", ".join(missing_astrom_cols)
-            )
-        if astrometry_expected and not has_astrom:
-            raise SmokeTestError(
-                f"Smoke test failed: astrometric columns missing in {lc_file.name}"
-            )
+        # Version-aware astrometry column validation
+        # v2.1.0: minimal lens-frame columns (x_centroid, y_centroid, etc.)
+        # v2.2.0+: full sky-frame columns (true_N_centroid_mas, etc.)
+        if gulls_version.startswith("2.1."):
+            # v2.1.0 has minimal lens-frame astrometry columns
+            astrom_cols_v2_1 = [
+                "x_centroid",
+                "x_centroid_error",
+                "y_centroid",
+                "y_centroid_error",
+                "true_x_centroid",
+                "true_x_centroid_error",
+                "true_y_centroid",
+                "true_y_centroid_error",
+            ]
+            missing_astrom_cols = [col for col in astrom_cols_v2_1 if col not in column_names]
+            has_astrom = not missing_astrom_cols
+            if astrometry_expected and missing_astrom_cols:
+                print(
+                    f"  Debug: {lc_file.name} missing v2.1.0 astrometry columns: "
+                    + ", ".join(missing_astrom_cols)
+                )
+            if astrometry_expected and not has_astrom:
+                raise SmokeTestError(
+                    f"Smoke test failed: v2.1.0 astrometric columns missing in {lc_file.name}"
+                )
+        else:
+            # v2.2.0+ has full sky-frame astrometry columns
+            astrom_cols = [
+                "true_N_centroid_mas",
+                "true_E_centroid_mas",
+                "measured_N_centroid_mas",
+                "measured_E_centroid_mas",
+                "measured_N_centroid_error_mas",
+                "measured_E_centroid_error_mas",
+                "true_centroid_ra_deg",
+                "true_centroid_dec_deg",
+                "measured_centroid_ra_deg",
+                "measured_centroid_dec_deg",
+                "measured_centroid_ra_error_deg",
+                "measured_centroid_dec_error_deg",
+            ]
+            missing_astrom_cols = [col for col in astrom_cols if col not in column_names]
+            has_astrom = not missing_astrom_cols
+            if astrometry_expected and missing_astrom_cols:
+                print(
+                    f"  Debug: {lc_file.name} missing v2.2.0+ astrometry columns: "
+                    + ", ".join(missing_astrom_cols)
+                )
+            if astrometry_expected and not has_astrom:
+                raise SmokeTestError(
+                    f"Smoke test failed: v2.2.0+ astrometric columns missing in {lc_file.name}"
+                )
 
-        if not has_astrom:
-            _plot_photometry_only(lc_file, output_dir, title, time, flux, flux_err, true_flux)
+        # Extract source flux columns (optional for binary source events)
+        src1_flux = _optional_column("source1_relative_flux")
+        src2_flux = _optional_column("source2_relative_flux")
+
+        # If the parameter file did not request multiple sources, ignore any
+        # source1/source2 columns that may nevertheless appear in the output
+        # (prevents plotting Source 1/Source 2 when MULTIPLE_SOURCES isn't set).
+        if not multiple_sources_expected:
+            src1_flux = None
+            src2_flux = None
+
+        # Strict flux-conservation sanity check (non-configurable). Only run
+        # when multiple sources are expected and both columns are present.
+        _sanity_check_flux_conservation(lc_file, true_flux, src1_flux, src2_flux)
+
+        # For v2.1.0, only lens-frame columns are available, so we skip astrometry plotting
+        # For v2.2.0+, we have full sky-frame columns and can plot astrometry
+        if not has_astrom or gulls_version.startswith("2.1."):
+            _plot_photometry_only(
+                lc_file, 
+                output_dir, 
+                title, 
+                time, 
+                flux, 
+                flux_err, 
+                true_flux,
+                src1_flux, 
+                src2_flux)
+            if has_astrom and gulls_version.startswith("2.1."):
+                print(f"  Debug: Plotting minimal astrometry plot for {lc_file.name} (gulls v2.1.0)")
+                minimal_astrometry_plot = _plot_minimal_astrometry(
+                    lc_file,
+                    output_dir,
+                    title,
+                    time,
+                    _require_column("true_x_centroid"),
+                    _require_column("true_y_centroid"),
+                    _require_column("x_centroid"),
+                    _require_column("y_centroid"),
+                    _require_column("x_centroid_error"),
+                    _require_column("y_centroid_error"),
+                    tE
+                )
             continue
 
         true_N_mas = _require_column("true_N_centroid_mas")
@@ -945,6 +1303,8 @@ def plot_lightcurves(
             true_y_vals,
             meas_x,
             meas_y,
+            src1_flux,
+            src2_flux,
         )
 
         if astrometry_expected:

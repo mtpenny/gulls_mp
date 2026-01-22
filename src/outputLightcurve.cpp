@@ -350,6 +350,9 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "true_y_centroid" << " " << "true_y_centroid_error" << " " <<
     "parallax_shift_t" << " " << "parallax_shift_u" << " " <<    "BJD" << " " <<
     "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " ";
+  // TODO: Astrometry work previously output source1_relative_flux, source2_relative_flux columns here
+  // for per-source magnification tracking with binary sources. Consider re-adding when multi-source
+  // astrometry is implemented. The per-source flux was computed via Event->musrc1[i], Event->musrc2[i] - copilot
   for(int i=0;i<Event->nsrc;i++)
     {
       lcfile << "source" << i << "_x" << " " << "source" << i << "_y" << " " << "source" << i << "_mu" << " ";
@@ -537,9 +540,11 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
     }
   else
     {
-      tmp1 = "%s%s_%d_%d_%d",Paramfile->outputdir + Paramfile->run_name + "_"
-	+ to_string(Paramfile->instance) + "_" + to_string(Paramfile->choosefield) + "_"
-	+  to_string(Event->id);
+      // Build the same base name as the other branch — avoid stray format literal and
+      // do not use the comma operator. Keep it as a plain concatenation.
+      tmp1 = Paramfile->outputdir + Paramfile->run_name + "_"
+        + to_string(Event->instance) + "_" + to_string(Paramfile->choosefield) + "_"
+        + to_string(Event->id);
     }
   basefname=tmp1;
 
@@ -547,13 +552,14 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
   for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
     {
       if(Event->nepochsvec[obsidx+1]-Event->nepochsvec[obsidx]<=0) continue;
-      tmp1 += "." + to_string(obsidx) + "_";
+      // do not mutate tmp1/basefname; create a small suffix for this observation
+      string obs_suffix = "." + to_string(obsidx) + "_";
 
       filter = World[obsidx].filter;
 
       //first the baseline image
       imtype="base";
-      oname = basefname + tmp1 + imtype + extension + ".fits";
+      oname = basefname + obs_suffix + imtype + extension + ".fits";
 
       mag = Sources->mags[Event->source][filter];
 

@@ -161,6 +161,9 @@ struct filekeywords{
   int multiple_lenses;
 
   int skip_magnification;
+  // TODO: Astrometry work added these struct members here:
+  // int astrometry_on;
+  // double astrometry_error_floor_mas; - copilot
   
   long* seed;
 
@@ -173,6 +176,7 @@ struct filekeywords{
   string pathdir;
   string pathfile;
   string basedir;
+  string inputdir; 
   string starsdir;
   /*string scriptdir;
   string paramdir;
@@ -191,6 +195,7 @@ struct filekeywords{
   string sourcelist; 
   string lensdir; 
   string lenslist; 
+  string plansdir; 
   string planetdir;
   string planetroot;
   string outputdir;
@@ -366,19 +371,21 @@ struct event{
   vector<double> texp;
   vector<double> moonObjDist;
   vector<double> deltaVmoon;
-  vector<double> Atrue;
+  vector<double> Atrue; //true magnification without noise
   vector<double> Atrueerr;
-  vector<double> Aobs;
+  vector<double> Aobs; //relative flux with photometric noise
   vector<double> Aerr;
   vector<double> Afit;
+  vector<double> musrc1; //magnification of source 1
+  vector<double> musrc2; //magnification of source 2
   vector<bool> nosat;      /*Is point unsaturated? */
   vector<double> backmag;
   vector<double> dF;
   vector<double> dF_debug;
   vector<double> dF_diff;
-  vector<double> xs; //source position
+  vector<double> xs; //source 1 position
   vector<double> ys;
-  vector<double> xs2; //source position
+  vector<double> xs2; //source 2 position
   vector<double> ys2;
   vector<vector<double> > xsrc, ysrc, mu_src;
   vector<double> xl1; //lens 1 position

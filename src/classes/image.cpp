@@ -1876,7 +1876,7 @@ bool image::addstar(int x, int y, double mag, bool sub, bool fullpsf)
   if(!psf.init)
     {
       cerr << "The PSF has not been initialized. No star was added" << endl;
-      return true;
+      return false;
     }
   
   int Px0 = int(floor(double(x)/double(psf.Nsub))); //macro pixel coordinates

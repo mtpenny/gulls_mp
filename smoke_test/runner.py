@@ -96,7 +96,9 @@ def _resolve_case_selection(raw_choices: Sequence[str] | None, ci_mode: bool = F
                 ("smoke_std", "gulls_std.x", "smoke_std.prm"),
                 ("smoke_std_binary", "gulls_std.x", "smoke_std_binary.prm"),
                 ("smoke_fish", "gullsFish.x", "smoke_fish.prm"),
-                ("smoke_fish_binary", "gullsFish.x", "smoke_std_binary.prm"),
+                # For the fish binary CI case we should use the fish binary
+                # parameter file so outputs land under the fish/ output tree.
+                ("smoke_fish_binary", "gullsFish.x", "smoke_fish_binary.prm"),
                 ("smoke_croin", "gulls_croin.x", "smoke_croin.prm"),
                 ("smoke_croin_binary", "gulls_croin.x", "smoke_croin_binary.prm"),
                 ("smoke_general", "gulls_general.x", "smoke_general.prm"),
@@ -243,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         out_files = verify_outputs(case.output_dir)
         verify_catalog_alignment(out_files, case.params)
         summaries = gather_case_metrics(out_files)
-        plot_lightcurves(case.output_dir, summaries, case.params)
+        plot_lightcurves(case.output_dir, summaries, case.params, build_bin)
 
     if failures:
         print("\nSmoke test failed:")

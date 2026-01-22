@@ -66,6 +66,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"},
     {"SKIP_MAGNIFICATION","0"}
+    // TODO: Astrometry work added these parameters here:
+    // {"ASTROMETRY_ON","0"},
+    // {"ASTROMETRIC_SYS_FLOOR","0.1"} // mas - copilot
   };
 
   //For testing which parameters are at their default values
@@ -95,8 +98,25 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
       Paramfile->basedir = tmpstr;
       if(tmpstr.substr(tmpstr.length()-1).find_last_of("/")==string::npos) Paramfile->basedir += "/";
     }
+
+  // Normalize base paths: a lot of the code concatenates paths like
+  // `basedir + "src/..."` and expects `basedir` to end with '/'.
+  if(!Paramfile->basedir.empty() && Paramfile->basedir.back() != '/')
+    {
+      Paramfile->basedir.push_back('/');
+    }
   cout << "GULLS_BASE_DIR:" << Paramfile->basedir << endl;
   
+  if(tmp = getenv("GULLS_INPUT_DIR"))
+    {
+      Paramfile->inputdir = string(tmp); 
+    }
+  else
+    {
+      cout << "GULLS_INPUT_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
+      Paramfile->inputdir = Paramfile->basedir;
+    }
+
   if(tmp = getenv("GULLS_STARS_DIR"))
     {
       Paramfile->starsdir = string(tmp); 
@@ -105,6 +125,21 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {
       cout << "GULLS_STARS_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
       Paramfile->starsdir = Paramfile->basedir;
+    }
+
+  if(!Paramfile->starsdir.empty() && Paramfile->starsdir.back() != '/')
+    {
+      Paramfile->starsdir.push_back('/');
+    }
+
+  if(tmp = getenv("GULLS_PLANETS_DIR"))
+    {
+      Paramfile->plansdir = string(tmp); 
+    }
+  else
+    {
+      cout << "GULLS_PLANETS_DIR environment variable not set, assuming it is the same as GULLS_BASE_DIR" << endl;
+      Paramfile->plansdir = Paramfile->basedir;
     }
 
   //Read in all the parameters
@@ -176,9 +211,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->run_name = pfile["RUN_NAME"];
   Paramfile->outputdir = pfile["OUTPUT_DIR"] + Paramfile->run_name + string("/");
 
-  Paramfile->obsdir = Paramfile->basedir + pfile["OBSERVATORY_DIR"];
+  Paramfile->obsdir = Paramfile->inputdir + pfile["OBSERVATORY_DIR"];
   Paramfile->obslist = Paramfile->obsdir + pfile["OBSERVATORY_LIST"];
-  Paramfile->weatherprofiledir = Paramfile->basedir + pfile["WEATHER_PROFILE_DIR"];
+  Paramfile->weatherprofiledir = Paramfile->inputdir + pfile["WEATHER_PROFILE_DIR"];
 
   Paramfile->starfielddir = Paramfile->starsdir + pfile["STARFIELD_DIR"];
   Paramfile->starfieldlist = Paramfile->starfielddir + pfile["STARFIELD_LIST"];
@@ -189,7 +224,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->lensdir = Paramfile->starsdir + pfile["LENS_DIR"];
   Paramfile->lenslist = Paramfile->lensdir + pfile["LENS_LIST"];
 
-  Paramfile->planetdir = Paramfile->basedir + pfile["PLANET_DIR"];
+  Paramfile->planetdir = Paramfile->plansdir + pfile["PLANET_DIR"];
   Paramfile->planetroot = pfile["PLANET_ROOT"];
 
   
@@ -233,6 +268,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
   Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);
+  // TODO: Astrometry work parsed these parameters here:
+  // Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
+  // Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]); - copilot
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];
