@@ -3,7 +3,7 @@
 #include "dcdw.h"
 #include "croin.h"
 #include "structures.h"
-void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct filekeywords *Paramfile, struct slcat* Sources, struct slcat* Lenses, vector<struct pcat>* Planets)
+void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct filekeywords *Paramfile, struct slcat* Sources, struct slcat* Lenses, struct planetdata* Planets)
 {
 //extract and calculate the planet parameters
 
@@ -17,7 +17,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   //extract the input data
   for(int i=0;i<NPLANETINPUT;i++)
     {
-      Event->params[i] = (*Planets)[sdx].data[i];
+      Event->params[i] = Planets->data[sdx][i];
     }
   Event->paramsHeader[PMASS] = string("mass");
   Event->paramsHeader[AA] = string("semimajoraxis");
@@ -68,7 +68,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   Event->ucroin = u0max*(-1 + 2*ran2(Paramfile->seed));
   //cout << "check:tcroin: " << Event->tcroin << endl;
   //setupParallax(Event->tcroin, Paramfile, World, Event, Sources, Lenses);
-  Paramfile->tref = Event->tcroin;
+  Event->tref = Event->tcroin;
 
   usecroin(Event->params[SS], Event->params[QQ], Event->tcroin, Event->tE_r, Event->ucroin, Event->alpha, &Event->t0, &Event->u0, &Event->rcroin);
 
@@ -85,5 +85,11 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 
   Event->u0max = u0max*Event->rcroin;
   Event->t0range = inSeasont0range(Paramfile,World,Event);
+
+  Event->nlens++;
+  if(Paramfile->verbosity>=2)
+    {
+      cout << "At end of planet setup, nlens = " << Event->nlens << ", nsrc = " << Event->nsrc << endl;
+    }
 
 }

@@ -225,7 +225,7 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 	  //Generate the header information
 	  ss.str(string("")); 
 	  ss << Paramfile->outputdir << Paramfile->run_name << "_" 
-	     << Event->instance << "_";
+	     << Paramfile->instance << "_";
 	  if(Paramfile->choosefield>=0) ss << Paramfile->choosefield << "_";
 	  ss << Event->id << ".det.fm." << obsgroup;
 	  fmfname = ss.str();

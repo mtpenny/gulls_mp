@@ -65,9 +65,10 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"LC_TIMEOUT","60.0"},
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"},
-    // Astrometry controls
-    {"ASTROMETRY_ON","0"},
-    {"ASTROMETRIC_SYS_FLOOR","0.1"} // mas
+    {"SKIP_MAGNIFICATION","0"}
+    // TODO: Astrometry work added these parameters here:
+    // {"ASTROMETRY_ON","0"},
+    // {"ASTROMETRIC_SYS_FLOOR","0.1"} // mas - copilot
   };
 
   //For testing which parameters are at their default values
@@ -82,6 +83,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   //getenv here for the path to get base_path, tack on to the beginning of everything, should not be bad this way, we can ditch paths.txt or whatever, will make everything simpler.
 
   char const* tmp;
+  string tmpstr;
 
   Paramfile->basedir=string("");
   
@@ -92,7 +94,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     }
   else
     {
-      Paramfile->basedir = string(tmp);
+      tmpstr = string(tmp);
+      Paramfile->basedir = tmpstr;
+      if(tmpstr.substr(tmpstr.length()-1).find_last_of("/")==string::npos) Paramfile->basedir += "/";
     }
 
   // Normalize base paths: a lot of the code concatenates paths like
@@ -263,9 +267,10 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->lc_timeout = stod(pfile["LC_TIMEOUT"]);
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
-  // Astrometry controls
-  Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
-  Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]);
+  Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);
+  // TODO: Astrometry work parsed these parameters here:
+  // Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
+  // Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]); - copilot
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];

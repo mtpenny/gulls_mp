@@ -25,8 +25,8 @@ int lightcurveFitter(struct filekeywords* Paramfile, struct obsfilekeywords Worl
   int obsidx;
   int idx;
 
-  double tref = Event->t0;
-  if(Paramfile->parameterization==1) tref = Event->tcroin;
+  double tref = Event->tref;//Event->t0;
+  //if(Paramfile->parameterization==1) tref = Event->tcroin;
   
   gsl_set_error_handler_off();
   
@@ -227,7 +227,8 @@ double my_f(const gsl_vector *v, void *params)
   double chisq = 0.0;
   double Chisq=0.0;
 
-  double* A = new double[EventL->nepochs];
+  //double* A = new double[EventL->nepochs];
+  vector<double> A(EventL->nepochs,0.0);
   double R1;
   double R2;
 
@@ -371,7 +372,7 @@ double my_f(const gsl_vector *v, void *params)
   if(DEBUGVAR) printf("Chisq = %f\n",Chisq);
 
   //free up memory
-  delete[] A;
+  //delete[] A;
   delete[] Fu;
   delete[] Fl;
   delete[] chisqvec;

@@ -218,23 +218,24 @@ int image::load_detector(string filename,vector<string> modifications)
   else
     {
       if(std::getenv("GULLS_BASE_DIR") == NULL)
-		{
-		  cout << "Need to set environment variable GULLS_BASE_DIR=/full/path/to/your/gulls/" << endl;
-		  exit(1);
-		}
+	{
+	  cout << "Need to set environment variable GULLS_BASE_DIR=/full/path/to/your/gulls/" << endl;
+	  exit(1);
+	}
       //XXX This could very well not work, keep an eye on it...
       std::string gulls_base_dir = std::getenv("GULLS_BASE_DIR");
+      if(gulls_base_dir.substr(gulls_base_dir.length()-1).find_last_of("/")==string::npos) gulls_base_dir += "/";
       if(psffile.find(".psf")!=string::npos)
-		{
-		  //cerr << 'here2, using ' << gulls_base_dir+psffile <<'\n';
+	{
+	  //cerr << 'here2, using ' << gulls_base_dir+psffile <<'\n';
 	  
-		  psf.read_psf(gulls_base_dir+psffile); //precomputed psf
-		}
+	  psf.read_psf(gulls_base_dir+psffile); //precomputed psf
+	}
       else
-		{
-		  //cerr << 'here2, using ' << gulls_base_dir+psffile <<'\n';
-		  load_psf(gulls_base_dir+psffile,psfscale);
-		}
+	{
+	  //cerr << 'here2, using ' << gulls_base_dir+psffile <<'\n';
+	  load_psf(gulls_base_dir+psffile,psfscale);
+	}
     }
 
   if(par[17]<=0) //if an aperture has not been set
@@ -340,7 +341,7 @@ void image::reset_detector()
 //Clear the true image
 void image::reset_image()
 {
-  if(int(timage.size())!=Npix)
+  if(timage.empty() || int(timage.size())!=Npix)
     {
       timage.resize(Npix);
     }

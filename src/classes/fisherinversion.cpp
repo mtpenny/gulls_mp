@@ -1,6 +1,7 @@
 #include <string>
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <vector>
 #include <gsl/gsl_matrix.h>
@@ -10,6 +11,8 @@
 
 #include "fisherinversion.h"
 #include "integerPowers.h"
+
+using namespace std;
 
 void fisherInversion(vector<double> dF, vector<double> err, int npar, int ndata, string filename, string header, string values, gsl_matrix** covmatrix, gsl_matrix** covinverse)
 {
@@ -46,7 +49,7 @@ void fisherInversion(vector<double> dF, vector<double> err, int npar, int ndata,
     }
 
   out.precision(16);
-  out.scientific;
+  out << scientific;
 
   //Calculate the bij matrix
   if(output) out << "bij:\n";

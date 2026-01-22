@@ -71,7 +71,7 @@ void fisherMatrix(struct filekeywords* Paramfile, struct event *Event, struct ob
       char ctfname[1000];
 
       sprintf(ctfname, "%s%s_%d_%d.det.fm.%d", Paramfile->outputdir,
-	      Paramfile->run_name, Event->instance, Event->id, param);
+	      Paramfile->run_name, Paramfile->instance, Event->id, param);
 
   
       ctfile_ptr = fopen(ctfname,"w");

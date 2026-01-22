@@ -50,7 +50,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   //  Event->t0 = double(Paramfile->NUM_SIM_DAYS)*ran2(Paramfile->seed);
 
   //setupParallax(Event->t0, Paramfile, World, Event, Sources, Lenses);
-  Paramfile->tref = Event->t0;
+  Event->tref = Event->t0;
 
   //compute_u0(Paramfile, World, Event, Paramfile->seed);
   Event->u0max = ( 2*Event->rs>1 ? 2*Event->rs : 1);

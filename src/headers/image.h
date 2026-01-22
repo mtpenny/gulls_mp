@@ -120,17 +120,20 @@ class image
   image()
     {
       seed = NULL;
+
+      Npix=0;
+      psfback = 0;
+
       //set important, easily forgotten values to their defaults
       set_bitdepth();
       //set_pixscale();
-      set_background();
       set_bias_level();
       set_zeropoint();
+      set_background();
       set_largepsfmag();
       set_gain();
       set_bleeding(0);
-      
-      psfback = 0;
+
       refflux=irefflux=reffluxerror=ireffluxerror=0;
     };
   ~image(){};

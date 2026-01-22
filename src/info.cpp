@@ -41,7 +41,7 @@ void printEpochs(struct obsfilekeywords World[], int obsidx)
 }
 
 
-void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slcat* Sources, struct slcat* Lenses, ofstream& ofile)
+void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slcat* Sources, struct slcat* Lenses, struct planetdata* Planets, ofstream& ofile)
 {
 
   char paramstr[512];
@@ -53,6 +53,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   //ofile << "| ";
 
   //source data - +6+1 = 8
+  ofile << "NSource ";
   ofile << "SourceID" << " ";
   for(int i=0;i<Sources->datakey.size();i++)
     {
@@ -69,6 +70,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
     }
 
   //lens data - +10+1 = 15
+  ofile << "NLens NPlanets ";
   ofile << "LensID" << " ";
   for(int i=0;i<Lenses->datakey.size();i++)
     {
@@ -77,11 +79,50 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_lenses)
     {
       ofile << "LensCompanions ";
-      ofile << "Lens2ID ";
+      ofile << "Lens2_ID ";
       for(int i=0;i<Lenses->datakey.size();i++)
 	{
 	  ofile << "Lens2_" << Lenses->datakey[i] << " ";
 	}
+      ofile << "Lens2_a Lens2_P ";
+    }
+
+  for(int i=0;i<Event->ncatalog_planets;i++)
+    {
+      ofile << "p_" << i << "_mass" << " ";
+      ofile << "p_" << i << "_a" << " ";
+      ofile << "p_" << i << "_e" << " ";
+      ofile << "p_" << i << "_I" << " ";
+      ofile << "p_" << i << "_w" << " ";
+      ofile << "p_" << i << "_O" << " ";
+      ofile << "p_" << i << "_orbtype" << " ";
+    }
+
+  for(int i=0;i<Event->ncatalog_planets+Paramfile->multiple_lenses;i++)
+    {
+      ofile << "Planet_" << i << "_mass ";
+      ofile << "Planet_" << i << "_period ";
+      ofile << "Planet_" << i << "_a ";
+      ofile << "Planet_" << i << "_e ";
+      ofile << "Planet_" << i << "_I ";
+      ofile << "Planet_" << i << "_L0 ";
+      ofile << "Planet_" << i << "_w ";
+      ofile << "Planet_" << i << "_O ";
+      ofile << "Planet_" << i << "_dL ";
+      ofile << "Planet_" << i << "_q ";
+      ofile << "Planet_" << i << "_s0 "; 
+      ofile << "Planet_" << i << "_orbtype ";
+    }
+    
+  //planet data - 7+1 = 38
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  int pcount=0;
+  for(auto paramhead : Event->paramsHeader)
+    {
+      //ofile << "Planet_";
+      if(paramhead.size()>0) ofile << paramhead << " ";
+      else ofile << "Planet_" << pcount << " ";
+      pcount++;	     
     }
 
   
@@ -101,13 +142,22 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 		<< "vt" << " " << "LDgamma" << " ";
   //ofile << " | "; 
 
-  //planet data - 7+1 = 38
-  for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
-    {
-      sprintf(paramstr,"%d",i);
-      if(Event->paramsHeader[i].size()>0) strcpy(paramstr,Event->paramsHeader[i].c_str());
-      ofile << "Planet_" << paramstr << " ";
-    }
+  //  int pheadcount=0;
+  //for(auto planethead : Planets->header)
+  //{
+      
+  //  ofile << "Planet_" << floor(pheadcount/7) << "_" << planethead << " ";
+      
+  //  if(pheadcount%7==6)
+  //	{
+  //	  ofile << "Planet_" << floor(pheadcount/7) << "_period ";
+  //	  ofile << "Planet_" << floor(pheadcount/7) << "_q ";
+  //	  ofile << "Planet_" << floor(pheadcount/7) << "_s0 ";
+  //	}
+  //  pheadcount++;
+  //}
+
+
   //ofile << "| ";
   
   //weights - 3+1 = 46
@@ -149,6 +199,9 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 	ofile << "Obs_" << i << "_fs2ofs1" << " ";
     }
 
+  //Binary/system type
+  ofile << "Moons Circumbinary DistantBinary MixedBinary "; 
+  
   //simulation details
   ofile << "NumObsGroups" << " " << "ErrorFlag" << " ";
   //ofile << " | ";
@@ -200,20 +253,20 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 
 }
 
-void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords World[], struct event *Event, struct slcat* Sources, struct slcat* Lenses, ofstream& ofile)
+void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords World[], struct event *Event, struct slcat* Sources, struct slcat* Lenses, struct planetdata* Planets, ofstream& ofile)
 {
   int sc;
   ofile.precision(12);
   ofile << scientific;
   //position and event data - +6+1 = 1
-  ofile << Event->id << " " << Event->instance << " ";
+  ofile << Event->id << " " << Paramfile->instance << " ";
   ofile << Event->field << " ";
   ofile << Event->l << " " << Event->b << " " << Event->ra*TO_DEG << " " 
 	<< Event->dec*TO_DEG << " ";
 
   //source data - +6+1 = 8
   int sn = Event->source;
-  ofile << sn << " ";
+  ofile << Event->nsrc << " " << sn << " ";
   for(int i=0;i<Sources->data[sn].size();i++)
     {
       ofile << Sources->data[sn][i] << " ";
@@ -244,7 +297,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
   //lens data - +10+1 = 15
   int ln = Event->lens;
   int lc;
-  ofile << ln << " ";
+  ofile << Event->nlens << " " << Event->nplanets << " " << ln << " ";
   for(int i=0;i<Lenses->data[ln].size();i++)
     {
       ofile << Lenses->data[ln][i] << " ";
@@ -260,6 +313,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	    {
 	      ofile << Lenses->data[lc][i] << " ";
 	    }
+	  ofile << Event->p_a.back() << " " << Event->p_period.back() << " ";
 	}
       else
 	{
@@ -268,8 +322,49 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	    {
 	      ofile << "NaN ";
 	    }
+	  ofile << "NaN NaN ";
 	}
     }
+
+  int pdatacount=0;
+  for(auto pdata : Planets->data[Event->id])
+    {
+      ofile << pdata << " ";
+      int planetid=pdata;
+      pdatacount++;
+    }
+
+
+  for(int i=0;i<Event->ncatalog_planets+Paramfile->multiple_lenses;i++)
+    {
+      if(i<Event->nplanets + Event->lcompanions.size())
+	{
+	  ofile << Event->p_mass[i] << " ";
+	  ofile << Event->p_period[i] << " ";
+	  ofile << Event->p_a[i] << " ";
+	  ofile << Event->p_e[i] << " ";
+	  ofile << Event->p_I[i] << " ";
+	  ofile << Event->p_L0[i] << " ";
+	  ofile << Event->p_w[i] << " ";
+	  ofile << Event->p_O[i] << " ";
+	  ofile << Event->p_dL[i] << " ";
+	  ofile << Event->p_q[i] << " ";
+	  ofile << Event->p_s0[i] << " ";
+	  ofile << Event->p_orbtype[i] << " ";
+	}
+      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
+	    
+    }
+
+  //planet data - 7+1 = 38
+  //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
+  for(auto param : Event->params)
+    {
+      ofile << param << " ";
+    }
+  //ofile << "| ";
+  
+  
   //for(int i=0;i<lOutputCols;i++)
   //  {
   //    ofile << Lenses->data[Event->lens][lOutputColumns[i]] << " ";
@@ -279,7 +374,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
   //microlensing paramters - 11+1 = 26
   ofile << Event->u0 << " " << Event->alpha << " ";
   ofile << Event->t0 << " ";
-  ofile << Paramfile->tref << " ";
+  ofile << Event->tref << " ";
   ofile << Event->tcroin << " ";
   ofile << Event->ucroin << " " << Event->rcroin << " ";
   double murel_l = Lenses->data[ln][Lenses->MUL]-Sources->data[sn][Sources->MUL];
@@ -296,14 +391,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	<< Event->pllx[0].vtilde_N_h << " " << Event->pllx[0].vtilde_E_h << " " <<  Event->pllx[0].vtilde_N_r << " " << Event->pllx[0].vtilde_E_r << " " << Event->pllx[0].v_ref_N << " " << Event->pllx[0].v_ref_E << " "
 	<< Event->pllx[0].piEll << " " << Event->pllx[0].piErp << " "
 	<< Event->vt << " " << Event->gamma << " "; 
-
   
-  //planet data - 7+1 = 38
-  for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
-    {
-      ofile << Event->params[i] << " ";
-    }
-  //ofile << "| ";
   
   //weights - 3+1 = 46
   ofile << Event->u0max << " " << Event->t0range << " " << Event->weight_scale << " " << Event->raww << " " << Event->w << "  ";
@@ -355,7 +443,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->scomp_rs[0] << " ";
 	  ofile << Event->scomp_s[0] << " ";
 	  ofile << Event->scomp_alpha[0] << " ";
-	  ofile << Event->scomp_inc[0] << " ";
+	  ofile << Event->scomp_I[0] << " ";
 	  ofile << Event->scomp_phase[0] << " ";
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {
@@ -373,6 +461,9 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
     }
 
+  ofile << Event->moons << " " << Event->circumbinary << " " << Event->distantbinary << " " << Event->mixedbinary << " ";
+
+  
   //simulation details
   ofile << int(Event->obsgroups.size()) << " " << Event->allsat + 2*(!Event->nepochs) << " ";
 
@@ -392,9 +483,9 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
   if(Event->data.size()>0)
     {
       for(int i=0;i<int(Event->data.size());i++)
-		{
-		  ofile << Event->data[i] << " ";
-		}
+	{
+	  ofile << Event->data[i] << " ";
+	}
     }
   
 

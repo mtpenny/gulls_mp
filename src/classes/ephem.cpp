@@ -1,5 +1,6 @@
 #include <cmath>
 #include <vector>
+#include <iostream>
 
 #include "ephem.h"
 #include "constants.h"
@@ -19,7 +20,7 @@ void orbitalElements::blank()
   da=de=dI=dL=dw=dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 void orbitalElements::earthmoonbary()
@@ -33,7 +34,7 @@ void orbitalElements::earthmoonbary()
   O0=0.0; dO=0.0;
   b=0; c=0; s=0; f=0;
       
-  storerad();
+  //storerad();
 };
 
 void orbitalElements::earth()
@@ -49,7 +50,7 @@ void orbitalElements::earth()
   O0=6.093679521123980E+01; dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 void orbitalElements::earthl2()
@@ -74,7 +75,7 @@ void orbitalElements::geosynch(double inc, double phase)
   O0=30;                  dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 void orbitalElements::lissajous(double phase)
@@ -91,7 +92,7 @@ void orbitalElements::lissajous(double phase)
   O0=90;                  dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 void orbitalElements::lissajousxy(double phase)
@@ -109,7 +110,7 @@ void orbitalElements::lissajousxy(double phase)
   O0=0;                   dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 void orbitalElements::lissajousz(double phase)
@@ -127,7 +128,7 @@ void orbitalElements::lissajousz(double phase)
   O0=90;                  dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 void orbitalElements::mars()
@@ -141,7 +142,7 @@ void orbitalElements::mars()
   O0=49.55953891;  dO=-0.0029257343;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 };
 
 void orbitalElements::jupiter()
@@ -155,7 +156,7 @@ void orbitalElements::jupiter()
   O0=100.47390909; dO=0.0020469106;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 };
 
 void orbitalElements::jwst(double phase)
@@ -172,7 +173,7 @@ void orbitalElements::jwst(double phase)
   O0=90;                  dO=0;
   b=0; c=0; s=0; f=0;
 
-  storerad();
+  //storerad();
 }
 
 
@@ -182,7 +183,7 @@ void orbitalElements::jwst(double phase)
 void orbitalElements::settime(double jd)
 {
   t = jd;
-  T = (t-epoch)/365.25;
+  T = (t-epoch)/365.25; //time past epoch in years (note different definition to explanatory supplement. Parameters adjusted accordingly
 
   a = a0 + T*da;
   e = e0 + T*de;
@@ -198,15 +199,15 @@ void orbitalElements::meananomaly()
 {
   W = w - O;
   //mean anomaly - dL handles its change with time
-  M = L - w + b*T*T + c*cos(f*T) + s*sin(f*T);
+  M = L - w + b*T*T + c*cos(f*T*d2r) + s*sin(f*T*d2r);
 
   //put into the range -180<=M<=180
   //first get into 0,360
-  if(M>twoPi) M = fmod(M,twoPi);
-  else if(M<-pi) M = fmod(M-floor(M/twoPi)*twoPi,twoPi);
+  if(M>360.0) M = fmod(M,360.0);
+  else if(M<-180.0) M = fmod(M-floor(M/360.0)*360.0,360.0);
 
   //now get to -180,180
-  if(M>pi) M-=twoPi;
+  if(M>180.0) M-=360.0;
 }
   
 //compute the eccentric anomaly
@@ -214,13 +215,14 @@ void orbitalElements::eccentricanomaly()
 {
   //iterative solution of Kepler's equations
   double dM, dE;
+  double estar = e * r2d;
 
-  E = M + e * sin(M);
+  E = M + estar * sin(M*d2r);
 
   do
     {
-      dM = M - (E - e*sin(E));
-      dE = dM/(1 - e*cos(E));
+      dM = M - (E - estar*sin(E*d2r));
+      dE = dM/(1 - e*cos(E*d2r));
       E += dE;
     } while(abs(dE)> tol);
 }    
@@ -228,17 +230,17 @@ void orbitalElements::eccentricanomaly()
 //compute the coordinates in the plane of the orbit
 void orbitalElements::heliocoords()
 {
-  xh = a*(cos(E)-e);
-  yh = a*sqrt(1-e*e)*sin(E);
+  xh = a*(cos(E*d2r)-e);
+  yh = a*sqrt(1-e*e)*sin(E*d2r);
   zh = 0;
 }
 
 //compute coordinates in the J2000 ecliptic plane
 void orbitalElements::eclcoords()
 {
-  double cW = cos(W); double sW = sin(W);
-  double cO = cos(O); double sO = sin(O);
-  double cI = cos(I); double sI = sin(I);
+  double cW = cos(W*d2r); double sW = sin(W*d2r);
+  double cO = cos(O*d2r); double sO = sin(O*d2r);
+  double cI = cos(I*d2r); double sI = sin(I*d2r);
   
   xecl = (cW*cO - sW*sO*cI) * xh + (-sW*cO - cW*sO*cI) * yh;
   yecl = (cW*sO + sW*cO*cI) * xh + (-sW*sO + cW*cO*cI) * yh;

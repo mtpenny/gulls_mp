@@ -2,7 +2,7 @@
 #include "buildEvent.h"
 #include "croin.h"
 
-void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct filekeywords *Paramfile, struct slcat* Sources, struct slcat* Lenses, vector<struct pcat>* Planets)
+void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct filekeywords *Paramfile, struct slcat* Sources, struct slcat* Lenses, struct planetdata* Planets)
 {
   //extract and calculate the planet parameters
 
@@ -24,7 +24,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   //extract the input data
   for(int i=0;i<NPLANETINPUT;i++)
     {
-      Event->params[i] = (*Planets)[sdx].data[i];
+      Event->params[i] = Planets->data[sdx][i];
     }
 
   //Calculate the derived planet properties
@@ -51,13 +51,19 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 			   / (Event->params[PMASS] + Lenses->data[ln][Lenses->MASS]));
 
   //setupParallax(Event->t0, Paramfile, World, Event, Sources, Lenses);
-  Paramfile->tref=Event->t0;
+  Event->tref=Event->t0;
   Paramfile->parameterization=0;
 
   //Event->w /= (Event->tE_r/Event->tE_h);
 
   //The croin parameters will not be accurate if there is orbital motion or parallax
   croinparam(Event->params[SS], Event->params[QQ], Event->t0, Event->tE_r, Event->u0, Event->alpha, &Event->tcroin, &Event->ucroin, &Event->rcroin);
+
+  Event->nlens++;
+  if(Paramfile->verbosity>=2)
+    {
+      cout << "At end of planet setup, nlens = " << Event->nlens << ", nsrc = " << Event->nsrc << endl;
+    }
 
 //Place some conditions to speed things up...
 

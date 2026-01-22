@@ -22,21 +22,47 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
 		vector<vector<vector<double> > >* starfield, 
 		vector<double>* starfielddata, 
 		struct filekeywords *Paramfile, struct slcat *Sources, 
-		struct slcat *Lenses, int sdx, string instance, long *idum)
+		struct slcat *Lenses, int sdx, long *idum)
 {
-  Event->instance = atoi(instance.c_str());
   Event->id = sdx;
 
   Event->gamma = Paramfile->LD_GAMMA;
 
   //clear the data vectors
   Event->data.clear();
+
+  Event->scompanions.clear();
   Event->scomp_rs.clear();
   Event->scomp_s.clear();
   Event->scomp_alpha.clear();
-  Event->scomp_inc.clear();
   Event->scomp_phase.clear();
   Event->scomp_fsofs1.clear();
+  Event->scomp_e.clear();
+  Event->scomp_I.clear();
+  Event->scomp_L0.clear();
+  Event->scomp_w.clear();
+  Event->scomp_O.clear();
+  Event->scomp_dL.clear();
+  Event->scomp_q.clear();
+
+  Event->lcompanions.clear();  
+  Event->lcomp_s.clear();
+  Event->lcomp_q.clear();
+  //Event->lcomp_alpha.clear();
+  Event->lcomp_phase.clear();
+  Event->lcomp_a.clear();
+  Event->lcomp_e.clear();
+  Event->lcomp_I.clear();
+  Event->lcomp_L0.clear();
+  Event->lcomp_w.clear();
+  Event->lcomp_O.clear();
+  Event->lcomp_dL.clear();
+  Event->lcomp_mass.clear();
+  Event->lcomp_period.clear();
+
+  //Event->ljoint_thE.clear();
+  //Event->ljoint_tE.clear();
+  //Event->ljoint_rE.clear();
 
   //Set up obsgroups
   if(int(Event->obsgroups.size())==0)
@@ -58,6 +84,11 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   compute_u0(Paramfile, World, Event, idum);
 
   Event->peakpoint=0;
+
+  if(Paramfile->verbosity>=2)
+    {
+      cout << "At end of build event, nlens = " << Event->nlens << ", nsrc = " << Event->nsrc << endl;
+    }
 
   if(ran2(Paramfile->seed)<Paramfile->outputLightcurve) Event->outputthis=1;
   else Event->outputthis=0;
@@ -234,10 +265,10 @@ void computeBlending(struct event *Event, struct obsfilekeywords World[], struct
 
       //add the image background
       if(Paramfile->verbosity>2)
-		{
-		  cout << __FILE__ << " " << __FUNCTION__ << ": Add background " << World[obsidx].zodiflux[0]
-			   << endl;
-		}
+	{
+	  cout << __FILE__ << " " << __FUNCTION__ << ": Add background " << World[obsidx].zodiflux[0]
+	       << endl;
+	}
       allbg = 20.0 - 2.5*log10(World[obsidx].constbackground 
 			       + World[obsidx].zodiflux[0]
 			       + pow(10,-0.4*(World[obsidx].skybackground-20))
@@ -362,7 +393,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 
     } while(Sources->data[sn][Sources->DIST] <= Lenses->data[ln][Lenses->DIST]
 	    || (Sources->data[sn][Sources->MUL] == Lenses->data[ln][Lenses->MUL] 
-		&& Sources->data[sn][Sources->MUB] == Lenses->data[ln][Lenses->MUB]));
+		&& Sources->data[sn][Sources->MUB] == Lenses->data[ln][Lenses->MUB])
+	    || Sources->mags[sn][0]>=99.0);
 
   //store the choice
   Event->field = Paramfile->choosefield;
@@ -389,7 +421,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   eq2gal(lb[0], lb[1], 'g', &Event->ra, &Event->dec);
   if(Event->ra<0) Event->ra += 2*PI;
 
-  //Handle multiplicity
+  //Handle multiple sources - first handle the ingestion and then compute the properties
   Event->scompanions.clear();
   if(Paramfile->multiple_sources>0)
     {
@@ -412,8 +444,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 		  else
 		    {
 		      break;
-		    }
-		}
+		    } //end if companion
+		} //end for sources
 	    } //end isbinary==1
 	  else if(isbinary>=2)
 	    {
@@ -426,8 +458,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 		    {
 		      primarysn = i;
 		      break;
-		    }
-		}
+		    } //end if primary
+		} //end for sources
 
 	      if(primarysn==-1)
 		{
@@ -465,26 +497,70 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	{
 	  //add dummy companion properties to the event data here?
 	}
-    }
+    } //end if multiple sources
 
+  Event->nsrc=1;
+  //Compute source companion properties
   if(Paramfile->multiple_sources)
     {
       //add companion properties to the event data here?
       for(auto sc : Event->scompanions)
 	{
+	  Event->nsrc++;
 	  Event->scomp_rs.push_back((Sources->data[sc][Sources->RADIUS] * Rsun / Sources->data[sc][Sources->DIST]) / Event->thE);
 	  double P = pow(10,Sources->data[sc][Sources->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Sources->data[sn][Sources->datadict["Mass"]];
 	  double M2 = Sources->data[sc][Sources->datadict["Mass"]];
+	  Event->scomp_q.push_back(M2/M1);
 	  double acomb = pow(P*P*(M1+M2),1.0/3.0);
 	  double a1 = M2/(M1+M2) * acomb;
 	  double a2 = M1/(M1+M2) * acomb;
-	  Event->scomp_s.push_back(acomb/(Event->thE * Sources->data[sn][Sources->DIST]));
-	  Event->scomp_alpha.push_back(360.0*ran2(idum));
-	  Event->scomp_phase.push_back(360.0*ran2(idum));
+	  Event->scomp_a.push_back(acomb);
+
+	  double e = 0.0;
+	  if(Sources->datadict.count("Eccentricity")==1)
+	    {
+	      e = Sources->data[sn][Sources->datadict["Eccentricity"]];
+	    }
+	  Event->scomp_e.push_back(e);
+
+	  double long_perihelion = 360.0*ran2(idum);
+	  if(Sources->datadict.count("LongitudePerihelion")==1)
+	    {
+	      long_perihelion = Sources->data[sn][Sources->datadict["LongitudePerihelion"]];
+	    }
+	  Event->scomp_w.push_back(long_perihelion);
+	  
+	  double long_ascnode = 360.0*ran2(idum);
+	  if(Sources->datadict.count("LongitudeAscendingNode")==1)
+	    {
+	      long_perihelion = Sources->data[sn][Sources->datadict["LongitudeAscendingNode"]];
+	    }
+	  Event->scomp_O.push_back(long_ascnode);
+	  Event->scomp_alpha.push_back(long_ascnode);
+
 	  double rnd = ran2(idum);
-	  Event->scomp_inc.push_back(180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+	  double inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+	  if(Sources->datadict.count("Inclination")==1)
+	    {
+	      inc = Sources->data[sn][Sources->datadict["Inclination"]];
+	    }
+	  Event->scomp_I.push_back(inc);
+
+	  Event->scomp_dL.push_back(360.0/P);
+	  Event->scomp_L0.push_back(360.0*ran2(idum));
+	  Event->scomp_phase.push_back(Event->scomp_L0.back());
+
+	  
+	  Event->scomp_s.push_back(acomb/(Event->thE * Sources->data[sn][Sources->DIST]));
+	  //Event->scomp_alpha.push_back(360.0*ran2(idum));
+	  //Event->scomp_phase.push_back(360.0*ran2(idum));
+	  
+
 	  Event->scomp_fsofs1.push_back(vector<double>());
+
+	  //vector<double> scomp_a, scomp_e, scomp_I, scomp_L, scomp_w, scomp_O, scomp_dL; //orbital elements
+	  
           for(int filt=0; filt<Paramfile->Nfilters;filt++)
 	    {
 	      double magnitude1 = Sources->mags[sn][filt];
@@ -495,10 +571,144 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	}
     }
 
+
+  Event->nlens=1;
+  
+  //Handle multiple lenses - first handle the ingestion and then compute the properties
+  if(Paramfile->multiple_lenses>0)
+    {
+      int isbinary = Lenses->data[ln][Lenses->datadict["Is_Binary"]];
+      if(isbinary>0)
+	{
+	  if(Paramfile->verbosity>2) cout << "Lens " << ln << " is a multiple ";
+	  //Currently set up so that companions immediately trail the primary in the catalog
+	  if(isbinary==1)
+	    {
+	      if(Paramfile->verbosity>2) cout << "and is the primary." << endl;
+	      for(int i=ln+1;i<Lenses->data.size();i++)
+		{
+		  if(Lenses->data[i][Lenses->datadict["primary_ID"]]==Lenses->data[ln][Lenses->datadict["ID"]])
+		    {
+		      if(Paramfile->verbosity>2) cout << "Adding star " << i << " to lens system." << endl;
+		      Event->lcompanions.push_back(i);
+		      //add companion properties to the event data here?
+		    }
+		  else
+		    {
+		      break;
+		    }
+		}
+	    } //end isbinary==1
+	  else if(isbinary>=2)
+	    {
+	      if(Paramfile->verbosity>2) cout << "and is a companion." << endl;
+	      //find the primary id's position
+	      int primaryln=-1;
+	      for(int i=0;i<Lenses->data.size();i++)
+		{
+		  if(Lenses->data[ln][Lenses->datadict["primary_ID"]]==Lenses->data[i][Lenses->datadict["ID"]])
+		    {
+		      primaryln = i;
+		      break;
+		    }
+		}
+
+	      if(primaryln==-1)
+		{
+		  cout << "Problem finding primary star for multiple star where a companion was selected as the main lens (ln,ID,primary_ID): ("
+		       << ln << "," << Lenses->data[ln][Lenses->datadict["ID"]] << "," << Lenses->data[ln][Lenses->datadict["primary_ID"]] << ")" << endl;
+		  exit(1);
+		}
+
+	      for(int i=primaryln;i<Lenses->data.size();i++)
+		{
+		  if(i==primaryln || Lenses->data[i][Lenses->datadict["primary_ID"]]==Lenses->data[ln][Lenses->datadict["ID"]])
+		    {
+		      if(i!=ln)
+			{
+			  if(Paramfile->verbosity>1) cout << "Adding star " << i << " to lens system." << endl;
+			  Event->lcompanions.push_back(i);
+			  //add companion properties to the event data here?
+
+			} //end if i!=ln
+		    } //end if i==primaryln
+		  else
+		    {
+		      break;
+		    } //not sure I understand this break
+		} //end for over lenses
+	    } //end else isbinary==1
+	  
+	} //end isbinary>0
+      else
+	{
+	  //add dummy companion properties to the event data here?
+	}
+    }
+
+  //Compute lens companion properties
   if(Paramfile->multiple_lenses)
     {
-      
+      Event->qsum = 1.0;
+      //add lens companion properties to the event data here
+
+      //add companion properties to the event data here?
+      for(auto lc : Event->lcompanions)
+	{
+	  Event->nlens++;
+	  double P = pow(10,Lenses->data[lc][Lenses->datadict["combined_logP"]])/DAYINYR;
+	  double M1 = Lenses->data[ln][Lenses->datadict["Mass"]];
+	  double M2 = Lenses->data[lc][Lenses->datadict["Mass"]];
+	  Event->lcomp_q.push_back(M2/M1);
+	  Event->qsum += M2/M1;
+	  double acomb = pow(P*P*(M1+M2),1.0/3.0);
+	  double a1 = M2/(M1+M2) * acomb;
+	  double a2 = M1/(M1+M2) * acomb;
+	  Event->lcomp_a.push_back(acomb);
+
+	  double e = 0.0;
+	  if(Lenses->datadict.count("Eccentricity")==1)
+	    {
+	      e = Lenses->data[ln][Lenses->datadict["Eccentricity"]];
+	    }
+	  Event->lcomp_e.push_back(e);
+
+	  double long_perihelion = 360.0*ran2(idum);
+	  if(Lenses->datadict.count("LongitudePerihelion")==1)
+	    {
+	      long_perihelion = Lenses->data[ln][Lenses->datadict["LongitudePerihelion"]];
+	    }
+	  Event->lcomp_w.push_back(long_perihelion);
+	  
+	  double long_ascnode = 360.0*ran2(idum);
+	  if(Lenses->datadict.count("LongitudeAscendingNode")==1)
+	    {
+	      long_perihelion = Lenses->data[ln][Lenses->datadict["LongitudeAscendingNode"]];
+	    }
+	  Event->lcomp_O.push_back(long_ascnode);
+
+	  double rnd = ran2(idum);
+	  double inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+	  if(Lenses->datadict.count("Inclination")==1)
+	    {
+	      long_perihelion = Lenses->data[ln][Lenses->datadict["Inclination"]];
+	    }
+	  Event->lcomp_I.push_back(inc);
+
+	  Event->lcomp_dL.push_back(360.0/P);
+	  Event->lcomp_L0.push_back(360.0*ran2(idum));
+
+	  Event->lcomp_s.push_back(acomb/(Event->thE * Lenses->data[ln][Lenses->DIST]));
+	  Event->lcomp_mass.push_back(M2);
+	  Event->lcomp_period.push_back(P);
+	  //Event->lcomp_alpha.push_back(360.0*ran2(idum));
+	  //Event->lcomp_phase.push_back(360.0*ran2(idum));
+	  
+	}
+      //Event->ljoint_thE = Event->thE * sqrt(qsum);
+      //Event->ljoint_rE = Event->thE * sqrt(qsum);
     }
+  
 
   //The random parameters
 
@@ -631,7 +841,7 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   if(Paramfile->verbosity>1) cout << __FUNCTION__ << endl;
   int sn = Event->source;
   int ln = Event->lens;
-  double tref = Paramfile->tref;
+  double tref = Event->tref;
 
   coords c;
 
