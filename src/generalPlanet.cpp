@@ -104,7 +104,11 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 			{
 			  inc = Event->lcomp_I[0] + (inc-1000.0);
 			}
-		      else inc = inc-1000;
+		      else
+			{
+			  double rnd = ran2(Paramfile->seed);
+			  inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+			}
 		    }
 		  Event->p_I.push_back(inc);
 		}
