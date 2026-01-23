@@ -1,6 +1,7 @@
 #include "outputLightcurve.h"
 #include "zodiacalLight.h"
 #include "astroFns.h"
+#include "constants.h"
 #include <iomanip>
 #include <sstream>
 #include <fstream>
@@ -316,6 +317,18 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
   lcfile << endl;
 
+  // Astrometry reference frame definition
+  // Event frame origin is at catalog (RA, Dec) - does NOT move with lens proper motion
+  // Event frame (x,y) orientation relative to sky (E,N) is UNCERTAIN - validate with plots!
+  // RA/Dec columns assume x~East, y~North but this may be wrong depending on alpha convention
+  // Two RA/Dec versions: without lens parallax (_deg) and with lens parallax attempt (_lpllx_deg)
+  lcfile << "#Astrometry_Frame: ";
+  lcfile << setprecision(12) << "RA_rad=" << Event->ra << " Dec_rad=" << Event->dec 
+         << " RA_deg=" << Event->ra * r2d << " Dec_deg=" << Event->dec * r2d
+         << " thE_mas=" << Event->thE << " t0=" << Event->t0;
+  lcfile << endl;
+  lcfile << "#Astrometry_Frame: origin=catalog_position, xy_orientation=UNCERTAIN(validate!)" << endl;
+
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)
     {
@@ -344,22 +357,35 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "measured_relative_flux_error" << " " << "true_relative_flux" << " " <<
     "true_relative_flux_error" << " " << "observatory_code" << " " <<
     "saturation_flag" << " " << "best_single_lens_fit" << " " <<
-    "x_centroid" << " " << "x_centroid_error" << " " <<
-    "y_centroid" << " " << "y_centroid_error" << " " <<
-    "true_x_centroid" << " " << "true_x_centroid_error" << " " <<
-    "true_y_centroid" << " " << "true_y_centroid_error" << " " <<
+    "x_centroid_mas" << " " << "x_centroid_error_mas" << " " <<
+    "y_centroid_mas" << " " << "y_centroid_error_mas" << " " <<
+    "true_x_centroid_mas" << " " << "true_x_centroid_error_mas" << " " <<
+    "true_y_centroid_mas" << " " << "true_y_centroid_error_mas" << " " <<
+    "RA_centroid_deg" << " " << "Dec_centroid_deg" << " " <<             // observed, no lens parallax
+    "RA_centroid_true_deg" << " " << "Dec_centroid_true_deg" << " " <<   // true, no lens parallax
+    "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " << // observed, WITH lens parallax
+    "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<         // true, WITH lens parallax
+    "lens_dist_kpc" << " " <<                                            // lens distance for user validation
     "parallax_shift_t" << " " << "parallax_shift_u" << " " <<    "BJD" << " " <<
     "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " ";
-  // TODO: Astrometry work previously output source1_relative_flux, source2_relative_flux columns here
-  // for per-source magnification tracking with binary sources. Consider re-adding when multi-source
-  // astrometry is implemented. The per-source flux was computed via Event->musrc1[i], Event->musrc2[i] - copilot
+  // Astrometry diagnostic columns (mas unless noted)
+  // Raw VBM output (VBM's internal frame, units: theta_E for debugging)
+  lcfile << "vbm_astrox1_raw_thE" << " " << "vbm_astrox2_raw_thE" << " ";
+  // Centroid at each blending step (mas)
+  lcfile << "centroid_src_x_mas" << " " << "centroid_src_y_mas" << " ";           // sources only
+  lcfile << "centroid_src_lens_x_mas" << " " << "centroid_src_lens_y_mas" << " "; // + lenses
+  lcfile << "centroid_final_x_mas" << " " << "centroid_final_y_mas" << " ";       // + ambient = true
+  
+  // Per-source positions (event frame, units: theta_E) and magnifications
+  // WARNING: x,y orientation relative to E,N is uncertain - validate with plots!
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "source" << i << "_x" << " " << "source" << i << "_y" << " " << "source" << i << "_mu" << " ";
+      lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " ";
     }
+  // Per-lens positions (event frame, units: theta_E)
   for(int i=0;i<Event->nlens;i++)
     {
-      lcfile << "lens" << i << "_x" << " " << "lens" << i << "_y" << " ";
+      lcfile << "lens" << i << "_x_thE" << " " << "lens" << i << "_y_thE" << " ";
     }
 
   if (ndF > 0)
@@ -423,18 +449,91 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       obsidx=Event->obsidx[i];
       shiftedidx = i-Event->nepochsvec[obsidx];
 	    
+      double thE = Event->thE;  // Angular Einstein radius (mas) for unit conversion
 	//fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
       lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << flush;
       lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << flush; 
       lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " << flush;
+      // Observed centroid (xc, yc) and errors are in mas; true centroid (xctrue, yctrue) in θ_E needs conversion
       lcfile << Event->xc[i] << " " << Event->xcerr[i] << " " << Event->yc[i] << " " << Event->ycerr[i] << " " << flush; 
-      lcfile << Event->xctrue[i] << " " << Event->xctrueerr[i] << " " << Event->yctrue[i] << " " << Event->yctrueerr[i] << " " << flush; 
+      lcfile << Event->xctrue[i] * thE << " " << Event->xctrueerr[i] << " " << Event->yctrue[i] * thE << " " << Event->yctrueerr[i] << " " << flush; 
+      
+      // Convert centroid from event frame (mas) to RA/Dec (degrees)
+      // WARNING: Event frame orientation (x,y) relative to (E,N) is uncertain - validate with plots!
+      // Assuming x ~ East, y ~ North for now. If wrong, these RA/Dec values will be nonsense.
+      // Origin at (Event->ra, Event->dec) which is the catalog position at t_ref (NOT current lens position)
+      double ra_base_deg = Event->ra * r2d;  // radians to degrees
+      double dec_base_deg = Event->dec * r2d;
+      double cos_dec = cos(Event->dec);
+      double mas_to_deg = 1.0 / (3600.0 * 1000.0);
+      
+      // --- VERSION 1: No lens parallax (centroid offset relative to catalog position) ---
+      double ra_obs_deg = ra_base_deg + Event->xc[i] * mas_to_deg / cos_dec;
+      double dec_obs_deg = dec_base_deg + Event->yc[i] * mas_to_deg;
+      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
+      
+      double xctrue_mas = Event->xctrue[i] * thE;
+      double yctrue_mas = Event->yctrue[i] * thE;
+      double ra_true_deg = ra_base_deg + xctrue_mas * mas_to_deg / cos_dec;
+      double dec_true_deg = dec_base_deg + yctrue_mas * mas_to_deg;
+      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
+      
+      // --- VERSION 2: With lens parallax (observer position shifts apparent lens position) ---
+      // sslocation = sun-to-observer vector projected on sky (AU), assuming [0]=x, [1]=y in event frame
+      // Lens parallax: lens appears shifted by -(observer_pos) / D_lens
+      // Sign convention: if observer is at +x from sun, lens at finite distance appears at +x relative to infinity
+      int ln = Event->lens;
+      double D_L_kpc = Lenses->data[ln][Lenses->DIST];
+      double D_L_AU = D_L_kpc * 206265.0;  // 1 kpc ≈ 206265 AU
+      
+      double obs_x_AU = Event->pllx[obsidx].sslocation[shiftedidx][0];
+      double obs_y_AU = Event->pllx[obsidx].sslocation[shiftedidx][1];
+      
+      // Lens parallax shift (radians): Δθ = -obs_pos / D_lens (standard parallax convention)
+      // Actually, closer objects shift WITH observer motion, so Δθ = +obs_pos / D_lens? 
+      // Outputting both signs would be silly - let's use standard: parallax = baseline/distance
+      // where baseline points FROM observer TO sun, so shift = -obs_pos / D
+      double pllx_x_rad = -obs_x_AU / D_L_AU;
+      double pllx_y_rad = -obs_y_AU / D_L_AU;
+      double pllx_x_mas = pllx_x_rad * r2d * 3600.0 * 1000.0;
+      double pllx_y_mas = pllx_y_rad * r2d * 3600.0 * 1000.0;
+      
+      // Add lens parallax to base position, then add centroid offset
+      double ra_obs_lpllx = ra_base_deg + (pllx_x_mas + Event->xc[i]) * mas_to_deg / cos_dec;
+      double dec_obs_lpllx = dec_base_deg + (pllx_y_mas + Event->yc[i]) * mas_to_deg;
+      lcfile << ra_obs_lpllx << " " << dec_obs_lpllx << " " << flush;
+      
+      double ra_true_lpllx = ra_base_deg + (pllx_x_mas + xctrue_mas) * mas_to_deg / cos_dec;
+      double dec_true_lpllx = dec_base_deg + (pllx_y_mas + yctrue_mas) * mas_to_deg;
+      lcfile << ra_true_lpllx << " " << dec_true_lpllx << " " << flush;
+      
+      // Output lens distance for user validation
+      lcfile << D_L_kpc << " " << setprecision(6) << flush;
+      
       lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
       lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
       lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
       lcfile << Event->pllx[obsidx].sslocation[shiftedidx][0] << " " << flush;
       lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << flush; 
       lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " " << flush;
+
+      // Output astrometry diagnostics
+      if(Event->astrox1_raw.size() > (size_t)i)
+	{
+	  // Raw VBM output (theta_E - for coordinate system debugging)
+	  lcfile << Event->astrox1_raw[i] << " " << Event->astrox2_raw[i] << " " << flush;
+	  // Centroid at each blending step (converted to mas)
+	  lcfile << Event->xc_src_only[i] * thE << " " << Event->yc_src_only[i] * thE << " " << flush;
+	  lcfile << Event->xc_src_lens[i] * thE << " " << Event->yc_src_lens[i] * thE << " " << flush;
+	  lcfile << Event->xc_src_lens_amb[i] * thE << " " << Event->yc_src_lens_amb[i] * thE << " " << flush;
+	}
+      else
+	{
+	  lcfile << 0.0 << " " << 0.0 << " " << flush;
+	  lcfile << 0.0 << " " << 0.0 << " " << flush;
+	  lcfile << 0.0 << " " << 0.0 << " " << flush;
+	  lcfile << 0.0 << " " << 0.0 << " " << flush;
+	}
 
       if(Paramfile->verbosity>=4)
 	{

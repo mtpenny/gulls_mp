@@ -161,9 +161,10 @@ struct filekeywords{
   int multiple_lenses;
 
   int skip_magnification;
-  // TODO: Astrometry work added these struct members here:
-  // int astrometry_on;
-  // double astrometry_error_floor_mas; - copilot
+  
+  // Astrometry controls
+  int astrometry_on;  // Enable astrometry calculation (slows down VBM significantly)
+  double astrometry_error_floor_mas; // Systematic floor for astrometric errors (mas)
   
   long* seed;
 
@@ -318,8 +319,11 @@ struct event{
   vector<string> paramsHeader;
   // Flag array for which observatory sees the event in which field
   //int isseenby[MAX_NUM_OBSERVATORIES][MAX_NUM_FIELDS]; 
-  //fraction of total flux contrib by source
-  double fs[MAX_NUM_OBSERVATORIES];     
+  // Flux fractions (fraction of total baseline flux from each component)
+  double fs[MAX_NUM_OBSERVATORIES];      // Source(s) flux fraction
+  double fl1[MAX_NUM_OBSERVATORIES];     // Primary lens flux fraction
+  double fl2[MAX_NUM_OBSERVATORIES];     // Secondary lens flux fraction (if luminous)
+  double famb[MAX_NUM_OBSERVATORIES];    // Ambient stars flux fraction     
   int nepochs;                            /*TOTAL NUMBER OF EPOCHS */
   int nepochsvec[MAX_NUM_OBSERVATORIES+1];    /*CUMULATIVE SUM OF EPOCHS*/
   int numobservatories;
@@ -401,6 +405,23 @@ struct event{
   vector<double> yctrue; //y centroid no noise
   vector<double> ycerr; //y centroid error
   vector<double> yctrueerr; //x centroid error no noise
+  
+  // Astrometry intermediate centroids (units: theta_E)
+  // Each step of blending is tracked for debugging
+  vector<double> xc_src_only;     // Lensed source(s) centroid (no baseline blending)
+  vector<double> yc_src_only;
+  vector<double> xc_src_lens;     // After blending with luminous lens(es)
+  vector<double> yc_src_lens;
+  vector<double> xc_src_lens_amb; // After blending with ambient stars (= final xctrue)
+  vector<double> yc_src_lens_amb;
+  
+  // Raw VBMicrolensing library outputs (units: theta_E)
+  // Coordinate frame depends on lens configuration:
+  //   - Single lens: astrox1 along source-lens axis, astrox2 = 0 (axial symmetry)
+  //   - Binary lens: x1 along binary axis, x2 perpendicular, origin at center of mass
+  //   - N-lens: same frame as input source coordinates
+  vector<double> astrox1_raw;
+  vector<double> astrox2_raw;
   
 
   vector<double> data; //generic data to be output

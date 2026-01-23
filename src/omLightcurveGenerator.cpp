@@ -55,6 +55,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //else Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
   Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
   Event->vbm->a1 = Event->gamma;
+  
+  // Enable astrometry calculation in VBM only if requested (significantly slows computation)
+  Event->vbm->astrometry = (Paramfile->astrometry_on != 0);
 
   Event->xsrc.clear();
   Event->ysrc.clear();
@@ -69,6 +72,24 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->ysrc[i].resize(Event->nepochs);
       Event->mu_src[i].resize(Event->nepochs);
     }
+  
+  // Resize astrometry diagnostic vectors (units: theta_E)
+  Event->astrox1_raw.clear();
+  Event->astrox2_raw.clear();
+  Event->xc_src_only.clear();
+  Event->yc_src_only.clear();
+  Event->xc_src_lens.clear();
+  Event->yc_src_lens.clear();
+  Event->xc_src_lens_amb.clear();
+  Event->yc_src_lens_amb.clear();
+  Event->astrox1_raw.resize(Event->nepochs, 0.0);
+  Event->astrox2_raw.resize(Event->nepochs, 0.0);
+  Event->xc_src_only.resize(Event->nepochs, 0.0);
+  Event->yc_src_only.resize(Event->nepochs, 0.0);
+  Event->xc_src_lens.resize(Event->nepochs, 0.0);
+  Event->yc_src_lens.resize(Event->nepochs, 0.0);
+  Event->xc_src_lens_amb.resize(Event->nepochs, 0.0);
+  Event->yc_src_lens_amb.resize(Event->nepochs, 0.0);
   
   Event->xlens.resize(Event->nlens);
   Event->ylens.resize(Event->nlens);
@@ -611,7 +632,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       
 
-      //Finally ready to compute magnifications
+      // Compute magnifications and astrometric centroids
+      // Per-source image centroid positions (units: theta_E, event frame)
+      vector<double> astro_x(nsrc, 0.0);
+      vector<double> astro_y(nsrc, 0.0);
       
       if(nlens==1)
 	{
@@ -623,36 +647,89 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      if(Paramfile->skip_magnification==0)
 		mu[is] = Event->vbm->ESPLMag2(u, rho);
 	      else mu[is]=1.0;
-	      //handle astrometry
+	      
+	      // Extended source point lens (ESPL) astrometry:
+	      // VBM computes flux-weighted image centroid in frame where source is at (u, 0).
+	      // astrox1 = radial distance of centroid from lens (units: theta_E).
+	      // astrox2 = 0 by axial symmetry.
+	      // Transform to event frame by projecting along source direction.
+	      if(Paramfile->astrometry_on && u > 1e-10)
+		{
+		  double centroid_radial = Event->vbm->astrox1;
+		  astro_x[is] = centroid_radial * (xs[is] / u);
+		  astro_y[is] = centroid_radial * (ys[is] / u);
+		}
+	      else
+		{
+		  // Astrometry disabled or degenerate geometry: centroid at source position
+		  astro_x[is] = xs[is];
+		  astro_y[is] = ys[is];
+		}
+	    }
+	  if(Paramfile->astrometry_on)
+	    {
+	      Event->astrox1_raw[idx] = Event->vbm->astrox1;
+	      Event->astrox2_raw[idx] = 0.0;
 	    }
 	}
       else if(nlens==2)
 	{
+	  // Binary lens separation and mass ratio
 	  double s = qAdd(xl[1]-xl[0],yl[1]-yl[0]);
 	  double q = Event->p_q[0];
+	  
+	  // Rotation angle from event frame to binary-axis frame
 	  double rot = atan2(yl[1],xl[1]);
 	  double cr = cos(-rot); double sr = sin(-rot);
+	  double cr_inv = cos(rot); double sr_inv = sin(rot);
 
 	  for(int is=0;is<nsrc;is++)
 	    {
 	      if(is==0) rho = Event->rs;	
 	      else rho = Event->scomp_rs[is-1];
-	      //rotate coordintates to binary axis
-	      //Binary mag works from the center of mass, so translate source to CoM, then rotate
-	      double xs_com_ecl = xs[is] + l_delta[0];
-	      double ys_com_ecl = ys[is] + l_delta[1];
-	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;
-	      double ysi = sr*xs_com_ecl + cr*ys_com_ecl;
+	      
+	      // Transform source to binary-axis frame (origin at center of mass)
+	      double xs_com = xs[is] + l_delta[0];
+	      double ys_com = ys[is] + l_delta[1];
+	      double xsi = cr*xs_com - sr*ys_com;
+	      double ysi = sr*xs_com + cr*ys_com;
 
 	      if(Paramfile->skip_magnification==0)
 		mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);
 	      else mu[is] = 1.0;
-	      //handle astrometry
-	      //rotate astrometry back
+	      
+	      if(Paramfile->astrometry_on)
+		{
+		  // Binary lens astrometry:
+		  // VBM returns centroid (astrox1, astrox2) in binary-axis frame
+		  // (x1 along lens axis, origin at center of mass, units: theta_E).
+		  // Inverse transform to event frame.
+		  double cx_binary = Event->vbm->astrox1;
+		  double cy_binary = Event->vbm->astrox2;
+	      
+		  // Rotate to event frame orientation
+		  double cx_rot = cr_inv * cx_binary - sr_inv * cy_binary;
+		  double cy_rot = sr_inv * cx_binary + cr_inv * cy_binary;
+	      
+		  // Translate from CoM origin to event frame origin
+		  astro_x[is] = cx_rot - l_delta[0];
+		  astro_y[is] = cy_rot - l_delta[1];
+		}
+	      else
+		{
+		  astro_x[is] = xs[is];
+		  astro_y[is] = ys[is];
+		}
+	    }
+	  if(Paramfile->astrometry_on)
+	    {
+	      Event->astrox1_raw[idx] = Event->vbm->astrox1;
+	      Event->astrox2_raw[idx] = Event->vbm->astrox2;
 	    }
 	}
       else
-	{	 
+	{
+	  // N-lens (N >= 3) magnification via VBM MultiMag
 	  for(int is=0;is<nsrc;is++)
 	    {
 	      if(is==0) rho = Event->rs;
@@ -666,9 +743,32 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
 		  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
 		  logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
+		  
+		  if(Paramfile->astrometry_on)
+		    {
+		      // N-lens astrometry:
+		      // VBM returns centroid in same frame as input source coordinates.
+		      // No transformation required.
+		      astro_x[is] = Event->vbm->astrox1;
+		      astro_y[is] = Event->vbm->astrox2;
+		    }
+		  else
+		    {
+		      astro_x[is] = xs[is];
+		      astro_y[is] = ys[is];
+		    }
 		}
-	      else mu[is] = 1.0;
-	      //handle astrometry
+	      else
+		{
+		  mu[is] = 1.0;
+		  astro_x[is] = xs[is];
+		  astro_y[is] = ys[is];
+		}
+	    }
+	  if(Paramfile->astrometry_on)
+	    {
+	      Event->astrox1_raw[idx] = Event->vbm->astrox1;
+	      Event->astrox2_raw[idx] = Event->vbm->astrox2;
 	    }
 	}
 
@@ -682,6 +782,38 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       for(int is=1;is<nsrc;is++)
 	{
 	  Event->Atrue[idx] += Event->scomp_fsofs1[is-1][filt] * (mu[is]-1.0);
+	}
+
+      // Compute flux-weighted centroid for multiple sources
+      if(Paramfile->astrometry_on)
+	{
+	  // Flux-weighted centroid of lensed source images (units: theta_E)
+	  // Weights: magnified flux for each source (baseline-normalized)
+	  double total_src_flux = mu[0];
+	  double cx_lensed = astro_x[0] * mu[0];
+	  double cy_lensed = astro_y[0] * mu[0];
+	  for(int is=1; is<nsrc; is++)
+	    {
+	      double src_flux = Event->scomp_fsofs1[is-1][filt] * mu[is];
+	      total_src_flux += src_flux;
+	      cx_lensed += astro_x[is] * src_flux;
+	      cy_lensed += astro_y[is] * src_flux;
+	    }
+	  if(total_src_flux > 0)
+	    {
+	      cx_lensed /= total_src_flux;
+	      cy_lensed /= total_src_flux;
+	    }
+      
+	  // Store source-only centroid (blending with lenses/ambient done in photometry.cpp)
+	  Event->xc_src_only[idx] = cx_lensed;
+	  Event->yc_src_only[idx] = cy_lensed;
+	  
+	  // Initialize xctrue/yctrue (will be modified by blending in photometry.cpp)
+	  Event->xctrue[idx] = cx_lensed;
+	  Event->yctrue[idx] = cy_lensed;
+	  Event->xc[idx] = cx_lensed;
+	  Event->yc[idx] = cy_lensed;
 	}
 
 

@@ -127,59 +127,110 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
         sigma_phot = eps;
       }
 
-      // Check for valid Einstein radius before division
-      if (Event->thE < eps) 
+      // Angular Einstein radius (mas) for unit conversion
+      double thE_mas = Event->thE;
+      if (thE_mas < eps) 
 	  {
-        logfile_ptr << "Warning: Event->thE (" << Event->thE << ") is less than epsilon (" << eps 
-                    << "). Skipping astrometry calculations for this observation." << endl;
-        // Set astrometric errors to a large value to indicate invalid data
+        logfile_ptr << "Warning: Event->thE (" << thE_mas << ") < epsilon. Skipping astrometry." << endl;
         Event->xcerr[idx] = 1e10;
         Event->ycerr[idx] = 1e10;
-        Event->xc[idx] = Event->xctrue[idx] + Event->xcerr[idx] * gasdev(Paramfile->seed);
-        Event->yc[idx] = Event->yctrue[idx] + Event->ycerr[idx] * gasdev(Paramfile->seed);
+        Event->xc[idx] = Event->xctrue[idx];
+        Event->yc[idx] = Event->yctrue[idx];
       
 	  } else {
-
-      	double fwhm_mas = World[obsidx].im.fwhm * 1000.0;
-      	double fwhm_er = fwhm_mas / Event->thE;  // in einsteins radii
-      	double sigma_astro = fwhm_er * sigma_phot * inv_sqrt_ln256;
-      	double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
-      	double floor_er = floor_mas / Event->thE; // in einsteins radii
-      	double sigmaAstro = sqrt(sigma_astro * sigma_astro + floor_er * floor_er);
-      	// blend the source centroid with lens and ambient stars
-      	double fstot = 0.0;
-      	fstot += Event->fs[obsidx];
-
-      	if (Paramfile->multiple_sources && Event->scompanions.size()>0)
-        {
-          // flux ratio of source companion to source 1 in this filter
-          double fluxRatio = 0.0;
-		  // loop through the companion sources
-		  for(size_t cidx=0; cidx < Event->scompanions.size(); cidx++)
-		  {
-			if(Event->scomp_fsofs1.size()>0 && Event->scomp_fsofs1[cidx].size()>filter)
-            {
-              fluxRatio = Event->scomp_fsofs1[cidx][filter];
-			}
-		    fstot += Event->fs[obsidx] * fluxRatio;
-          }
-            
-        }
-
-        // blend = baseline - sum(source_fluxes)
-        double blend_flux;
-        blend_flux = 1 - fstot;
-        // blending using flux weighted centroids with the "lens" at (xl1,yl1) and the source(s) at (xctrue,yctrue)
-        Event->xctrue[idx] = Event->xctrue[idx]*fstot + Event->xl1[idx]*blend_flux;
-        Event->yctrue[idx] = Event->yctrue[idx]*fstot + Event->yl1[idx]*blend_flux;
+      	// ================================================================
+      	// STEP 1: Blending in θ_E units (all positions stored in θ_E)
+      	// ================================================================
+      	// xctrue starts as flux-weighted lensed source centroid from omLightcurveGenerator (in θ_E)
+      	
+      	// Total source flux fraction (includes companion sources if present)
+      	double fstot = Event->fs[obsidx];
+      	if (Paramfile->multiple_sources && Event->scompanions.size() > 0)
+      	  {
+      	    for(size_t cidx = 0; cidx < Event->scompanions.size(); cidx++)
+      	      {
+      	        if(Event->scomp_fsofs1.size() > cidx && Event->scomp_fsofs1[cidx].size() > (size_t)filter)
+      	          {
+      	            fstot += Event->fs[obsidx] * Event->scomp_fsofs1[cidx][filter];
+      	          }
+      	      }
+      	  }
+      	
+      	// Get lens flux fractions (computed in buildEvent, or default to old behavior)
+      	double fl1 = Event->fl1[obsidx];
+      	double fl2 = Event->fl2[obsidx];
+      	double famb = Event->famb[obsidx];
+      	
+      	// Fallback: if lens fluxes not set, assume all non-source flux is at primary lens
+      	if(fl1 < 1e-10 && fl2 < 1e-10 && famb < 1e-10)
+      	  {
+      	    fl1 = 1.0 - fstot;
+      	    fl2 = 0.0;
+      	    famb = 0.0;
+      	  }
+      	
+      	// Source-only centroid (from omLightcurveGenerator, in θ_E)
+      	double cx_thE = Event->xctrue[idx];
+      	double cy_thE = Event->yctrue[idx];
+      	Event->xc_src_only[idx] = cx_thE;
+      	Event->yc_src_only[idx] = cy_thE;
+      	
+      	// Blend with primary lens (at xl1, yl1 in θ_E)
+      	double total_flux = fstot;
+      	if(fl1 > 1e-10)
+      	  {
+      	    cx_thE = (cx_thE * total_flux + Event->xl1[idx] * fl1) / (total_flux + fl1);
+      	    cy_thE = (cy_thE * total_flux + Event->yl1[idx] * fl1) / (total_flux + fl1);
+      	    total_flux += fl1;
+      	  }
+      	
+      	// Blend with secondary lens if present (at xlens[1], ylens[1] in θ_E)
+      	if(fl2 > 1e-10 && Event->xlens.size() > 1)
+      	  {
+      	    cx_thE = (cx_thE * total_flux + Event->xlens[1][idx] * fl2) / (total_flux + fl2);
+      	    cy_thE = (cy_thE * total_flux + Event->ylens[1][idx] * fl2) / (total_flux + fl2);
+      	    total_flux += fl2;
+      	  }
+      	Event->xc_src_lens[idx] = cx_thE;
+      	Event->yc_src_lens[idx] = cy_thE;
+      	
+      	// Blend with ambient stars (assume at lens position for now - TODO: proper positions)
+      	if(famb > 1e-10)
+      	  {
+      	    cx_thE = (cx_thE * total_flux + Event->xl1[idx] * famb) / (total_flux + famb);
+      	    cy_thE = (cy_thE * total_flux + Event->yl1[idx] * famb) / (total_flux + famb);
+      	    total_flux += famb;
+      	  }
+      	Event->xc_src_lens_amb[idx] = cx_thE;
+      	Event->yc_src_lens_amb[idx] = cy_thE;
+      	
+      	// Final blended centroid (in θ_E, for internal storage)
+      	Event->xctrue[idx] = cx_thE;
+      	Event->yctrue[idx] = cy_thE;
         Event->xctrueerr[idx] = 0.0;
         Event->yctrueerr[idx] = 0.0;
 
-        // add astrometric noise
-        Event->xcerr[idx] = sigmaAstro;
-        Event->ycerr[idx] = sigmaAstro;
-        Event->xc[idx] = Event->xctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
-        Event->yc[idx] = Event->yctrue[idx] + sigmaAstro * gasdev(Paramfile->seed);
+      	// ================================================================
+      	// STEP 2: Convert to mas and apply noise (Gould & Yee 2014)
+      	// ================================================================
+      	double xctrue_mas = cx_thE * thE_mas;
+      	double yctrue_mas = cy_thE * thE_mas;
+      	
+      	// Astrometric uncertainty (mas): σ_astro = σ_phot × FWHM / √(ln 256)
+      	double fwhm_mas = World[obsidx].im.fwhm * 1000.0;  // arcsec to mas
+      	double sigma_astro_mas = fwhm_mas * sigma_phot * inv_sqrt_ln256;
+      	double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
+      	double sigmaAstro_mas = sqrt(sigma_astro_mas * sigma_astro_mas + floor_mas * floor_mas);
+      	
+      	// Apply noise to final blended centroid (in mas)
+      	double xc_mas = xctrue_mas + sigmaAstro_mas * gasdev(Paramfile->seed);
+      	double yc_mas = yctrue_mas + sigmaAstro_mas * gasdev(Paramfile->seed);
+      	
+      	// Store observed centroid and error (in mas)
+        Event->xc[idx] = xc_mas;
+        Event->yc[idx] = yc_mas;
+        Event->xcerr[idx] = sigmaAstro_mas;
+        Event->ycerr[idx] = sigmaAstro_mas;
       }
 	}
 

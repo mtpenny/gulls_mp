@@ -65,10 +65,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"LC_TIMEOUT","60.0"},
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"},
-    {"SKIP_MAGNIFICATION","0"}
-    // TODO: Astrometry work added these parameters here:
-    // {"ASTROMETRY_ON","0"},
-    // {"ASTROMETRIC_SYS_FLOOR","0.1"} // mas - copilot
+    {"SKIP_MAGNIFICATION","0"},
+    {"ASTROMETRY_ON","0"},
+    {"ASTROMETRIC_SYS_FLOOR","0.1"} // mas
   };
 
   //For testing which parameters are at their default values
@@ -268,9 +267,8 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
   Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);
-  // TODO: Astrometry work parsed these parameters here:
-  // Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
-  // Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]); - copilot
+  Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
+  Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]);
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];
