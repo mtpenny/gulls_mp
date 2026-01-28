@@ -129,6 +129,8 @@ With lens parallax attempt:
 Validation data:
 
 - ``lens_dist_kpc``: Lens distance in kpc (for computing your own parallax corrections).
+- ``lens_parallax_x_mas``: Lens parallax shift in x (mas) using observer position and lens distance.
+- ``lens_parallax_y_mas``: Lens parallax shift in y (mas) using observer position and lens distance.
 
 Source and Lens Positions
 ~~~~~~~~~~~~~~~~~~~~~~~~~

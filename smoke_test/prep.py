@@ -66,7 +66,10 @@ def _discover_weather_file(params: Dict[str, str]) -> tuple[str | None, str | No
     ]
 
     for entry in entries:
-        obs_path = (REPO_ROOT / obs_dir / entry).resolve()
+        parts = entry.split()
+        if not parts:
+            continue
+        obs_path = (REPO_ROOT / obs_dir / parts[0]).resolve()
         if not obs_path.is_file():
             continue
         for raw in obs_path.read_text(encoding="utf-8").splitlines():

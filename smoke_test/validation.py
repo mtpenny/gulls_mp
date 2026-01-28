@@ -624,8 +624,11 @@ def verify_input_files_exist(params: Dict[str, str]) -> None:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                
-                obs_file = obs_dir / line
+
+                parts = line.split()
+                if not parts:
+                    continue
+                obs_file = obs_dir / parts[0]
                 if not obs_file.exists():
                     missing_files.append(f"Observatory file: {obs_file}")
                 else:
@@ -761,10 +764,14 @@ def verify_psf_files(params: Dict[str, str]) -> None:
         if not entry or entry.startswith("#"):
             continue
 
-        observatory_path = (obs_dir / entry).resolve()
+        parts = entry.split()
+        if not parts:
+            continue
+        obs_name = parts[0]
+        observatory_path = (obs_dir / obs_name).resolve()
         if not observatory_path.is_file():
             raise SmokeTestError(
-                f"Observatory configuration '{entry}' referenced in {obs_list.name} "
+                f"Observatory configuration '{obs_name}' referenced in {obs_list.name} "
                 f"was not found at {observatory_path}"
             )
 
@@ -908,9 +915,13 @@ def verify_sequence_has_observations(params: Dict[str, str]) -> None:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        
-        # Observatory list format is just filenames
-        obs_file = obs_dir / line
+
+        parts = line.split()
+        if not parts:
+            continue
+
+        # Observatory list format is filename plus optional overrides
+        obs_file = obs_dir / parts[0]
         if not obs_file.exists():
             continue
         

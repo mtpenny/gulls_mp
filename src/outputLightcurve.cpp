@@ -366,6 +366,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " << // observed, WITH lens parallax
     "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<         // true, WITH lens parallax
     "lens_dist_kpc" << " " <<                                            // lens distance for user validation
+    "lens_parallax_x_mas" << " " << "lens_parallax_y_mas" << " " <<       // lens parallax shift (mas) in event-frame x/y
     "parallax_shift_t" << " " << "parallax_shift_u" << " " <<    "BJD" << " " <<
     "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " ";
   // Astrometry diagnostic columns (mas unless noted)
@@ -507,8 +508,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       double dec_true_lpllx = dec_base_deg + (pllx_y_mas + yctrue_mas) * mas_to_deg;
       lcfile << ra_true_lpllx << " " << dec_true_lpllx << " " << flush;
       
-      // Output lens distance for user validation
-      lcfile << D_L_kpc << " " << setprecision(6) << flush;
+      // Output lens distance and lens parallax shift for user validation
+      lcfile << D_L_kpc << " " << pllx_x_mas << " " << pllx_y_mas << " " << setprecision(6) << flush;
       
       lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
       lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
@@ -642,7 +643,7 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
       // Build the same base name as the other branch — avoid stray format literal and
       // do not use the comma operator. Keep it as a plain concatenation.
       tmp1 = Paramfile->outputdir + Paramfile->run_name + "_"
-        + to_string(Event->instance) + "_" + to_string(Paramfile->choosefield) + "_"
+        + to_string(Paramfile->instance) + "_" + to_string(Paramfile->choosefield) + "_"
         + to_string(Event->id);
     }
   basefname=tmp1;

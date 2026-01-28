@@ -1,11 +1,11 @@
 # Gulls Smoke Test Suite
 
-This directory contains a minimal end-to-end smoke test for the three gulls executables: `gulls_std`, `gulls_croin`, and `gullsFish`. The smoke test verifies that the executables can run successfully with synthetic input data and produce expected outputs including lightcurves, reports, and visualizations.
+This directory contains a minimal end-to-end smoke test for the gulls executables: `gulls_std`, `gulls_croin`, `gullsFish`, and `gulls_general`. The smoke test verifies that the executables can run successfully with synthetic input data and produce expected outputs including lightcurves, reports, and visualizations.
 
 ## Overview
 
 The smoke test uses synthetic catalogs and simplified observatory configurations to quickly validate that:
-- All three executables compile and run without errors
+- All executables compile and run without errors
 - Lightcurve generation completes within timeout limits
 - Photometry and astrometry outputs are generated correctly
 - Visualization plots can be created from the output data
@@ -19,7 +19,8 @@ smoke_test/
 ├── parameterfiles/            # Parameter files for each executable
 │   ├── smoke_std.prm
 │   ├── smoke_croin.prm
-│   └── smoke_fish.prm
+│   ├── smoke_fish.prm
+│   └── smoke_general.prm
 ├── assets/                    # Test input data
 │   ├── lenses/                # Synthetic lens catalogs
 │   ├── sources/               # Synthetic source catalogs
@@ -31,7 +32,8 @@ smoke_test/
 └── output/                    # Test outputs (generated at runtime)
     ├── std/
     ├── croin/
-    └── fish/
+    ├── fish/
+    └── general/
 ```
 
 ## Catalog Helper Tool
@@ -86,7 +88,7 @@ pip install numpy pandas matplotlib
 
 ### Basic Usage
 
-Run all three test cases:
+Run all test cases:
 ```bash
 python smoke_test/run_smoke_test.py
 ```
@@ -105,7 +107,7 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 
 - `--build-bin PATH`: Directory containing executables (default: `build/bin`)
 - `--keep-output`: Skip cleaning existing output directories before running
-- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
+- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
 - `--field N`: Field index passed via `-f` flag (default: `0`; use `-1` for auto-select)
 - `--exec-timeout SECONDS`: Timeout per executable (default: `180`; `<=0` disables)
@@ -149,7 +151,7 @@ The test observatory (`smoke.observatory`) is configured with:
 For each test case, the following outputs are generated:
 
 ### 1. Summary Reports (`.out`)
-Located in `smoke_test/output/{std,croin,fish}/smoke_{std,croin,fish}/`
+Located in `smoke_test/output/{std,croin,fish,general}/smoke_{std,croin,fish,general}/`
 
 Contains run statistics, parameter values, and execution timing.
 
@@ -223,12 +225,13 @@ Typical execution times (MacBook Pro, M1):
 - **gulls_std**: ~10 seconds
 - **gulls_croin**: ~10 seconds  
 - **gullsFish**: ~10 seconds
-- **Total** (all three): ~30 seconds
+- **gulls_general**: similar to gulls_std (varies)
+- **Total** (all): varies with selected cases
 
 ## Contributing
 
 When modifying the smoke test:
 1. Keep simulation parameters minimal for fast execution
-2. Ensure all three executables are tested
+2. Ensure all executables are tested
 3. Verify plots are generated correctly
 4. Update this README if you add new features or change behavior

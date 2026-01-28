@@ -73,6 +73,69 @@ def _parse_header(lc_file: Path) -> Tuple[List[float] | None, List[float] | None
     return planet_vals, event_vals
 
 
+def _parse_astrometry_frame(lc_file: Path) -> Tuple[float | None, float | None]:
+    """Return (ra_deg, dec_deg) from the #Astrometry_Frame header if present."""
+    with lc_file.open(encoding="utf-8") as header_reader:
+        for raw in header_reader:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith("#Astrometry_Frame:"):
+                continue
+            parts = raw.strip().split()
+            ra_deg = None
+            dec_deg = None
+            for part in parts:
+                if part.startswith("RA_deg="):
+                    try:
+                        ra_deg = float(part.split("=", 1)[1])
+                    except ValueError:
+                        ra_deg = None
+                elif part.startswith("Dec_deg="):
+                    try:
+                        dec_deg = float(part.split("=", 1)[1])
+                    except ValueError:
+                        dec_deg = None
+            if ra_deg is not None or dec_deg is not None:
+                return ra_deg, dec_deg
+    return None, None
+
+
+def _resolve_lensframe_columns(
+    column_names: List[str],
+) -> Tuple[Dict[str, str] | None, str | None]:
+    """Resolve lens-frame centroid column names and units.
+
+    Returns (mapping, unit), where unit is "thetaE" or "mas".
+    """
+    cols_thetae = {
+        "meas_x": "x_centroid",
+        "meas_x_err": "x_centroid_error",
+        "meas_y": "y_centroid",
+        "meas_y_err": "y_centroid_error",
+        "true_x": "true_x_centroid",
+        "true_x_err": "true_x_centroid_error",
+        "true_y": "true_y_centroid",
+        "true_y_err": "true_y_centroid_error",
+    }
+    if all(col in column_names for col in cols_thetae.values()):
+        return cols_thetae, "thetaE"
+
+    cols_mas = {
+        "meas_x": "x_centroid_mas",
+        "meas_x_err": "x_centroid_error_mas",
+        "meas_y": "y_centroid_mas",
+        "meas_y_err": "y_centroid_error_mas",
+        "true_x": "true_x_centroid_mas",
+        "true_x_err": "true_x_centroid_error_mas",
+        "true_y": "true_y_centroid_mas",
+        "true_y_err": "true_y_centroid_error_mas",
+    }
+    if all(col in column_names for col in cols_mas.values()):
+        return cols_mas, "mas"
+
+    return None, None
+
+
 def _sanity_check_flux_conservation(
     lc_file: Path,
     true_flux: np.ndarray,
@@ -157,6 +220,7 @@ def _plot_minimal_astrometry(
     x_er_err: np.ndarray,
     y_er_err: np.ndarray,
     tE: float,
+    unit_label: str = "Einstein radii",
 ) -> Path:
     fig, ax = plt.subplots(2, 1, figsize=(8, 8))
     fig.suptitle(title, fontsize=14)
@@ -195,8 +259,8 @@ def _plot_minimal_astrometry(
         label="True samples",
         zorder=3,
     )
-    ax[0].set_xlabel("x_centroid (Einstein radii)")
-    ax[0].set_ylabel("y_centroid (Einstein radii)")
+    ax[0].set_xlabel(f"x_centroid ({unit_label})")
+    ax[0].set_ylabel(f"y_centroid ({unit_label})")
     ax[0].set_title("Astrometric Centroid in Lens Frame with Lens at Rest")
     ax[0].grid(True, alpha=0.3)
     ax[0].legend()
@@ -247,7 +311,7 @@ def _plot_minimal_astrometry(
         alpha=0.8,
     )
     ax[1].set_xlabel("Time (days)")
-    ax[1].set_ylabel("Centroid (Einstein radii)")
+    ax[1].set_ylabel(f"Centroid ({unit_label})")
     ax[1].set_title("Centroid Around Event Peak")
     ax[1].grid(True, alpha=0.3)
     ax[1].legend()
@@ -974,13 +1038,16 @@ def plot_lightcurves(
         ms = params.get("MULTIPLE_SOURCES")
         if ms is not None:
             multiple_sources_expected = str(ms).strip().lower() not in {"0", "false", "off"}
-    
-    # Extract gulls version for version-aware validation
-    gulls_version = "unknown"
-    if build_bin is not None:
-        gulls_version = _extract_gulls_version(build_bin)
-        print(f"Detected gulls version: {gulls_version}")
 
+    exec_name = ""
+    if params:
+        exec_name = params.get("EXECUTABLE", "")
+    exec_name = exec_name.strip().lower()
+    if exec_name.endswith(".x"):
+        exec_name = exec_name[:-2]
+    vbm_supported = exec_name in {"gulls_croin", "gullsfish", "gulls_std"}
+    vbm_required = astrometry_expected and vbm_supported and exec_name != "gullssingle"
+    
     for lc_file in lc_files:
         planet_vals, event_vals = _parse_header(lc_file)
         df = pd.read_csv(lc_file, sep=r"\s+", comment="#")
@@ -1062,59 +1129,79 @@ def plot_lightcurves(
         flux_err = _require_column("measured_relative_flux_error")
         true_flux = _require_column("true_relative_flux")
 
-        # Version-aware astrometry column validation
-        # v2.1.0: minimal lens-frame columns (x_centroid, y_centroid, etc.)
-        # v2.2.0+: full sky-frame columns (true_N_centroid_mas, etc.)
-        if gulls_version.startswith("2.1."):
-            # v2.1.0 has minimal lens-frame astrometry columns
-            astrom_cols_v2_1 = [
-                "x_centroid",
-                "x_centroid_error",
-                "y_centroid",
-                "y_centroid_error",
-                "true_x_centroid",
-                "true_x_centroid_error",
-                "true_y_centroid",
-                "true_y_centroid_error",
-            ]
-            missing_astrom_cols = [col for col in astrom_cols_v2_1 if col not in column_names]
-            has_astrom = not missing_astrom_cols
-            if astrometry_expected and missing_astrom_cols:
-                print(
-                    f"  Debug: {lc_file.name} missing v2.1.0 astrometry columns: "
-                    + ", ".join(missing_astrom_cols)
-                )
-            if astrometry_expected and not has_astrom:
-                raise SmokeTestError(
-                    f"Smoke test failed: v2.1.0 astrometric columns missing in {lc_file.name}"
-                )
-        else:
-            # v2.2.0+ has full sky-frame astrometry columns
-            astrom_cols = [
-                "true_N_centroid_mas",
-                "true_E_centroid_mas",
-                "measured_N_centroid_mas",
-                "measured_E_centroid_mas",
-                "measured_N_centroid_error_mas",
-                "measured_E_centroid_error_mas",
-                "true_centroid_ra_deg",
-                "true_centroid_dec_deg",
-                "measured_centroid_ra_deg",
-                "measured_centroid_dec_deg",
-                "measured_centroid_ra_error_deg",
-                "measured_centroid_dec_error_deg",
-            ]
-            missing_astrom_cols = [col for col in astrom_cols if col not in column_names]
-            has_astrom = not missing_astrom_cols
-            if astrometry_expected and missing_astrom_cols:
-                print(
-                    f"  Debug: {lc_file.name} missing v2.2.0+ astrometry columns: "
-                    + ", ".join(missing_astrom_cols)
-                )
-            if astrometry_expected and not has_astrom:
-                raise SmokeTestError(
-                    f"Smoke test failed: v2.2.0+ astrometric columns missing in {lc_file.name}"
-                )
+        # Astrometry column validation with backward/forward compatibility.
+        lensframe_thetae_cols = [
+            "x_centroid",
+            "x_centroid_error",
+            "y_centroid",
+            "y_centroid_error",
+            "true_x_centroid",
+            "true_x_centroid_error",
+            "true_y_centroid",
+            "true_y_centroid_error",
+        ]
+        lensframe_mas_cols = [
+            "x_centroid_mas",
+            "x_centroid_error_mas",
+            "y_centroid_mas",
+            "y_centroid_error_mas",
+            "true_x_centroid_mas",
+            "true_x_centroid_error_mas",
+            "true_y_centroid_mas",
+            "true_y_centroid_error_mas",
+        ]
+        skyframe_cols = [
+            "true_N_centroid_mas",
+            "true_E_centroid_mas",
+            "measured_N_centroid_mas",
+            "measured_E_centroid_mas",
+            "measured_N_centroid_error_mas",
+            "measured_E_centroid_error_mas",
+            "true_centroid_ra_deg",
+            "true_centroid_dec_deg",
+            "measured_centroid_ra_deg",
+            "measured_centroid_dec_deg",
+            "measured_centroid_ra_error_deg",
+            "measured_centroid_dec_error_deg",
+        ]
+        radec_cols = [
+            "RA_centroid_deg",
+            "Dec_centroid_deg",
+            "RA_centroid_true_deg",
+            "Dec_centroid_true_deg",
+        ]
+
+        lensframe_cols, lensframe_unit = _resolve_lensframe_columns(column_names)
+        has_full_sky = all(col in column_names for col in skyframe_cols)
+        has_radec = all(col in column_names for col in radec_cols)
+
+        astrom_mode = None
+        if has_full_sky:
+            astrom_mode = "sky"
+        elif has_radec:
+            astrom_mode = "sky_derived"
+        elif lensframe_cols:
+            astrom_mode = "lensframe"
+
+        has_astrom = astrom_mode is not None
+
+        if astrometry_expected and not has_astrom:
+            debug_sets = {
+                "lens-frame (thetaE)": lensframe_thetae_cols,
+                "lens-frame (mas)": lensframe_mas_cols,
+                "sky-frame": skyframe_cols,
+                "RA/Dec": radec_cols,
+            }
+            for label, cols in debug_sets.items():
+                missing = [col for col in cols if col not in column_names]
+                if missing:
+                    print(
+                        f"  Debug: {lc_file.name} missing {label} astrometry columns: "
+                        + ", ".join(missing)
+                    )
+            raise SmokeTestError(
+                f"Smoke test failed: astrometric columns missing in {lc_file.name}"
+            )
 
         # Extract source flux columns (optional for binary source events)
         src1_flux = _optional_column("source1_relative_flux")
@@ -1131,52 +1218,179 @@ def plot_lightcurves(
         # when multiple sources are expected and both columns are present.
         _sanity_check_flux_conservation(lc_file, true_flux, src1_flux, src2_flux)
 
-        # For v2.1.0, only lens-frame columns are available, so we skip astrometry plotting
-        # For v2.2.0+, we have full sky-frame columns and can plot astrometry
-        if not has_astrom or gulls_version.startswith("2.1."):
+        lensframe_data: Dict[str, np.ndarray] | None = None
+        true_x_vals: np.ndarray | None = None
+        true_y_vals: np.ndarray | None = None
+        meas_x: np.ndarray | None = None
+        meas_y: np.ndarray | None = None
+        meas_x_err: np.ndarray | None = None
+        meas_y_err: np.ndarray | None = None
+        meas_x_mas: np.ndarray | None = None
+        meas_y_mas: np.ndarray | None = None
+        meas_x_err_mas: np.ndarray | None = None
+        meas_y_err_mas: np.ndarray | None = None
+        plot_true_x: np.ndarray | None = None
+        plot_true_y: np.ndarray | None = None
+        plot_meas_x: np.ndarray | None = None
+        plot_meas_y: np.ndarray | None = None
+        plot_x_err: np.ndarray | None = None
+        plot_y_err: np.ndarray | None = None
+        plot_unit_label = "Einstein radii"
+
+        if lensframe_cols:
+            lensframe_data = {
+                key: _require_column(col_name) for key, col_name in lensframe_cols.items()
+            }
+
+            # Prepare lens-frame arrays for plotting (Einstein radii if possible).
+            if lensframe_unit == "thetaE":
+                true_x_vals = lensframe_data["true_x"]
+                true_y_vals = lensframe_data["true_y"]
+                meas_x = lensframe_data["meas_x"]
+                meas_y = lensframe_data["meas_y"]
+                meas_x_err = lensframe_data["meas_x_err"]
+                meas_y_err = lensframe_data["meas_y_err"]
+                plot_unit_label = "Einstein radii"
+                plot_true_x = true_x_vals
+                plot_true_y = true_y_vals
+                plot_meas_x = meas_x
+                plot_meas_y = meas_y
+                plot_x_err = meas_x_err
+                plot_y_err = meas_y_err
+
+                if theta_e_float is not None and theta_e_float > 0:
+                    meas_x_mas = meas_x * theta_e_float
+                    meas_y_mas = meas_y * theta_e_float
+                    meas_x_err_mas = meas_x_err * theta_e_float
+                    meas_y_err_mas = meas_y_err * theta_e_float
+            else:
+                # Lens-frame columns are already in mas.
+                meas_x_mas = lensframe_data["meas_x"]
+                meas_y_mas = lensframe_data["meas_y"]
+                meas_x_err_mas = lensframe_data["meas_x_err"]
+                meas_y_err_mas = lensframe_data["meas_y_err"]
+
+                if theta_e_float is not None and theta_e_float > 0:
+                    scale = 1.0 / theta_e_float
+                    plot_unit_label = "Einstein radii"
+                    true_x_vals = lensframe_data["true_x"] * scale
+                    true_y_vals = lensframe_data["true_y"] * scale
+                    meas_x = lensframe_data["meas_x"] * scale
+                    meas_y = lensframe_data["meas_y"] * scale
+                    meas_x_err = lensframe_data["meas_x_err"] * scale
+                    meas_y_err = lensframe_data["meas_y_err"] * scale
+                    plot_true_x = true_x_vals
+                    plot_true_y = true_y_vals
+                    plot_meas_x = meas_x
+                    plot_meas_y = meas_y
+                    plot_x_err = meas_x_err
+                    plot_y_err = meas_y_err
+                else:
+                    plot_unit_label = "mas"
+                    plot_true_x = lensframe_data["true_x"]
+                    plot_true_y = lensframe_data["true_y"]
+                    plot_meas_x = lensframe_data["meas_x"]
+                    plot_meas_y = lensframe_data["meas_y"]
+                    plot_x_err = lensframe_data["meas_x_err"]
+                    plot_y_err = lensframe_data["meas_y_err"]
+
+        if not has_astrom:
             _plot_photometry_only(
-                lc_file, 
-                output_dir, 
-                title, 
-                time, 
-                flux, 
-                flux_err, 
+                lc_file,
+                output_dir,
+                title,
+                time,
+                flux,
+                flux_err,
                 true_flux,
-                src1_flux, 
-                src2_flux)
-            if has_astrom and gulls_version.startswith("2.1."):
-                print(f"  Debug: Plotting minimal astrometry plot for {lc_file.name} (gulls v2.1.0)")
-                minimal_astrometry_plot = _plot_minimal_astrometry(
+                src1_flux,
+                src2_flux,
+            )
+            continue
+
+        if astrom_mode == "lensframe":
+            _plot_photometry_only(
+                lc_file,
+                output_dir,
+                title,
+                time,
+                flux,
+                flux_err,
+                true_flux,
+                src1_flux,
+                src2_flux,
+            )
+            if (
+                plot_true_x is not None
+                and plot_true_y is not None
+                and plot_meas_x is not None
+                and plot_meas_y is not None
+                and plot_x_err is not None
+                and plot_y_err is not None
+            ):
+                print(f"  Debug: Plotting minimal astrometry plot for {lc_file.name}")
+                _plot_minimal_astrometry(
                     lc_file,
                     output_dir,
                     title,
                     time,
-                    _require_column("true_x_centroid"),
-                    _require_column("true_y_centroid"),
-                    _require_column("x_centroid"),
-                    _require_column("y_centroid"),
-                    _require_column("x_centroid_error"),
-                    _require_column("y_centroid_error"),
-                    tE
+                    plot_true_x,
+                    plot_true_y,
+                    plot_meas_x,
+                    plot_meas_y,
+                    plot_x_err,
+                    plot_y_err,
+                    tE,
+                    unit_label=plot_unit_label,
                 )
             continue
 
-        true_N_mas = _require_column("true_N_centroid_mas")
-        true_E_mas = _require_column("true_E_centroid_mas")
-        meas_N_mas = _require_column("measured_N_centroid_mas")
-        meas_E_mas = _require_column("measured_E_centroid_mas")
-        meas_N_err_mas = _require_column("measured_N_centroid_error_mas")
-        meas_E_err_mas = _require_column("measured_E_centroid_error_mas")
-        true_ra_deg = _require_column("true_centroid_ra_deg")
-        true_dec_deg = _require_column("true_centroid_dec_deg")
-        meas_ra_deg = _require_column("measured_centroid_ra_deg")
-        meas_dec_deg = _require_column("measured_centroid_dec_deg")
-        meas_ra_err_deg = _require_column("measured_centroid_ra_error_deg")
-        meas_dec_err_deg = _require_column("measured_centroid_dec_error_deg")
-        true_x_vals = _optional_column("true_x_centroid")
-        true_y_vals = _optional_column("true_y_centroid")
-        meas_x = _optional_column("x_centroid")
-        meas_y = _optional_column("y_centroid")
+        if astrom_mode == "sky":
+            true_N_mas = _require_column("true_N_centroid_mas")
+            true_E_mas = _require_column("true_E_centroid_mas")
+            meas_N_mas = _require_column("measured_N_centroid_mas")
+            meas_E_mas = _require_column("measured_E_centroid_mas")
+            meas_N_err_mas = _require_column("measured_N_centroid_error_mas")
+            meas_E_err_mas = _require_column("measured_E_centroid_error_mas")
+            true_ra_deg = _require_column("true_centroid_ra_deg")
+            true_dec_deg = _require_column("true_centroid_dec_deg")
+            meas_ra_deg = _require_column("measured_centroid_ra_deg")
+            meas_dec_deg = _require_column("measured_centroid_dec_deg")
+            meas_ra_err_deg = _require_column("measured_centroid_ra_error_deg")
+            meas_dec_err_deg = _require_column("measured_centroid_dec_error_deg")
+        else:
+            # Derive sky-frame vectors from RA/Dec columns.
+            true_ra_deg = _require_column("RA_centroid_true_deg")
+            true_dec_deg = _require_column("Dec_centroid_true_deg")
+            meas_ra_deg = _require_column("RA_centroid_deg")
+            meas_dec_deg = _require_column("Dec_centroid_deg")
+
+            base_ra_deg, base_dec_deg = _parse_astrometry_frame(lc_file)
+            if base_ra_deg is None:
+                base_ra_deg = float(true_ra_deg[0])
+            if base_dec_deg is None:
+                base_dec_deg = float(true_dec_deg[0])
+
+            cos_dec = math.cos(math.radians(base_dec_deg))
+            if abs(cos_dec) < 1e-6:
+                cos_dec = 1e-6 if cos_dec >= 0 else -1e-6
+
+            deg_to_mas = 3600.0 * 1000.0
+            meas_E_mas = (meas_ra_deg - base_ra_deg) * cos_dec * deg_to_mas
+            meas_N_mas = (meas_dec_deg - base_dec_deg) * deg_to_mas
+            true_E_mas = (true_ra_deg - base_ra_deg) * cos_dec * deg_to_mas
+            true_N_mas = (true_dec_deg - base_dec_deg) * deg_to_mas
+
+            if meas_x_err_mas is None or meas_y_err_mas is None:
+                meas_E_err_mas = np.zeros_like(meas_E_mas)
+                meas_N_err_mas = np.zeros_like(meas_N_mas)
+            else:
+                meas_E_err_mas = meas_x_err_mas
+                meas_N_err_mas = meas_y_err_mas
+
+            mas_to_deg = 1.0 / deg_to_mas
+            meas_ra_err_deg = meas_E_err_mas * mas_to_deg / cos_dec
+            meas_dec_err_deg = meas_N_err_mas * mas_to_deg
 
         pm_ref_alpha_float = None
         pm_ref_delta_float = None
@@ -1255,27 +1469,30 @@ def plot_lightcurves(
                     }
                 )
 
-        vbm_model, vbm_reason = _compute_vbm_model(
-            summary,
-            planet_vals,
-            event_vals,
-            source_pm_icrs,
-            lens_pm_icrs,
-            theta_e_float,
-            source_dist_float,
-            event_ra_float,
-            event_dec_float,
-            alpha_deg_float,
-            sim_zero_offset,
-            time,
-            true_x_vals,
-            true_y_vals,
-        )
-        if astrometry_expected and vbm_model is None:
-            detail = f" ({vbm_reason})" if vbm_reason else ""
-            raise SmokeTestError(
-                f"Smoke test failed: missing VBM lens-frame plot for {lc_file.name}{detail}"
+        vbm_model = None
+        vbm_reason = None
+        if vbm_required:
+            vbm_model, vbm_reason = _compute_vbm_model(
+                summary,
+                planet_vals,
+                event_vals,
+                source_pm_icrs,
+                lens_pm_icrs,
+                theta_e_float,
+                source_dist_float,
+                event_ra_float,
+                event_dec_float,
+                alpha_deg_float,
+                sim_zero_offset,
+                time,
+                true_x_vals,
+                true_y_vals,
             )
+            if vbm_model is None:
+                detail = f" ({vbm_reason})" if vbm_reason else ""
+                raise SmokeTestError(
+                    f"Smoke test failed: missing VBM lens-frame plot for {lc_file.name}{detail}"
+                )
 
         plot_file, lensframe_path = _render_astrometric_figure(
             lc_file,
@@ -1307,7 +1524,7 @@ def plot_lightcurves(
             src2_flux,
         )
 
-        if astrometry_expected:
+        if vbm_required:
             if lensframe_path is None or not lensframe_path.exists():
                 raise SmokeTestError(
                     f"Smoke test failed: missing lens-frame plot for {lc_file.name}"
