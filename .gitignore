@@ -75,3 +75,4 @@ documentation/build/
 
 # PSF files (generated in workflow/smoke tests)
 smoke_test/assets/observatories/WFI_PSF.psf
+_codeql_detected_source_root
