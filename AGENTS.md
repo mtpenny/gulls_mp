@@ -58,4 +58,5 @@ Tests that document/enforce conventions
 - `smoke_test/bagle_fit_sanity.py`:
   - runs BAGLE joint photometric+astrometric PSPL+parallax fit on selected single-source event (`ObsGroup_0_chi2 < 100`);
   - writes fit summary + diagnostic plot;
-  - compares fitted PM and parallax vectors (amplitude + direction) against `.out`.
+  - compares fitted PM and parallax vectors (amplitude + direction) against `.out` after convention conversion (`.out` lens-source -> BAGLE source-lens sign flip);
+  - falls back to scipy least-squares BAGLE fit if PyMultiNest runtime is unavailable.

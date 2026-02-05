@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
@@ -181,6 +182,108 @@ def _vec_from_model_attr(
     return arr[:2].copy()
 
 
+def _should_try_scipy_fallback(exc: Exception) -> bool:
+    text = str(exc).lower()
+    needles = (
+        "multinest",
+        "dlsym",
+        "pymultinest",
+        "symbol not found",
+        "libmultinest",
+    )
+    return any(tok in text for tok in needles)
+
+
+def _solve_with_scipy_least_squares(
+    model_module: Any,
+    *,
+    ra_deg: float,
+    dec_deg: float,
+    param_names: Sequence[str],
+    init_params: Mapping[str, float],
+    bounds: Mapping[str, Tuple[float, float]],
+    t_phot: np.ndarray,
+    mag_obs: np.ndarray,
+    mag_err: np.ndarray,
+    t_ast: np.ndarray,
+    x_ast_arcsec: np.ndarray,
+    y_ast_arcsec: np.ndarray,
+    x_ast_err_arcsec: np.ndarray,
+    y_ast_err_arcsec: np.ndarray,
+    max_nfev: int = 2500,
+) -> Dict[str, float]:
+    try:
+        from scipy.optimize import least_squares
+    except Exception as exc:  # pragma: no cover - optional dependency guard
+        raise SmokeTestError(
+            "BAGLE sanity fallback requires scipy.optimize.least_squares."
+        ) from exc
+
+    x0 = np.array([float(init_params[name]) for name in param_names], dtype=float)
+    lb = np.empty_like(x0)
+    ub = np.empty_like(x0)
+
+    for ii, name in enumerate(param_names):
+        if name in bounds:
+            lo, hi = bounds[name]
+        else:
+            center = float(init_params[name])
+            half = max(1.0, abs(center) * 10.0)
+            lo, hi = center - half, center + half
+        lb[ii] = lo
+        ub[ii] = hi
+        if ub[ii] <= lb[ii]:
+            ub[ii] = lb[ii] + 1.0e-6
+
+    # Ensure initial guess sits inside the bounded domain.
+    eps = 1.0e-9
+    x0 = np.minimum(np.maximum(x0, lb + eps), ub - eps)
+
+    def _residual(vec: np.ndarray) -> np.ndarray:
+        p = {name: float(vec[ii]) for ii, name in enumerate(param_names)}
+        pspl = model_module.PSPL_PhotAstrom_Par_Param1(
+            p["mL"],
+            p["t0"],
+            p["beta"],
+            p["dL"],
+            p["dL_dS"],
+            p["xS0_E"],
+            p["xS0_N"],
+            p["muL_E"],
+            p["muL_N"],
+            p["muS_E"],
+            p["muS_N"],
+            [p["b_sff1"]],
+            [p["mag_src1"]],
+            raL=ra_deg,
+            decL=dec_deg,
+        )
+
+        mag_model = np.asarray(pspl.get_photometry(t_phot), dtype=float)
+        ast_model = np.asarray(pspl.get_astrometry(t_ast), dtype=float)
+        if ast_model.ndim != 2 or ast_model.shape[1] < 2:
+            raise RuntimeError(f"unexpected BAGLE astrometry shape {ast_model.shape}")
+
+        res_phot = (mag_obs - mag_model) / mag_err
+        res_ast_e = (x_ast_arcsec - ast_model[:, 0]) / x_ast_err_arcsec
+        res_ast_n = (y_ast_arcsec - ast_model[:, 1]) / y_ast_err_arcsec
+        return np.concatenate([res_phot, res_ast_e, res_ast_n])
+
+    result = least_squares(
+        _residual,
+        x0,
+        bounds=(lb, ub),
+        method="trf",
+        max_nfev=int(max_nfev),
+    )
+    if not result.success:
+        raise SmokeTestError(
+            f"BAGLE sanity fallback least-squares failed: {result.message}"
+        )
+
+    return {name: float(result.x[ii]) for ii, name in enumerate(param_names)}
+
+
 def _plot_joint_fit_diagnostics(
     output_path: Path,
     t_phot: np.ndarray,
@@ -306,6 +409,27 @@ def run_bagle_joint_fit_sanity(
     piE_dir_tol_deg: float = 30.0,
 ) -> BagleJointFitSummary:
     """Fit one single-source, single-lens-like event with BAGLE and validate vectors."""
+    run_dir = run_dir.resolve()
+    fit_dir = run_dir / "bagle_fit_sanity"
+    fit_dir.mkdir(parents=True, exist_ok=True)
+
+    # BAGLE uses on-disk caches during import/runtime. In sandboxed environments,
+    # default cache paths may be read-only, so provide writable defaults.
+    runtime_cache = fit_dir / "_runtime_cache"
+    runtime_cache.mkdir(parents=True, exist_ok=True)
+    if "PARALLAX_CACHE_DIR" not in os.environ:
+        parallax_cache = runtime_cache / "parallax_cache"
+        parallax_cache.mkdir(parents=True, exist_ok=True)
+        os.environ["PARALLAX_CACHE_DIR"] = str(parallax_cache)
+    if "MPLCONFIGDIR" not in os.environ:
+        mpl_cache = runtime_cache / "mplconfig"
+        mpl_cache.mkdir(parents=True, exist_ok=True)
+        os.environ["MPLCONFIGDIR"] = str(mpl_cache)
+    if "XDG_CACHE_HOME" not in os.environ:
+        xdg_cache = runtime_cache / "xdg_cache"
+        xdg_cache.mkdir(parents=True, exist_ok=True)
+        os.environ["XDG_CACHE_HOME"] = str(xdg_cache)
+
     try:
         from bagle import model
         from bagle import model_fitter
@@ -315,7 +439,6 @@ def run_bagle_joint_fit_sanity(
             "Install BAGLE (and typically pymultinest, dynesty, ultranest) before running."
         ) from exc
 
-    run_dir = run_dir.resolve()
     out_tables = [pd.read_csv(path, sep=r"\s+") for path in out_files]
     if not out_tables:
         raise SmokeTestError(f"BAGLE sanity: no .out files found under {run_dir}")
@@ -377,7 +500,13 @@ def run_bagle_joint_fit_sanity(
             f"Closest events:\n{head}"
         )
 
-    row = candidates.sort_values("ObsGroup_0_chi2", ascending=True).iloc[0]
+    candidates["_abs_single_lens_chi2"] = np.abs(
+        pd.to_numeric(candidates["ObsGroup_0_chi2"], errors="coerce")
+    )
+    row = candidates.sort_values(
+        ["_abs_single_lens_chi2", "ObsGroup_0_chi2"],
+        ascending=[True, True],
+    ).iloc[0]
     evt = int(float(row["EventID"]))
     subrun = int(float(row["SubRun"]))
     field = int(float(row["Field"]))
@@ -587,6 +716,10 @@ def run_bagle_joint_fit_sanity(
 
     data = {
         "target": f"gulls_event_{evt}",
+        "phot_data": ["sim1"],
+        "ast_data": ["sim1"],
+        "phot_files": [str(lc_file)],
+        "ast_files": [str(lc_file)],
         "t_phot1": t_phot,
         "mag1": mag_obs,
         "mag_err1": mag_err,
@@ -597,8 +730,6 @@ def run_bagle_joint_fit_sanity(
         "ypos_err1": y_ast_err_arcsec,
     }
 
-    fit_dir = run_dir / "bagle_fit_sanity"
-    fit_dir.mkdir(parents=True, exist_ok=True)
     basename = fit_dir / f"event_{evt:06d}_"
 
     fitter = model_fitter.MicrolensSolver(
@@ -609,55 +740,31 @@ def run_bagle_joint_fit_sanity(
         resume=False,
     )
 
-    _set_uniform_prior(
-        fitter,
-        model_fitter,
-        "mL",
-        max(0.01, 0.25 * mL_guess),
-        max(0.08, 4.0 * mL_guess),
-    )
+    fit_bounds: Dict[str, Tuple[float, float]] = {}
+
+    def _set_prior_and_bounds(name: str, lo: float, hi: float) -> None:
+        if not math.isfinite(lo) or not math.isfinite(hi) or hi <= lo:
+            return
+        fit_bounds[name] = (lo, hi)
+        _set_uniform_prior(fitter, model_fitter, name, lo, hi)
+
+    _set_prior_and_bounds("mL", max(0.01, 0.25 * mL_guess), max(0.08, 4.0 * mL_guess))
     half_t0 = max(10.0, 2.5 * tE_guess)
-    _set_uniform_prior(fitter, model_fitter, "t0", t0_guess - half_t0, t0_guess + half_t0)
-    _set_uniform_prior(fitter, model_fitter, "xS0_E", xS0_guess - 0.02, xS0_guess + 0.02)
-    _set_uniform_prior(fitter, model_fitter, "xS0_N", yS0_guess - 0.02, yS0_guess + 0.02)
+    _set_prior_and_bounds("t0", t0_guess - half_t0, t0_guess + half_t0)
+    _set_prior_and_bounds("xS0_E", xS0_guess - 0.02, xS0_guess + 0.02)
+    _set_prior_and_bounds("xS0_N", yS0_guess - 0.02, yS0_guess + 0.02)
     half_beta = max(0.5, 3.0 * abs(beta_guess) + 0.2)
-    _set_uniform_prior(fitter, model_fitter, "beta", beta_guess - half_beta, beta_guess + half_beta)
-    _set_uniform_prior(fitter, model_fitter, "muL_E", muL_e - 4.0, muL_e + 4.0)
-    _set_uniform_prior(fitter, model_fitter, "muL_N", muL_n - 4.0, muL_n + 4.0)
-    _set_uniform_prior(fitter, model_fitter, "muS_E", muS_e - 4.0, muS_e + 4.0)
-    _set_uniform_prior(fitter, model_fitter, "muS_N", muS_n - 4.0, muS_n + 4.0)
+    _set_prior_and_bounds("beta", beta_guess - half_beta, beta_guess + half_beta)
+    _set_prior_and_bounds("muL_E", muL_e - 4.0, muL_e + 4.0)
+    _set_prior_and_bounds("muL_N", muL_n - 4.0, muL_n + 4.0)
+    _set_prior_and_bounds("muS_E", muS_e - 4.0, muS_e + 4.0)
+    _set_prior_and_bounds("muS_N", muS_n - 4.0, muS_n + 4.0)
     half_dL = max(200.0, 0.25 * dL_pc)
-    _set_uniform_prior(fitter, model_fitter, "dL", dL_pc - half_dL, dL_pc + half_dL)
-    _set_uniform_prior(
-        fitter,
-        model_fitter,
-        "dL_dS",
-        max(0.02, dL_dS_guess - 0.12),
-        min(0.98, dL_dS_guess + 0.12),
-    )
-    _set_uniform_prior(
-        fitter,
-        model_fitter,
-        "b_sff1",
-        max(0.02, fs_guess - 0.18),
-        min(0.999, fs_guess + 0.18),
-    )
-    _set_uniform_prior(
-        fitter,
-        model_fitter,
-        "mag_src1",
-        mag_src_guess - 2.5,
-        mag_src_guess + 2.5,
-    )
+    _set_prior_and_bounds("dL", dL_pc - half_dL, dL_pc + half_dL)
+    _set_prior_and_bounds("dL_dS", max(0.02, dL_dS_guess - 0.12), min(0.98, dL_dS_guess + 0.12))
+    _set_prior_and_bounds("b_sff1", max(0.02, fs_guess - 0.18), min(0.999, fs_guess + 0.18))
+    _set_prior_and_bounds("mag_src1", mag_src_guess - 2.5, mag_src_guess + 2.5)
 
-    try:
-        fitter.solve()
-    except Exception as exc:
-        raise SmokeTestError(
-            f"BAGLE sanity: joint fit failed for {lc_file.name}: {exc}"
-        ) from exc
-
-    best = fitter.get_best_fit()
     needed = [
         "mL",
         "t0",
@@ -673,6 +780,51 @@ def run_bagle_joint_fit_sanity(
         "b_sff1",
         "mag_src1",
     ]
+    init_params: Dict[str, float] = {
+        "mL": mL_guess,
+        "t0": t0_guess,
+        "beta": beta_guess,
+        "dL": dL_pc,
+        "dL_dS": dL_dS_guess,
+        "xS0_E": xS0_guess,
+        "xS0_N": yS0_guess,
+        "muL_E": muL_e,
+        "muL_N": muL_n,
+        "muS_E": muS_e,
+        "muS_N": muS_n,
+        "b_sff1": fs_guess,
+        "mag_src1": mag_src_guess,
+    }
+
+    try:
+        fitter.solve()
+        best = fitter.get_best_fit()
+    except Exception as exc:
+        if not _should_try_scipy_fallback(exc):
+            raise SmokeTestError(
+                f"BAGLE sanity: joint fit failed for {lc_file.name}: {exc}"
+            ) from exc
+
+        warnings.append(
+            f"{lc_file.name}: PyMultiNest solve unavailable ({exc}); used scipy least-squares BAGLE fallback."
+        )
+        best = _solve_with_scipy_least_squares(
+            model,
+            ra_deg=ra_deg,
+            dec_deg=dec_deg,
+            param_names=needed,
+            init_params=init_params,
+            bounds=fit_bounds,
+            t_phot=t_phot,
+            mag_obs=mag_obs,
+            mag_err=mag_err,
+            t_ast=t_ast,
+            x_ast_arcsec=x_ast_arcsec,
+            y_ast_arcsec=y_ast_arcsec,
+            x_ast_err_arcsec=x_ast_err_arcsec,
+            y_ast_err_arcsec=y_ast_err_arcsec,
+        )
+
     missing_best = [name for name in needed if name not in best]
     if missing_best:
         raise SmokeTestError(
@@ -726,7 +878,13 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             "BAGLE sanity: best-fit model has no finite muRel vector; cannot compare proper motion."
         )
-    mu_ref = np.array([mu_rel_e_ref, mu_rel_n_ref], dtype=float)
+    # Convention handling:
+    # .out murel_helio_* is lens-source, while BAGLE muRel is source-lens.
+    mu_ref_raw = np.array([mu_rel_e_ref, mu_rel_n_ref], dtype=float)
+    mu_ref = -mu_ref_raw
+    warnings.append(
+        "Applied sign conversion for PM comparison: .out murel_helio_* (lens-source) -> BAGLE muRel convention (source-lens)."
+    )
     mu_amp_fit = float(np.hypot(mu_fit[0], mu_fit[1]))
     mu_amp_ref = float(np.hypot(mu_ref[0], mu_ref[1]))
     if mu_amp_ref <= 1.0e-6:
@@ -739,7 +897,8 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             f"BAGLE sanity: proper-motion mismatch for {lc_file.name} "
             f"(fit_mu=({mu_fit[0]:.4f},{mu_fit[1]:.4f}) mas/yr, "
-            f"out_mu=({mu_ref[0]:.4f},{mu_ref[1]:.4f}) mas/yr, "
+            f"out_mu_bagle=({mu_ref[0]:.4f},{mu_ref[1]:.4f}) mas/yr, "
+            f"out_mu_raw=({mu_ref_raw[0]:.4f},{mu_ref_raw[1]:.4f}) mas/yr, "
             f"|Δamp|/amp={mu_amp_frac:.3f} (tol={mu_amp_frac_tol:.3f}), "
             f"Δdir={mu_dir_diff:.2f} deg (tol={mu_dir_tol_deg:.2f} deg))."
         )
@@ -749,8 +908,13 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             "BAGLE sanity: best-fit model has no finite piE vector; cannot compare parallax."
         )
-    piE_ref = np.array([_safe_get(row, "piEE"), _safe_get(row, "piEN")], dtype=float)
-    if not np.all(np.isfinite(piE_ref)):
+    # Same convention handling for piE (direction tied to mu_rel definition).
+    piE_ref_raw = np.array([_safe_get(row, "piEE"), _safe_get(row, "piEN")], dtype=float)
+    piE_ref = -piE_ref_raw
+    warnings.append(
+        "Applied sign conversion for parallax comparison: .out piEE/piEN (lens-source convention) -> BAGLE piE convention."
+    )
+    if not np.all(np.isfinite(piE_ref_raw)):
         raise SmokeTestError(
             "BAGLE sanity: .out missing finite piEE/piEN; cannot compare parallax."
         )
@@ -766,7 +930,8 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             f"BAGLE sanity: parallax mismatch for {lc_file.name} "
             f"(fit_piE=({piE_fit[0]:.4f},{piE_fit[1]:.4f}), "
-            f"out_piE=({piE_ref[0]:.4f},{piE_ref[1]:.4f}), "
+            f"out_piE_bagle=({piE_ref[0]:.4f},{piE_ref[1]:.4f}), "
+            f"out_piE_raw=({piE_ref_raw[0]:.4f},{piE_ref_raw[1]:.4f}), "
             f"|Δamp|/amp={piE_amp_frac:.3f} (tol={piE_amp_frac_tol:.3f}), "
             f"Δdir={piE_dir_diff:.2f} deg (tol={piE_dir_tol_deg:.2f} deg))."
         )
@@ -802,12 +967,14 @@ def run_bagle_joint_fit_sanity(
         "fit_reduced_chi2": red_chi2,
         "proper_motion": {
             "fit": {"E": float(mu_fit[0]), "N": float(mu_fit[1]), "amp": mu_amp_fit},
-            "reference": {"E": float(mu_ref[0]), "N": float(mu_ref[1]), "amp": mu_amp_ref},
+            "reference_bagle_convention": {"E": float(mu_ref[0]), "N": float(mu_ref[1]), "amp": mu_amp_ref},
+            "reference_out_raw": {"E": float(mu_ref_raw[0]), "N": float(mu_ref_raw[1]), "amp": float(np.hypot(mu_ref_raw[0], mu_ref_raw[1]))},
             "direction_difference_deg": mu_dir_diff,
         },
         "parallax": {
             "fit": {"E": float(piE_fit[0]), "N": float(piE_fit[1]), "amp": piE_amp_fit},
-            "reference": {"E": float(piE_ref[0]), "N": float(piE_ref[1]), "amp": piE_amp_ref},
+            "reference_bagle_convention": {"E": float(piE_ref[0]), "N": float(piE_ref[1]), "amp": piE_amp_ref},
+            "reference_out_raw": {"E": float(piE_ref_raw[0]), "N": float(piE_ref_raw[1]), "amp": float(np.hypot(piE_ref_raw[0], piE_ref_raw[1]))},
             "direction_difference_deg": piE_dir_diff,
         },
         "warnings": warnings,

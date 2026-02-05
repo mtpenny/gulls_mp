@@ -191,6 +191,10 @@ It then:
 - compares fitted proper-motion vector (`muRel`) against `.out` `murel_helio_alpha/delta`
 - compares fitted parallax vector (`piE`) against `.out` `piEE/piEN`
 - fails with detailed diagnostics if amplitude or direction mismatches exceed thresholds
+- applies documented sign conversion when comparing to `.out` vectors:
+  - `.out` stores lens-source convention, BAGLE `muRel`/`piE` uses source-lens convention
+  - comparison uses `(-murel_helio_alpha, -murel_helio_delta)` and `(-piEE, -piEN)`
+- if PyMultiNest / MultiNest runtime is unavailable, the check automatically falls back to a scipy least-squares BAGLE fit
 
 Run it standalone on pre-generated outputs:
 
@@ -204,8 +208,9 @@ python smoke_test/run_bagle_fit_sanity.py \
 
 Typical dependencies:
 - `bagle` (BAGLE_Microlensing)
-- `pymultinest` (+ MultiNest runtime), `dynesty`, `ultranest`
+- `pymultinest` (+ MultiNest runtime), `dynesty`, `ultranest` (optional when scipy fallback is used)
 - `matplotlib` (for the diagnostic plot)
+- `scipy` (for fallback optimization path)
 
 ## Test Configuration
 
