@@ -39,6 +39,9 @@ Astrometry conventions (general executable only)
   - BAGLE conversion (documented in `.lc` header):
     - `x_E_arcsec = dRAcosDec_mas / 1000`
     - `y_N_arcsec = dDec_mas / 1000`
+- `#Astrometry_BAGLE` is treated as a required contract for BAGLE checks:
+  - `model_frame=lens_relative` means BAGLE model astrometry must use `get_astrometry - get_lens_astrometry`.
+  - `blendless_columns=RA_centroid_src_only_deg,Dec_centroid_src_only_deg` are the preferred noiseless source-only columns for BAGLE fitting/validation.
 - `lens_parallax_x_mas`, `lens_parallax_y_mas` are ecliptic EN lens-parallax terms:
   - `lens_parallax_E = -Eshift / D_L_kpc`
   - `lens_parallax_N = -Nshift / D_L_kpc`
@@ -56,7 +59,8 @@ Tests that document/enforce conventions
   - checks PM behavior near `tref` and long-baseline behavior (with parallax correction);
   - blend-aware rule: if blended-centroid long-baseline PM fails but source-only passes and `Obs_0_fs < 0.9`, warn/pass as likely blend-driven.
 - `smoke_test/bagle_fit_sanity.py`:
-  - runs BAGLE joint photometric+astrometric PSPL+parallax fit on selected single-source event (`ObsGroup_0_chi2 < 100`);
-  - writes fit summary + diagnostic plot;
-  - compares fitted PM and parallax vectors (amplitude + direction) against `.out` after convention conversion (`.out` lens-source -> BAGLE source-lens sign flip);
+  - runs BAGLE joint photometric+astrometric PSPL+parallax fit on selected single-source event (`ObsGroup_0_chi2 < 20` by default);
+  - in `--fit-true-astrometry` mode, uses blendless source-only astrometry (`RA_centroid_src_only_deg/Dec_centroid_src_only_deg`) for fitting and strict RMS checks;
+  - writes fit summary + diagnostic plot and records which noiseless astrometry columns were used;
+  - compares fitted PM and parallax vectors (amplitude + direction) against `.out` in the declared model frame convention;
   - falls back to scipy least-squares BAGLE fit if PyMultiNest runtime is unavailable.

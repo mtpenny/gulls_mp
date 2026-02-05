@@ -91,13 +91,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-phot-points",
         type=int,
-        default=500,
-        help="Maximum photometric epochs used in BAGLE fit (default: %(default)s).",
+        default=0,
+        help="Maximum photometric epochs used in BAGLE fit; <=0 uses all epochs (default: %(default)s).",
     )
     parser.add_argument(
         "--max-ast-points",
         type=int,
-        default=500,
+        default=0,
         help="Maximum astrometric epochs used in BAGLE fit; <=0 uses all epochs (default: %(default)s).",
     )
     parser.add_argument(
@@ -147,7 +147,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--true-ast-rms-mas-max",
         type=float,
-        default=0.50,
+        default=0.05,
         help="Fail if BAGLE-vs-noiseless astrometric RMS exceeds this (mas).",
     )
     parser.add_argument(

@@ -538,8 +538,8 @@ def run_bagle_joint_fit_sanity(
     *,
     chi2_max: float = 20.0,
     event_id: int | None = None,
-    max_phot_points: int = 500,
-    max_ast_points: int = 500,
+    max_phot_points: int = 0,
+    max_ast_points: int = 0,
     n_live_points: int = 200,
     fit_true_astrometry: bool = False,
     true_ast_err_mas: float = 0.01,
@@ -672,9 +672,12 @@ def run_bagle_joint_fit_sanity(
     lc_file = _find_lc_for_event(run_dir, evt, subrun, field)
     df = pd.read_csv(lc_file, sep=r"\s+", comment="#")
     astrometry_model_frame_raw = _parse_astrometry_bagle_model_frame(lc_file)
+    if astrometry_model_frame_raw is None:
+        raise SmokeTestError(
+            f"BAGLE sanity: {lc_file.name} missing #Astrometry_BAGLE model_frame; "
+            "output must explicitly declare BAGLE astrometry convention."
+        )
     astrometry_model_frame = astrometry_model_frame_raw
-    if astrometry_model_frame is None:
-        astrometry_model_frame = "lens_relative"
     if astrometry_model_frame not in ("lens_relative", "absolute"):
         raise SmokeTestError(
             f"BAGLE sanity: unsupported #Astrometry_BAGLE model_frame={astrometry_model_frame!r} in {lc_file.name}."
@@ -715,10 +718,6 @@ def run_bagle_joint_fit_sanity(
 
     sim_time = df["Simulation_time"].to_numpy(dtype=float, copy=False)
     warnings: List[str] = []
-    if astrometry_model_frame_raw is None:
-        warnings.append(
-            f"{lc_file.name}: #Astrometry_BAGLE model_frame missing; assuming lens_relative per general output convention."
-        )
     warnings.append(
         f"{lc_file.name}: BAGLE astrometry model_frame={astrometry_model_frame} (from #Astrometry_BAGLE contract)."
     )
@@ -797,13 +796,56 @@ def run_bagle_joint_fit_sanity(
 
     x_ast_true_all_arcsec: np.ndarray | None = None
     y_ast_true_all_arcsec: np.ndarray | None = None
-    if "RA_centroid_true_deg" in df.columns and "Dec_centroid_true_deg" in df.columns:
+    true_ast_source: str | None = None
+    if "RA_centroid_src_only_deg" in df.columns and "Dec_centroid_src_only_deg" in df.columns:
+        ra_src_only_deg = df["RA_centroid_src_only_deg"].to_numpy(dtype=float, copy=False)
+        dec_src_only_deg = df["Dec_centroid_src_only_deg"].to_numpy(dtype=float, copy=False)
+        dra_src_only_deg = (ra_src_only_deg - ra_deg + 180.0) % 360.0 - 180.0
+        x_ast_true_all_arcsec = dra_src_only_deg * cos_dec * 3600.0
+        y_ast_true_all_arcsec = (dec_src_only_deg - dec_deg) * 3600.0
+        true_ast_source = "RA/Dec source-only columns"
+        warnings.append(
+            f"{lc_file.name}: using blendless source-only astrometry from RA/Dec columns for BAGLE true-astrometry checks."
+        )
+    elif "centroid_src_x_mas" in df.columns and "centroid_src_y_mas" in df.columns:
+        src_only_e_mas = df["centroid_src_x_mas"].to_numpy(dtype=float, copy=False)
+        src_only_n_mas = df["centroid_src_y_mas"].to_numpy(dtype=float, copy=False)
+        transform = _parse_astrometry_transform(lc_file)
+        if transform is None:
+            raise SmokeTestError(
+                f"BAGLE sanity: {lc_file.name} has blendless centroid_src_x/y columns but no #Astrometry_Transform; "
+                "cannot map blendless astrometry into BAGLE frame."
+            )
+        a11, a12, a21, a22 = transform
+        x_ast_true_all_arcsec = (a11 * src_only_e_mas + a12 * src_only_n_mas) / MAS_PER_ARCSEC
+        y_ast_true_all_arcsec = (a21 * src_only_e_mas + a22 * src_only_n_mas) / MAS_PER_ARCSEC
+        true_ast_source = "centroid_src_x/y + #Astrometry_Transform"
+        warnings.append(
+            f"{lc_file.name}: using blendless source-only astrometry from centroid_src_x/y with #Astrometry_Transform."
+        )
+    elif "RA_centroid_true_deg" in df.columns and "Dec_centroid_true_deg" in df.columns:
+        if fit_true_astrometry:
+            raise SmokeTestError(
+                f"BAGLE sanity: fit_true_astrometry requested for {lc_file.name}, "
+                "but blendless source-only astrometry columns are missing "
+                "(need RA_centroid_src_only_deg/Dec_centroid_src_only_deg or centroid_src_x/y with #Astrometry_Transform)."
+            )
         ra_true_deg = df["RA_centroid_true_deg"].to_numpy(dtype=float, copy=False)
         dec_true_deg = df["Dec_centroid_true_deg"].to_numpy(dtype=float, copy=False)
         dra_true_deg = (ra_true_deg - ra_deg + 180.0) % 360.0 - 180.0
         x_ast_true_all_arcsec = dra_true_deg * cos_dec * 3600.0
         y_ast_true_all_arcsec = (dec_true_deg - dec_deg) * 3600.0
+        true_ast_source = "RA/Dec blended true centroid fallback"
+        warnings.append(
+            f"{lc_file.name}: blendless astrometry columns missing; falling back to RA_centroid_true/Dec_centroid_true."
+        )
     elif "true_x_centroid_mas" in df.columns and "true_y_centroid_mas" in df.columns:
+        if fit_true_astrometry:
+            raise SmokeTestError(
+                f"BAGLE sanity: fit_true_astrometry requested for {lc_file.name}, "
+                "but blendless source-only astrometry columns are missing "
+                "(need RA_centroid_src_only_deg/Dec_centroid_src_only_deg or centroid_src_x/y with #Astrometry_Transform)."
+            )
         true_e_mas = df["true_x_centroid_mas"].to_numpy(dtype=float, copy=False)
         true_n_mas = df["true_y_centroid_mas"].to_numpy(dtype=float, copy=False)
         transform = _parse_astrometry_transform(lc_file)
@@ -811,8 +853,9 @@ def run_bagle_joint_fit_sanity(
             a11, a12, a21, a22 = transform
             x_ast_true_all_arcsec = (a11 * true_e_mas + a12 * true_n_mas) / MAS_PER_ARCSEC
             y_ast_true_all_arcsec = (a21 * true_e_mas + a22 * true_n_mas) / MAS_PER_ARCSEC
+            true_ast_source = "true_x/y blended centroid fallback"
             warnings.append(
-                f"{lc_file.name}: derived noiseless BAGLE astrometry from true_x/y centroid columns using #Astrometry_Transform."
+                f"{lc_file.name}: blendless columns missing; derived noiseless BAGLE astrometry from true_x/y centroid columns."
             )
         else:
             raise SmokeTestError(
@@ -821,9 +864,13 @@ def run_bagle_joint_fit_sanity(
             )
     else:
         raise SmokeTestError(
-            f"BAGLE sanity: {lc_file.name} missing noiseless astrometry columns "
-            "(need RA_centroid_true_deg/Dec_centroid_true_deg or true_x/y with #Astrometry_Transform)."
+            f"BAGLE sanity: {lc_file.name} missing usable noiseless astrometry columns "
+            "(prefer RA_centroid_src_only_deg/Dec_centroid_src_only_deg; "
+            "fallbacks: centroid_src_x/y with #Astrometry_Transform, "
+            "or legacy RA_centroid_true/Dec_centroid_true)."
         )
+    if true_ast_source is not None:
+        warnings.append(f"{lc_file.name}: noiseless astrometry source = {true_ast_source}.")
 
     x_err_mas = df["x_centroid_error_mas"].to_numpy(dtype=float, copy=False)
     y_err_mas = df["y_centroid_error_mas"].to_numpy(dtype=float, copy=False)
@@ -1328,6 +1375,12 @@ def run_bagle_joint_fit_sanity(
             "reference_bagle_convention": {"E": float(piE_ref[0]), "N": float(piE_ref[1]), "amp": piE_amp_ref},
             "reference_out_raw": {"E": float(piE_ref_raw[0]), "N": float(piE_ref_raw[1]), "amp": float(np.hypot(piE_ref_raw[0], piE_ref_raw[1]))},
             "direction_difference_deg": piE_dir_diff,
+        },
+        "best_fit_parameters": {name: float(best[name]) for name in needed if name in best},
+        "best_fit_derived": {
+            "tE_days": float(getattr(best_model, "tE", np.nan)),
+            "thetaE_mas": float(getattr(best_model, "thetaE_amp", np.nan)),
+            "piE_amp": float(getattr(best_model, "piE_amp", np.nan)),
         },
         "warnings": warnings,
     }

@@ -386,7 +386,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	 << "dDec_mas=(" << dDec_from_eE << ")*E_ecl_mas+(" << dDec_from_eN << ")*N_ecl_mas"
 	 << endl;
   lcfile << "#Astrometry_BAGLE: x_E_arcsec=dRAcosDec_mas/1000 y_N_arcsec=dDec_mas/1000 "
-	 << "model_frame=lens_relative quantity=centroid_minus_lens" << endl;
+	 << "model_frame=lens_relative quantity=centroid_minus_lens "
+	 << "blendless_columns=RA_centroid_src_only_deg,Dec_centroid_src_only_deg" << endl;
 
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)
@@ -422,6 +423,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "true_y_centroid_mas" << " " << "true_y_centroid_error_mas" << " " <<
     "RA_centroid_deg" << " " << "Dec_centroid_deg" << " " <<               // observed ICRS centroid
     "RA_centroid_true_deg" << " " << "Dec_centroid_true_deg" << " " <<     // true ICRS centroid
+    "RA_centroid_src_only_deg" << " " << "Dec_centroid_src_only_deg" << " " << // blendless source-only ICRS centroid
+    "RA_centroid_src_lens_deg" << " " << "Dec_centroid_src_lens_deg" << " " << // source+lens ICRS centroid
     "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " <<   // observed + lens-parallax term
     "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<           // true + lens-parallax term
     "lens_dist_kpc" << " " <<                                              // lens distance
@@ -523,6 +526,37 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      const double yc_obs_evt_mas = Event->yc[i];
 	      const double xctrue_evt_mas = Event->xctrue[i] * thE;
 	      const double yctrue_evt_mas = Event->yctrue[i] * thE;
+	      const bool have_stage_centroids = (
+		Event->xc_src_only.size() > (size_t)i &&
+		Event->yc_src_only.size() > (size_t)i &&
+		Event->xc_src_lens.size() > (size_t)i &&
+		Event->yc_src_lens.size() > (size_t)i &&
+		Event->xc_src_lens_amb.size() > (size_t)i &&
+		Event->yc_src_lens_amb.size() > (size_t)i
+	      );
+
+	      double src_only_e = xctrue_evt_mas;
+	      double src_only_n = yctrue_evt_mas;
+	      double src_lens_e = xctrue_evt_mas;
+	      double src_lens_n = yctrue_evt_mas;
+	      double src_lens_amb_e = xctrue_evt_mas;
+	      double src_lens_amb_n = yctrue_evt_mas;
+	      if(have_stage_centroids)
+		{
+		  const double src_only_evt_x = Event->xc_src_only[i] * thE;
+		  const double src_only_evt_y = Event->yc_src_only[i] * thE;
+		  const double src_lens_evt_x = Event->xc_src_lens[i] * thE;
+		  const double src_lens_evt_y = Event->yc_src_lens[i] * thE;
+		  const double src_lens_amb_evt_x = Event->xc_src_lens_amb[i] * thE;
+		  const double src_lens_amb_evt_y = Event->yc_src_lens_amb[i] * thE;
+
+		  src_only_e = evt2ecl_c * src_only_evt_x - evt2ecl_s * src_only_evt_y;
+		  src_only_n = evt2ecl_s * src_only_evt_x + evt2ecl_c * src_only_evt_y;
+		  src_lens_e = evt2ecl_c * src_lens_evt_x - evt2ecl_s * src_lens_evt_y;
+		  src_lens_n = evt2ecl_s * src_lens_evt_x + evt2ecl_c * src_lens_evt_y;
+		  src_lens_amb_e = evt2ecl_c * src_lens_amb_evt_x - evt2ecl_s * src_lens_amb_evt_y;
+		  src_lens_amb_n = evt2ecl_s * src_lens_amb_evt_x + evt2ecl_c * src_lens_amb_evt_y;
+		}
 
 	      const double xc_obs_mas = evt2ecl_c * xc_obs_evt_mas - evt2ecl_s * yc_obs_evt_mas;
 	      const double yc_obs_mas = evt2ecl_s * xc_obs_evt_mas + evt2ecl_c * yc_obs_evt_mas;
@@ -550,14 +584,24 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      const double ddec_obs_mas = dDec_from_eE * xc_obs_mas + dDec_from_eN * yc_obs_mas;
 	      const double dra_cosdec_true_mas = dRAc_from_eE * xctrue_mas + dRAc_from_eN * yctrue_mas;
 	      const double ddec_true_mas = dDec_from_eE * xctrue_mas + dDec_from_eN * yctrue_mas;
+	      const double dra_cosdec_src_only_mas = dRAc_from_eE * src_only_e + dRAc_from_eN * src_only_n;
+	      const double ddec_src_only_mas = dDec_from_eE * src_only_e + dDec_from_eN * src_only_n;
+	      const double dra_cosdec_src_lens_mas = dRAc_from_eE * src_lens_e + dRAc_from_eN * src_lens_n;
+	      const double ddec_src_lens_mas = dDec_from_eE * src_lens_e + dDec_from_eN * src_lens_n;
 
 	      const double ra_obs_deg = ra_base_deg + dra_cosdec_obs_mas * mas_to_deg * inv_cos_dec_eq;
 	      const double dec_obs_deg = dec_base_deg + ddec_obs_mas * mas_to_deg;
 	      const double ra_true_deg = ra_base_deg + dra_cosdec_true_mas * mas_to_deg * inv_cos_dec_eq;
 	      const double dec_true_deg = dec_base_deg + ddec_true_mas * mas_to_deg;
+	      const double ra_src_only_deg = ra_base_deg + dra_cosdec_src_only_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double dec_src_only_deg = dec_base_deg + ddec_src_only_mas * mas_to_deg;
+	      const double ra_src_lens_deg = ra_base_deg + dra_cosdec_src_lens_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double dec_src_lens_deg = dec_base_deg + ddec_src_lens_mas * mas_to_deg;
 
 	      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
 	      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
+	      lcfile << ra_src_only_deg << " " << dec_src_only_deg << " " << flush;
+	      lcfile << ra_src_lens_deg << " " << dec_src_lens_deg << " " << flush;
 
 	      // Lens-parallax term in ecliptic EN (mas), based on observer displacement
 	      // relative to the event reference frame.
@@ -601,31 +645,13 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      lcfile << obs_x_AU << " " << obs_y_AU << " " << obs_z_AU << " " << flush;
 
       // Output astrometry diagnostics
-      if(Event->astrox1_raw.size() > (size_t)i)
-	{
-	  // Raw VBM output (theta_E - for coordinate system debugging)
-	  lcfile << Event->astrox1_raw[i] << " " << Event->astrox2_raw[i] << " " << flush;
-	  // Centroids at each blending step (converted to mas and rotated to ecliptic EN)
-	  const double evt2ecl_c = evt_to_ecl_cos[obsidx];
-	  const double evt2ecl_s = evt_to_ecl_sin[obsidx];
-
-	  const double src_only_evt_x = Event->xc_src_only[i] * thE;
-	  const double src_only_evt_y = Event->yc_src_only[i] * thE;
-	  const double src_lens_evt_x = Event->xc_src_lens[i] * thE;
-	  const double src_lens_evt_y = Event->yc_src_lens[i] * thE;
-	  const double src_lens_amb_evt_x = Event->xc_src_lens_amb[i] * thE;
-	  const double src_lens_amb_evt_y = Event->yc_src_lens_amb[i] * thE;
-
-	  const double src_only_e = evt2ecl_c * src_only_evt_x - evt2ecl_s * src_only_evt_y;
-	  const double src_only_n = evt2ecl_s * src_only_evt_x + evt2ecl_c * src_only_evt_y;
-	  const double src_lens_e = evt2ecl_c * src_lens_evt_x - evt2ecl_s * src_lens_evt_y;
-	  const double src_lens_n = evt2ecl_s * src_lens_evt_x + evt2ecl_c * src_lens_evt_y;
-	  const double src_lens_amb_e = evt2ecl_c * src_lens_amb_evt_x - evt2ecl_s * src_lens_amb_evt_y;
-	  const double src_lens_amb_n = evt2ecl_s * src_lens_amb_evt_x + evt2ecl_c * src_lens_amb_evt_y;
-
-	  lcfile << src_only_e << " " << src_only_n << " " << flush;
-	  lcfile << src_lens_e << " " << src_lens_n << " " << flush;
-	  lcfile << src_lens_amb_e << " " << src_lens_amb_n << " " << flush;
+	      if(Event->astrox1_raw.size() > (size_t)i)
+		{
+		  // Raw VBM output (theta_E - for coordinate system debugging)
+		  lcfile << Event->astrox1_raw[i] << " " << Event->astrox2_raw[i] << " " << flush;
+		  lcfile << src_only_e << " " << src_only_n << " " << flush;
+		  lcfile << src_lens_e << " " << src_lens_n << " " << flush;
+		  lcfile << src_lens_amb_e << " " << src_lens_amb_n << " " << flush;
 	}
       else
 	{
