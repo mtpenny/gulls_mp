@@ -57,6 +57,9 @@ class BagleJointFitSummary:
     piE_dir_diff_deg: float
     true_ast_rms_mas: float
     true_ast_sigma_equiv: float
+    obs_location_used: str
+    lens_ast_rms_raw_mas: float | None
+    lens_ast_rms_demean_mas: float | None
     plot_path: Path
     result_json_path: Path
     warnings: List[str] = field(default_factory=list)
@@ -257,11 +260,86 @@ def _should_try_scipy_fallback(exc: Exception) -> bool:
     return any(tok in text for tok in needles)
 
 
+def _build_pspl_model(
+    model_module: Any,
+    params: Mapping[str, float],
+    *,
+    ra_deg: float,
+    dec_deg: float,
+    obs_location: str,
+) -> Any:
+    return model_module.PSPL_PhotAstrom_Par_Param1(
+        params["mL"],
+        params["t0"],
+        params["beta"],
+        params["dL"],
+        params["dL_dS"],
+        params["xS0_E"],
+        params["xS0_N"],
+        params["muL_E"],
+        params["muL_N"],
+        params["muS_E"],
+        params["muS_N"],
+        [params["b_sff1"]],
+        [params["mag_src1"]],
+        raL=ra_deg,
+        decL=dec_deg,
+        obsLocation=obs_location,
+    )
+
+
+def _select_obs_location(
+    model_module: Any,
+    *,
+    requested: str,
+    fallback: str,
+    init_params: Mapping[str, float],
+    t_probe_mjd: float,
+    ra_deg: float,
+    dec_deg: float,
+) -> Tuple[str, str | None]:
+    requested_clean = requested.strip() if requested else ""
+    fallback_clean = fallback.strip() if fallback else ""
+    candidates: List[str] = []
+    for item in (requested_clean, fallback_clean, "earth"):
+        if not item:
+            continue
+        if item not in candidates:
+            candidates.append(item)
+
+    errors: List[Tuple[str, str]] = []
+    probe_time = np.asarray([t_probe_mjd], dtype=float)
+    for loc in candidates:
+        try:
+            probe_model = _build_pspl_model(
+                model_module,
+                init_params,
+                ra_deg=ra_deg,
+                dec_deg=dec_deg,
+                obs_location=loc,
+            )
+            _ = np.asarray(probe_model.get_astrometry(probe_time), dtype=float)
+            if loc == requested_clean:
+                return loc, None
+            if requested_clean:
+                return loc, f"requested obsLocation={requested_clean!r} failed; fell back to {loc!r}."
+            return loc, None
+        except Exception as exc:
+            errors.append((loc, str(exc)))
+
+    detail = "; ".join(f"{loc}: {msg}" for loc, msg in errors)
+    raise SmokeTestError(
+        f"BAGLE sanity: unable to initialize BAGLE model for any observer location candidates "
+        f"{candidates}: {detail}"
+    )
+
+
 def _solve_with_scipy_least_squares(
     model_module: Any,
     *,
     ra_deg: float,
     dec_deg: float,
+    obs_location: str,
     param_names: Sequence[str],
     init_params: Mapping[str, float],
     bounds: Mapping[str, Tuple[float, float]],
@@ -305,22 +383,12 @@ def _solve_with_scipy_least_squares(
 
     def _residual(vec: np.ndarray) -> np.ndarray:
         p = {name: float(vec[ii]) for ii, name in enumerate(param_names)}
-        pspl = model_module.PSPL_PhotAstrom_Par_Param1(
-            p["mL"],
-            p["t0"],
-            p["beta"],
-            p["dL"],
-            p["dL_dS"],
-            p["xS0_E"],
-            p["xS0_N"],
-            p["muL_E"],
-            p["muL_N"],
-            p["muS_E"],
-            p["muS_N"],
-            [p["b_sff1"]],
-            [p["mag_src1"]],
-            raL=ra_deg,
-            decL=dec_deg,
+        pspl = _build_pspl_model(
+            model_module,
+            p,
+            ra_deg=ra_deg,
+            dec_deg=dec_deg,
+            obs_location=obs_location,
         )
 
         mag_model = np.asarray(pspl.get_photometry(t_phot), dtype=float)
@@ -550,6 +618,9 @@ def run_bagle_joint_fit_sanity(
     piE_dir_tol_deg: float = 15.0,
     true_ast_rms_mas_max: float = 0.50,
     true_ast_sigma_max: float = 1.5,
+    obs_location: str = "jwst",
+    obs_location_fallback: str = "earth",
+    lens_ast_rms_demean_mas_max: float = 2.0,
 ) -> BagleJointFitSummary:
     """Fit one single-source, single-lens-like event with BAGLE and validate vectors."""
     run_dir = run_dir.resolve()
@@ -558,6 +629,10 @@ def run_bagle_joint_fit_sanity(
     if true_ast_err_mas <= 0.0:
         raise SmokeTestError(
             f"BAGLE sanity: true_ast_err_mas must be positive, got {true_ast_err_mas}."
+        )
+    if lens_ast_rms_demean_mas_max <= 0.0:
+        raise SmokeTestError(
+            f"BAGLE sanity: lens_ast_rms_demean_mas_max must be positive, got {lens_ast_rms_demean_mas_max}."
         )
 
     # BAGLE uses on-disk caches during import/runtime. In sandboxed environments,
@@ -1019,6 +1094,36 @@ def run_bagle_joint_fit_sanity(
             f"{lc_file.name}: astropy not installed; using murel_helio for BAGLE initialization."
         )
 
+    obs_probe_params: Dict[str, float] = {
+        "mL": mL_guess,
+        "t0": t0_guess,
+        "beta": beta_guess,
+        "dL": dL_pc,
+        "dL_dS": dL_dS_guess,
+        "xS0_E": xS0_guess,
+        "xS0_N": yS0_guess,
+        "muL_E": muL_e,
+        "muL_N": muL_n,
+        "muS_E": muS_e,
+        "muS_N": muS_n,
+        "b_sff1": fs_guess,
+        "mag_src1": mag_src_guess,
+    }
+    obs_location_used, obs_location_note = _select_obs_location(
+        model,
+        requested=obs_location,
+        fallback=obs_location_fallback,
+        init_params=obs_probe_params,
+        t_probe_mjd=t0_guess,
+        ra_deg=ra_deg,
+        dec_deg=dec_deg,
+    )
+    if obs_location_note:
+        warnings.append(f"{lc_file.name}: {obs_location_note}")
+    warnings.append(
+        f"{lc_file.name}: BAGLE observer location set to {obs_location_used!r}."
+    )
+
     data = {
         "target": f"gulls_event_{evt}",
         "phot_data": ["sim1"],
@@ -1033,6 +1138,7 @@ def run_bagle_joint_fit_sanity(
         "ypos1": fit_y_ast_arcsec,
         "xpos_err1": fit_x_ast_err_arcsec,
         "ypos_err1": fit_y_ast_err_arcsec,
+        "obsLocation": obs_location_used,
     }
 
     basename = fit_dir / f"event_{evt:06d}_"
@@ -1127,6 +1233,7 @@ def run_bagle_joint_fit_sanity(
             model,
             ra_deg=ra_deg,
             dec_deg=dec_deg,
+            obs_location=obs_location_used,
             param_names=needed,
             init_params=init_params,
             bounds=fit_bounds,
@@ -1148,22 +1255,12 @@ def run_bagle_joint_fit_sanity(
             f"{', '.join(missing_best)}"
         )
 
-    best_model = model.PSPL_PhotAstrom_Par_Param1(
-        best["mL"],
-        best["t0"],
-        best["beta"],
-        best["dL"],
-        best["dL_dS"],
-        best["xS0_E"],
-        best["xS0_N"],
-        best["muL_E"],
-        best["muL_N"],
-        best["muS_E"],
-        best["muS_N"],
-        [best["b_sff1"]],
-        [best["mag_src1"]],
-        raL=ra_deg,
-        decL=dec_deg,
+    best_model = _build_pspl_model(
+        model,
+        {name: float(best[name]) for name in needed},
+        ra_deg=ra_deg,
+        dec_deg=dec_deg,
+        obs_location=obs_location_used,
     )
 
     mag_model = np.asarray(best_model.get_photometry(t_phot), dtype=float)
@@ -1234,6 +1331,67 @@ def run_bagle_joint_fit_sanity(
             f"sigma_equiv={true_ast_sigma_equiv:.2f}, limit={true_ast_sigma_max:.2f}; "
             f"epochs={len(true_idx_in_ast)})."
             f"{lensing_context}"
+        )
+
+    lens_ast_rms_raw_mas: float | None = None
+    lens_ast_rms_demean_mas: float | None = None
+    if "RA_lens_primary_deg" in df.columns and "Dec_lens_primary_deg" in df.columns:
+        lens_ra_all = df["RA_lens_primary_deg"].to_numpy(dtype=float, copy=False)
+        lens_dec_all = df["Dec_lens_primary_deg"].to_numpy(dtype=float, copy=False)
+        lens_dra_deg = (lens_ra_all - ra_deg + 180.0) % 360.0 - 180.0
+        lens_x_all_arcsec = lens_dra_deg * cos_dec * 3600.0
+        lens_y_all_arcsec = (lens_dec_all - dec_deg) * 3600.0
+
+        lens_x_sel_arcsec = lens_x_all_arcsec[ast_idx]
+        lens_y_sel_arcsec = lens_y_all_arcsec[ast_idx]
+        lens_finite = np.isfinite(t_ast) & np.isfinite(lens_x_sel_arcsec) & np.isfinite(lens_y_sel_arcsec)
+        if int(np.sum(lens_finite)) < 20:
+            warnings.append(
+                f"{lc_file.name}: primary-lens astrometry columns present but only {int(np.sum(lens_finite))} finite epochs "
+                "on selected astrometry rows; skipping lens-track comparison."
+            )
+        else:
+            t_lens = t_ast[lens_finite]
+            lens_obs_x_arcsec = lens_x_sel_arcsec[lens_finite]
+            lens_obs_y_arcsec = lens_y_sel_arcsec[lens_finite]
+            lens_model = np.asarray(best_model.get_lens_astrometry(t_lens), dtype=float)
+            if lens_model.ndim != 2 or lens_model.shape[1] < 2:
+                raise SmokeTestError(
+                    f"BAGLE sanity: unexpected BAGLE lens astrometry shape {lens_model.shape}."
+                )
+            lens_model_xy = lens_model[:, :2]
+            if lens_model_xy.shape[0] != lens_obs_x_arcsec.shape[0]:
+                raise SmokeTestError(
+                    "BAGLE sanity: BAGLE lens astrometry length mismatch when comparing to GULLS lens columns."
+                )
+
+            lens_resid_e_mas = (lens_obs_x_arcsec - lens_model_xy[:, 0]) * MAS_PER_ARCSEC
+            lens_resid_n_mas = (lens_obs_y_arcsec - lens_model_xy[:, 1]) * MAS_PER_ARCSEC
+            lens_ast_rms_raw_mas = float(
+                np.sqrt(np.mean(lens_resid_e_mas**2 + lens_resid_n_mas**2))
+            )
+            lens_resid_e_demean = lens_resid_e_mas - float(np.median(lens_resid_e_mas))
+            lens_resid_n_demean = lens_resid_n_mas - float(np.median(lens_resid_n_mas))
+            lens_ast_rms_demean_mas = float(
+                np.sqrt(np.mean(lens_resid_e_demean**2 + lens_resid_n_demean**2))
+            )
+            if lens_ast_rms_demean_mas > lens_ast_rms_demean_mas_max:
+                raise SmokeTestError(
+                    f"BAGLE sanity: primary-lens astrometry mismatch for {lc_file.name} "
+                    f"(RMS_raw={lens_ast_rms_raw_mas:.3f} mas, "
+                    f"RMS_after_xy_offset={lens_ast_rms_demean_mas:.3f} mas, "
+                    f"limit={lens_ast_rms_demean_mas_max:.3f} mas, epochs={len(t_lens)})."
+                    f"{lensing_context}"
+                )
+            warnings.append(
+                f"{lc_file.name}: lens-track comparison vs BAGLE get_lens_astrometry "
+                f"(RMS_raw={lens_ast_rms_raw_mas:.3f} mas, "
+                f"RMS_after_xy_offset={lens_ast_rms_demean_mas:.3f} mas)."
+            )
+    else:
+        warnings.append(
+            f"{lc_file.name}: primary-lens astrometry columns missing (RA_lens_primary_deg/Dec_lens_primary_deg); "
+            "skipping lens-track comparison."
         )
 
     mu_fit = _vec_from_model_attr(best_model, "muRel")
@@ -1349,6 +1507,7 @@ def run_bagle_joint_fit_sanity(
         "lensing_context": lensing_context_parts,
         "astrometry_fit_mode": ("noiseless" if fit_true_astrometry else "noisy"),
         "astrometry_model_frame": ("lens_relative" if lens_relative_astrometry else "absolute"),
+        "obs_location": obs_location_used,
         "astrometry_fit_error_mas": (
             float(true_ast_err_mas) if fit_true_astrometry else None
         ),
@@ -1382,6 +1541,11 @@ def run_bagle_joint_fit_sanity(
             "thetaE_mas": float(getattr(best_model, "thetaE_amp", np.nan)),
             "piE_amp": float(getattr(best_model, "piE_amp", np.nan)),
         },
+        "lens_astrometry_comparison": {
+            "rms_raw_mas": lens_ast_rms_raw_mas,
+            "rms_after_xy_offset_mas": lens_ast_rms_demean_mas,
+            "rms_after_xy_offset_limit_mas": float(lens_ast_rms_demean_mas_max),
+        },
         "warnings": warnings,
     }
     result_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -1412,6 +1576,9 @@ def run_bagle_joint_fit_sanity(
         piE_dir_diff_deg=piE_dir_diff,
         true_ast_rms_mas=true_ast_rms_mas,
         true_ast_sigma_equiv=true_ast_sigma_equiv,
+        obs_location_used=obs_location_used,
+        lens_ast_rms_raw_mas=lens_ast_rms_raw_mas,
+        lens_ast_rms_demean_mas=lens_ast_rms_demean_mas,
         plot_path=plot_path,
         result_json_path=result_json_path,
         warnings=warnings,

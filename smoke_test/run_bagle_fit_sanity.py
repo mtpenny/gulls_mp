@@ -89,6 +89,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Nested-sampling live points for BAGLE MicrolensSolver (default: %(default)s).",
     )
     parser.add_argument(
+        "--obs-location",
+        type=str,
+        default="jwst",
+        help="Observer location alias passed to BAGLE obsLocation (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--obs-location-fallback",
+        type=str,
+        default="earth",
+        help="Fallback BAGLE obsLocation used when --obs-location cannot be initialized.",
+    )
+    parser.add_argument(
         "--max-phot-points",
         type=int,
         default=0,
@@ -159,6 +171,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "error sigmas."
         ),
     )
+    parser.add_argument(
+        "--lens-ast-rms-demean-mas-max",
+        type=float,
+        default=2.0,
+        help=(
+            "Fail if BAGLE get_lens_astrometry disagrees with GULLS primary-lens astrometry by more than this "
+            "RMS (mas) after removing constant x/y offsets."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -206,6 +227,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 n_live_points=args.n_live_points,
                 fit_true_astrometry=args.fit_true_astrometry,
                 true_ast_err_mas=args.true_ast_err_mas,
+                obs_location=args.obs_location,
+                obs_location_fallback=args.obs_location_fallback,
                 fit_reduced_chi2_max=args.fit_reduced_chi2_max,
                 mu_amp_frac_tol=args.mu_amp_frac_tol,
                 mu_dir_tol_deg=args.mu_dir_tol_deg,
@@ -213,6 +236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 piE_dir_tol_deg=args.pie_dir_tol_deg,
                 true_ast_rms_mas_max=args.true_ast_rms_mas_max,
                 true_ast_sigma_max=args.true_ast_sigma_max,
+                lens_ast_rms_demean_mas_max=args.lens_ast_rms_demean_mas_max,
             )
         except SmokeTestError as err:
             failures += 1
@@ -268,6 +292,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary.true_ast_sigma_equiv,
             )
         )
+        print(f"       BAGLE obsLocation={summary.obs_location_used!r}")
+        if summary.lens_ast_rms_demean_mas is not None:
+            print(
+                "       lens-track: RMS_raw={:.4f} mas, RMS_after_xy_offset={:.4f} mas".format(
+                    summary.lens_ast_rms_raw_mas,
+                    summary.lens_ast_rms_demean_mas,
+                )
+            )
         print(f"       plot: {summary.plot_path}")
         print(f"       summary: {summary.result_json_path}")
         for warning in summary.warnings:

@@ -387,7 +387,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	 << endl;
   lcfile << "#Astrometry_BAGLE: x_E_arcsec=dRAcosDec_mas/1000 y_N_arcsec=dDec_mas/1000 "
 	 << "model_frame=lens_relative quantity=centroid_minus_lens "
-	 << "blendless_columns=RA_centroid_src_only_deg,Dec_centroid_src_only_deg" << endl;
+	 << "blendless_columns=RA_centroid_src_only_deg,Dec_centroid_src_only_deg "
+	 << "lens_columns=RA_lens_primary_deg,Dec_lens_primary_deg" << endl;
 
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)
@@ -425,6 +426,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "RA_centroid_true_deg" << " " << "Dec_centroid_true_deg" << " " <<     // true ICRS centroid
     "RA_centroid_src_only_deg" << " " << "Dec_centroid_src_only_deg" << " " << // blendless source-only ICRS centroid
     "RA_centroid_src_lens_deg" << " " << "Dec_centroid_src_lens_deg" << " " << // source+lens ICRS centroid
+    "RA_lens_primary_deg" << " " << "Dec_lens_primary_deg" << " " <<       // primary-lens ICRS astrometry
     "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " <<   // observed + lens-parallax term
     "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<           // true + lens-parallax term
     "lens_dist_kpc" << " " <<                                              // lens distance
@@ -597,11 +599,26 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      const double dec_src_only_deg = dec_base_deg + ddec_src_only_mas * mas_to_deg;
 	      const double ra_src_lens_deg = ra_base_deg + dra_cosdec_src_lens_mas * mas_to_deg * inv_cos_dec_eq;
 	      const double dec_src_lens_deg = dec_base_deg + ddec_src_lens_mas * mas_to_deg;
+	      double ra_lens_primary_deg = NAN;
+	      double dec_lens_primary_deg = NAN;
+	      if(Event->xlens.size() > 0 && Event->ylens.size() > 0
+		 && Event->xlens[0].size() > (size_t)i && Event->ylens[0].size() > (size_t)i)
+		{
+		  const double lens_evt_x = Event->xlens[0][i] * thE;
+		  const double lens_evt_y = Event->ylens[0][i] * thE;
+		  const double lens_e = evt2ecl_c * lens_evt_x - evt2ecl_s * lens_evt_y;
+		  const double lens_n = evt2ecl_s * lens_evt_x + evt2ecl_c * lens_evt_y;
+		  const double dra_cosdec_lens_mas = dRAc_from_eE * lens_e + dRAc_from_eN * lens_n;
+		  const double ddec_lens_mas = dDec_from_eE * lens_e + dDec_from_eN * lens_n;
+		  ra_lens_primary_deg = ra_base_deg + dra_cosdec_lens_mas * mas_to_deg * inv_cos_dec_eq;
+		  dec_lens_primary_deg = dec_base_deg + ddec_lens_mas * mas_to_deg;
+		}
 
 	      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
 	      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
 	      lcfile << ra_src_only_deg << " " << dec_src_only_deg << " " << flush;
 	      lcfile << ra_src_lens_deg << " " << dec_src_lens_deg << " " << flush;
+	      lcfile << ra_lens_primary_deg << " " << dec_lens_primary_deg << " " << flush;
 
 	      // Lens-parallax term in ecliptic EN (mas), based on observer displacement
 	      // relative to the event reference frame.
