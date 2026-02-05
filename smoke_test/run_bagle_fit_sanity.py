@@ -79,8 +79,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--chi2-max",
         type=float,
-        default=100.0,
-        help="Selection threshold for single-lens chi2 in .out (default: %(default)s).",
+        default=20.0,
+        help="Upper bound on raw single-lens chi2 delta in .out (default: %(default)s).",
     )
     parser.add_argument(
         "--n-live-points",
@@ -98,37 +98,66 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--max-ast-points",
         type=int,
         default=500,
-        help="Maximum astrometric epochs used in BAGLE fit (default: %(default)s).",
+        help="Maximum astrometric epochs used in BAGLE fit; <=0 uses all epochs (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--fit-true-astrometry",
+        action="store_true",
+        help=(
+            "Fit BAGLE to noiseless astrometry columns instead of noisy astrometry columns "
+            "(still validates against noiseless astrometry)."
+        ),
+    )
+    parser.add_argument(
+        "--true-ast-err-mas",
+        type=float,
+        default=0.01,
+        help="When --fit-true-astrometry is set, use this fixed astrometric uncertainty in mas.",
     )
     parser.add_argument(
         "--fit-reduced-chi2-max",
         type=float,
-        default=6.0,
+        default=3.0,
         help="Fail if BAGLE reduced chi2 exceeds this value (default: %(default)s).",
     )
     parser.add_argument(
         "--mu-amp-frac-tol",
         type=float,
-        default=0.35,
+        default=0.20,
         help="Allowed fractional proper-motion amplitude mismatch (default: %(default)s).",
     )
     parser.add_argument(
         "--mu-dir-tol-deg",
         type=float,
-        default=20.0,
+        default=10.0,
         help="Allowed proper-motion direction mismatch in degrees (default: %(default)s).",
     )
     parser.add_argument(
         "--pie-amp-frac-tol",
         type=float,
-        default=0.70,
+        default=0.35,
         help="Allowed fractional parallax amplitude mismatch (default: %(default)s).",
     )
     parser.add_argument(
         "--pie-dir-tol-deg",
         type=float,
-        default=30.0,
+        default=15.0,
         help="Allowed parallax direction mismatch in degrees (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--true-ast-rms-mas-max",
+        type=float,
+        default=0.50,
+        help="Fail if BAGLE-vs-noiseless astrometric RMS exceeds this (mas).",
+    )
+    parser.add_argument(
+        "--true-ast-sigma-max",
+        type=float,
+        default=1.5,
+        help=(
+            "Fail if BAGLE-vs-noiseless astrometric RMS exceeds this many median astrometric "
+            "error sigmas."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -175,11 +204,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_phot_points=args.max_phot_points,
                 max_ast_points=args.max_ast_points,
                 n_live_points=args.n_live_points,
+                fit_true_astrometry=args.fit_true_astrometry,
+                true_ast_err_mas=args.true_ast_err_mas,
                 fit_reduced_chi2_max=args.fit_reduced_chi2_max,
                 mu_amp_frac_tol=args.mu_amp_frac_tol,
                 mu_dir_tol_deg=args.mu_dir_tol_deg,
                 piE_amp_frac_tol=args.pie_amp_frac_tol,
                 piE_dir_tol_deg=args.pie_dir_tol_deg,
+                true_ast_rms_mas_max=args.true_ast_rms_mas_max,
+                true_ast_sigma_max=args.true_ast_sigma_max,
             )
         except SmokeTestError as err:
             failures += 1
@@ -190,6 +223,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"[PASS] event={summary.event_id} (SubRun={summary.subrun}, Field={summary.field}) "
             f"from {summary.lc_file.name}"
+        )
+        print(
+            "       astrometry fit mode={}{}".format(
+                "noiseless" if args.fit_true_astrometry else "noisy",
+                (
+                    f" (fixed err={args.true_ast_err_mas:.4g} mas)"
+                    if args.fit_true_astrometry
+                    else ""
+                ),
+            )
         )
         print(
             f"       selected single-lens chi2={summary.out_chi2_single_lens:.4f}, "
@@ -219,6 +262,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary.piE_dir_diff_deg,
             )
         )
+        print(
+            "       true-astrometry: RMS={:.4f} mas, sigma_equiv={:.2f}".format(
+                summary.true_ast_rms_mas,
+                summary.true_ast_sigma_equiv,
+            )
+        )
         print(f"       plot: {summary.plot_path}")
         print(f"       summary: {summary.result_json_path}")
         for warning in summary.warnings:
@@ -234,4 +283,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

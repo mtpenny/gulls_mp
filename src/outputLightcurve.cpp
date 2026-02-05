@@ -385,7 +385,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	 << "dRAcosDec_mas=(" << dRAc_from_eE << ")*E_ecl_mas+(" << dRAc_from_eN << ")*N_ecl_mas "
 	 << "dDec_mas=(" << dDec_from_eE << ")*E_ecl_mas+(" << dDec_from_eN << ")*N_ecl_mas"
 	 << endl;
-  lcfile << "#Astrometry_BAGLE: x_E_arcsec=dRAcosDec_mas/1000 y_N_arcsec=dDec_mas/1000" << endl;
+  lcfile << "#Astrometry_BAGLE: x_E_arcsec=dRAcosDec_mas/1000 y_N_arcsec=dDec_mas/1000 "
+	 << "model_frame=lens_relative quantity=centroid_minus_lens" << endl;
 
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)

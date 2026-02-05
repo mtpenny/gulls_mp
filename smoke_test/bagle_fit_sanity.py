@@ -55,6 +55,8 @@ class BagleJointFitSummary:
     piE_amp_ref: float
     piE_amp_fit: float
     piE_dir_diff_deg: float
+    true_ast_rms_mas: float
+    true_ast_sigma_equiv: float
     plot_path: Path
     result_json_path: Path
     warnings: List[str] = field(default_factory=list)
@@ -65,6 +67,8 @@ def _angle_diff_deg(lhs: float, rhs: float) -> float:
 
 
 def _uniform_sample(indices: np.ndarray, max_points: int) -> np.ndarray:
+    if max_points is None or max_points <= 0:
+        return indices
     if len(indices) <= max_points:
         return indices
     pick = np.linspace(0, len(indices) - 1, max_points, dtype=int)
@@ -138,6 +142,43 @@ def _parse_astrometry_frame(lc_file: Path) -> Tuple[float | None, float | None]:
     return None, None
 
 
+def _parse_astrometry_transform(
+    lc_file: Path,
+) -> Tuple[float, float, float, float] | None:
+    with lc_file.open(encoding="utf-8") as handle:
+        for raw in handle:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith("#Astrometry_Transform:"):
+                continue
+            coeff_tokens = re.findall(r"\(([-+0-9.eE]+)\)", raw)
+            if len(coeff_tokens) < 4:
+                continue
+            try:
+                a11 = float(coeff_tokens[0])
+                a12 = float(coeff_tokens[1])
+                a21 = float(coeff_tokens[2])
+                a22 = float(coeff_tokens[3])
+            except ValueError:
+                continue
+            return a11, a12, a21, a22
+    return None
+
+
+def _parse_astrometry_bagle_model_frame(lc_file: Path) -> str | None:
+    with lc_file.open(encoding="utf-8") as handle:
+        for raw in handle:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith("#Astrometry_BAGLE:"):
+                continue
+            for token in raw.strip().split():
+                if token.startswith("model_frame="):
+                    return token.split("=", 1)[1].strip().lower()
+            return None
+    return None
+
+
 def _pm_gal_to_icrs(l_deg: float, b_deg: float, mu_l: float, mu_b: float) -> Tuple[float, float]:
     if not _HAS_ASTROPY:
         raise RuntimeError("astropy not available")
@@ -182,6 +223,28 @@ def _vec_from_model_attr(
     return arr[:2].copy()
 
 
+def _get_model_astrometry(
+    model_obj: Any,
+    t_eval: np.ndarray,
+    *,
+    lens_relative_astrometry: bool,
+) -> np.ndarray:
+    ast = np.asarray(model_obj.get_astrometry(t_eval), dtype=float)
+    if ast.ndim != 2 or ast.shape[1] < 2:
+        raise RuntimeError(f"unexpected BAGLE astrometry shape {ast.shape}")
+    ast_xy = ast[:, :2]
+    if not lens_relative_astrometry:
+        return ast_xy
+    lens_ast = np.asarray(model_obj.get_lens_astrometry(t_eval), dtype=float)
+    if lens_ast.ndim != 2 or lens_ast.shape[1] < 2:
+        raise RuntimeError(f"unexpected BAGLE lens astrometry shape {lens_ast.shape}")
+    if lens_ast.shape[0] != ast_xy.shape[0]:
+        raise RuntimeError(
+            f"unexpected BAGLE astrometry length mismatch (source={ast_xy.shape[0]}, lens={lens_ast.shape[0]})"
+        )
+    return ast_xy - lens_ast[:, :2]
+
+
 def _should_try_scipy_fallback(exc: Exception) -> bool:
     text = str(exc).lower()
     needles = (
@@ -210,6 +273,7 @@ def _solve_with_scipy_least_squares(
     y_ast_arcsec: np.ndarray,
     x_ast_err_arcsec: np.ndarray,
     y_ast_err_arcsec: np.ndarray,
+    lens_relative_astrometry: bool = False,
     max_nfev: int = 2500,
 ) -> Dict[str, float]:
     try:
@@ -260,9 +324,11 @@ def _solve_with_scipy_least_squares(
         )
 
         mag_model = np.asarray(pspl.get_photometry(t_phot), dtype=float)
-        ast_model = np.asarray(pspl.get_astrometry(t_ast), dtype=float)
-        if ast_model.ndim != 2 or ast_model.shape[1] < 2:
-            raise RuntimeError(f"unexpected BAGLE astrometry shape {ast_model.shape}")
+        ast_model = _get_model_astrometry(
+            pspl,
+            t_ast,
+            lens_relative_astrometry=lens_relative_astrometry,
+        )
 
         res_phot = (mag_obs - mag_model) / mag_err
         res_ast_e = (x_ast_arcsec - ast_model[:, 0]) / x_ast_err_arcsec
@@ -294,9 +360,15 @@ def _plot_joint_fit_diagnostics(
     y_ast_arcsec: np.ndarray,
     x_ast_err_arcsec: np.ndarray,
     y_ast_err_arcsec: np.ndarray,
+    t_ast_true: np.ndarray | None,
+    x_ast_true_arcsec: np.ndarray | None,
+    y_ast_true_arcsec: np.ndarray | None,
     model_obj: Any,
     t0_ref: float,
     title: str,
+    lens_relative_astrometry: bool = False,
+    show_noisy_astrometry: bool = True,
+    noisy_ast_alpha: float = 0.18,
 ) -> None:
     try:
         import matplotlib
@@ -314,7 +386,11 @@ def _plot_joint_fit_diagnostics(
         800,
     )
     mag_model = np.asarray(model_obj.get_photometry(t_plot), dtype=float)
-    ast_model = np.asarray(model_obj.get_astrometry(t_plot), dtype=float)
+    ast_model = _get_model_astrometry(
+        model_obj,
+        t_plot,
+        lens_relative_astrometry=lens_relative_astrometry,
+    )
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 12), constrained_layout=True)
 
@@ -331,35 +407,83 @@ def _plot_joint_fit_diagnostics(
         alpha=0.45,
         color="tab:blue",
         label="Data",
+        zorder=1,
     )
-    axes[0].plot(dt_plot, mag_model, "-", lw=1.8, color="tab:red", label="BAGLE best fit")
+    axes[0].plot(dt_plot, mag_model, "-", lw=1.8, color="tab:red", label="BAGLE best fit", zorder=5)
     axes[0].invert_yaxis()
     axes[0].set_ylabel("Magnitude")
     axes[0].set_title(title)
     axes[0].legend(loc="best", fontsize=9)
 
-    axes[1].errorbar(
-        dt_ast,
-        x_ast_arcsec * MAS_PER_ARCSEC,
-        yerr=x_ast_err_arcsec * MAS_PER_ARCSEC,
-        fmt=".",
-        ms=3.0,
-        alpha=0.35,
+    if show_noisy_astrometry:
+        noisy_ast_alpha = max(0.0, min(1.0, float(noisy_ast_alpha)))
+        axes[1].errorbar(
+            dt_ast,
+            x_ast_arcsec * MAS_PER_ARCSEC,
+            yerr=x_ast_err_arcsec * MAS_PER_ARCSEC,
+            fmt=".",
+            ms=2.5,
+            alpha=noisy_ast_alpha,
+            color="tab:green",
+            label="E data",
+            zorder=1,
+        )
+        axes[1].errorbar(
+            dt_ast,
+            y_ast_arcsec * MAS_PER_ARCSEC,
+            yerr=y_ast_err_arcsec * MAS_PER_ARCSEC,
+            fmt=".",
+            ms=2.5,
+            alpha=noisy_ast_alpha,
+            color="tab:purple",
+            label="N data",
+            zorder=1,
+        )
+    axes[1].plot(
+        dt_plot,
+        ast_model[:, 0] * MAS_PER_ARCSEC,
+        "-",
+        lw=1.8,
         color="tab:green",
-        label="E data",
+        label="E model",
+        zorder=5,
     )
-    axes[1].errorbar(
-        dt_ast,
-        y_ast_arcsec * MAS_PER_ARCSEC,
-        yerr=y_ast_err_arcsec * MAS_PER_ARCSEC,
-        fmt=".",
-        ms=3.0,
-        alpha=0.35,
+    axes[1].plot(
+        dt_plot,
+        ast_model[:, 1] * MAS_PER_ARCSEC,
+        "-",
+        lw=1.8,
         color="tab:purple",
-        label="N data",
+        label="N model",
+        zorder=5,
     )
-    axes[1].plot(dt_plot, ast_model[:, 0] * MAS_PER_ARCSEC, "-", lw=1.8, color="tab:green", label="E model")
-    axes[1].plot(dt_plot, ast_model[:, 1] * MAS_PER_ARCSEC, "-", lw=1.8, color="tab:purple", label="N model")
+    if (
+        t_ast_true is not None
+        and x_ast_true_arcsec is not None
+        and y_ast_true_arcsec is not None
+        and len(t_ast_true) > 0
+    ):
+        dt_ast_true = t_ast_true - t0_ref
+        axes[1].plot(
+            dt_ast_true,
+            x_ast_true_arcsec * MAS_PER_ARCSEC,
+            ".",
+            ms=2.0,
+            alpha=0.35,
+            color="tab:olive",
+            label="E noiseless",
+            zorder=6,
+        )
+        axes[1].plot(
+            dt_ast_true,
+            y_ast_true_arcsec * MAS_PER_ARCSEC,
+            ".",
+            ms=2.0,
+            alpha=0.35,
+            color="tab:brown",
+            label="N noiseless",
+            zorder=6,
+        )
     axes[1].set_ylabel("Centroid (mas)")
     axes[1].legend(loc="best", fontsize=9)
 
@@ -370,18 +494,33 @@ def _plot_joint_fit_diagnostics(
         lw=2.0,
         color="tab:red",
         label="BAGLE best fit",
+        zorder=5,
     )
-    axes[2].errorbar(
-        x_ast_arcsec * MAS_PER_ARCSEC,
-        y_ast_arcsec * MAS_PER_ARCSEC,
-        xerr=x_ast_err_arcsec * MAS_PER_ARCSEC,
-        yerr=y_ast_err_arcsec * MAS_PER_ARCSEC,
-        fmt=".",
-        ms=2.5,
-        alpha=0.25,
-        color="tab:blue",
-        label="Data",
-    )
+    if show_noisy_astrometry:
+        noisy_ast_alpha = max(0.0, min(1.0, float(noisy_ast_alpha)))
+        axes[2].errorbar(
+            x_ast_arcsec * MAS_PER_ARCSEC,
+            y_ast_arcsec * MAS_PER_ARCSEC,
+            xerr=x_ast_err_arcsec * MAS_PER_ARCSEC,
+            yerr=y_ast_err_arcsec * MAS_PER_ARCSEC,
+            fmt=".",
+            ms=2.2,
+            alpha=noisy_ast_alpha,
+            color="tab:blue",
+            label="Data",
+            zorder=1,
+        )
+    if x_ast_true_arcsec is not None and y_ast_true_arcsec is not None and len(x_ast_true_arcsec) > 0:
+        axes[2].plot(
+            x_ast_true_arcsec * MAS_PER_ARCSEC,
+            y_ast_true_arcsec * MAS_PER_ARCSEC,
+            ".",
+            ms=2.0,
+            alpha=0.35,
+            color="tab:orange",
+            label="Noiseless centroid",
+            zorder=6,
+        )
     axes[2].set_xlabel("E (mas)")
     axes[2].set_ylabel("N (mas)")
     axes[2].set_aspect("equal", adjustable="box")
@@ -397,21 +536,29 @@ def run_bagle_joint_fit_sanity(
     out_files: Sequence[Path],
     params: Mapping[str, str],
     *,
-    chi2_max: float = 100.0,
+    chi2_max: float = 20.0,
     event_id: int | None = None,
     max_phot_points: int = 500,
     max_ast_points: int = 500,
     n_live_points: int = 200,
-    fit_reduced_chi2_max: float = 6.0,
-    mu_amp_frac_tol: float = 0.35,
-    mu_dir_tol_deg: float = 20.0,
-    piE_amp_frac_tol: float = 0.70,
-    piE_dir_tol_deg: float = 30.0,
+    fit_true_astrometry: bool = False,
+    true_ast_err_mas: float = 0.01,
+    fit_reduced_chi2_max: float = 3.0,
+    mu_amp_frac_tol: float = 0.20,
+    mu_dir_tol_deg: float = 10.0,
+    piE_amp_frac_tol: float = 0.35,
+    piE_dir_tol_deg: float = 15.0,
+    true_ast_rms_mas_max: float = 0.50,
+    true_ast_sigma_max: float = 1.5,
 ) -> BagleJointFitSummary:
     """Fit one single-source, single-lens-like event with BAGLE and validate vectors."""
     run_dir = run_dir.resolve()
     fit_dir = run_dir / "bagle_fit_sanity"
     fit_dir.mkdir(parents=True, exist_ok=True)
+    if true_ast_err_mas <= 0.0:
+        raise SmokeTestError(
+            f"BAGLE sanity: true_ast_err_mas must be positive, got {true_ast_err_mas}."
+        )
 
     # BAGLE uses on-disk caches during import/runtime. In sandboxed environments,
     # default cache paths may be read-only, so provide writable defaults.
@@ -500,20 +647,56 @@ def run_bagle_joint_fit_sanity(
             f"Closest events:\n{head}"
         )
 
-    candidates["_abs_single_lens_chi2"] = np.abs(
-        pd.to_numeric(candidates["ObsGroup_0_chi2"], errors="coerce")
-    )
     row = candidates.sort_values(
-        ["_abs_single_lens_chi2", "ObsGroup_0_chi2"],
+        ["ObsGroup_0_chi2", "EventID"],
         ascending=[True, True],
     ).iloc[0]
     evt = int(float(row["EventID"]))
     subrun = int(float(row["SubRun"]))
     field = int(float(row["Field"]))
     out_chi2 = float(row["ObsGroup_0_chi2"])
+    lensing_context_parts: List[str] = []
+    if "NLens" in row.index:
+        nlens_val = _safe_get(row, "NLens")
+        if math.isfinite(nlens_val) and nlens_val > 1.0:
+            lensing_context_parts.append(f"underlying event has NLens={int(round(nlens_val))}")
+    if "NPlanets" in row.index:
+        nplan_val = _safe_get(row, "NPlanets")
+        if math.isfinite(nplan_val) and nplan_val > 0.0:
+            lensing_context_parts.append(f"NPlanets={int(round(nplan_val))}")
+    if "Planet_0_q" in row.index:
+        q_val = _safe_get(row, "Planet_0_q")
+        if math.isfinite(q_val) and q_val > 0.0:
+            lensing_context_parts.append(f"Planet_0_q={q_val:.4g}")
 
     lc_file = _find_lc_for_event(run_dir, evt, subrun, field)
     df = pd.read_csv(lc_file, sep=r"\s+", comment="#")
+    astrometry_model_frame_raw = _parse_astrometry_bagle_model_frame(lc_file)
+    astrometry_model_frame = astrometry_model_frame_raw
+    if astrometry_model_frame is None:
+        astrometry_model_frame = "lens_relative"
+    if astrometry_model_frame not in ("lens_relative", "absolute"):
+        raise SmokeTestError(
+            f"BAGLE sanity: unsupported #Astrometry_BAGLE model_frame={astrometry_model_frame!r} in {lc_file.name}."
+        )
+    lens_relative_astrometry = astrometry_model_frame == "lens_relative"
+    if "lens0_x_thE" in df.columns and "lens0_y_thE" in df.columns and "lens1_x_thE" in df.columns and "lens1_y_thE" in df.columns:
+        lens_sep_thE = np.hypot(
+            df["lens1_x_thE"].to_numpy(dtype=float, copy=False) - df["lens0_x_thE"].to_numpy(dtype=float, copy=False),
+            df["lens1_y_thE"].to_numpy(dtype=float, copy=False) - df["lens0_y_thE"].to_numpy(dtype=float, copy=False),
+        )
+        finite_sep = lens_sep_thE[np.isfinite(lens_sep_thE)]
+        if finite_sep.size > 0:
+            lensing_context_parts.append(
+                "lens-separation_thE[min/med/max]={:.3f}/{:.3f}/{:.3f}".format(
+                    float(np.min(finite_sep)),
+                    float(np.median(finite_sep)),
+                    float(np.max(finite_sep)),
+                )
+            )
+    lensing_context = ""
+    if lensing_context_parts:
+        lensing_context = " Likely cause: " + "; ".join(lensing_context_parts) + "."
 
     required_lc_cols = [
         "Simulation_time",
@@ -532,6 +715,13 @@ def run_bagle_joint_fit_sanity(
 
     sim_time = df["Simulation_time"].to_numpy(dtype=float, copy=False)
     warnings: List[str] = []
+    if astrometry_model_frame_raw is None:
+        warnings.append(
+            f"{lc_file.name}: #Astrometry_BAGLE model_frame missing; assuming lens_relative per general output convention."
+        )
+    warnings.append(
+        f"{lc_file.name}: BAGLE astrometry model_frame={astrometry_model_frame} (from #Astrometry_BAGLE contract)."
+    )
 
     # Explicitly convert JD-like timing to MJD for BAGLE.
     # Prefer BJD when it appears sufficiently precise; otherwise use
@@ -605,6 +795,36 @@ def run_bagle_joint_fit_sanity(
     x_ast_all_arcsec = dra_deg * cos_dec * 3600.0
     y_ast_all_arcsec = (dec_obs_deg - dec_deg) * 3600.0
 
+    x_ast_true_all_arcsec: np.ndarray | None = None
+    y_ast_true_all_arcsec: np.ndarray | None = None
+    if "RA_centroid_true_deg" in df.columns and "Dec_centroid_true_deg" in df.columns:
+        ra_true_deg = df["RA_centroid_true_deg"].to_numpy(dtype=float, copy=False)
+        dec_true_deg = df["Dec_centroid_true_deg"].to_numpy(dtype=float, copy=False)
+        dra_true_deg = (ra_true_deg - ra_deg + 180.0) % 360.0 - 180.0
+        x_ast_true_all_arcsec = dra_true_deg * cos_dec * 3600.0
+        y_ast_true_all_arcsec = (dec_true_deg - dec_deg) * 3600.0
+    elif "true_x_centroid_mas" in df.columns and "true_y_centroid_mas" in df.columns:
+        true_e_mas = df["true_x_centroid_mas"].to_numpy(dtype=float, copy=False)
+        true_n_mas = df["true_y_centroid_mas"].to_numpy(dtype=float, copy=False)
+        transform = _parse_astrometry_transform(lc_file)
+        if transform is not None:
+            a11, a12, a21, a22 = transform
+            x_ast_true_all_arcsec = (a11 * true_e_mas + a12 * true_n_mas) / MAS_PER_ARCSEC
+            y_ast_true_all_arcsec = (a21 * true_e_mas + a22 * true_n_mas) / MAS_PER_ARCSEC
+            warnings.append(
+                f"{lc_file.name}: derived noiseless BAGLE astrometry from true_x/y centroid columns using #Astrometry_Transform."
+            )
+        else:
+            raise SmokeTestError(
+                f"BAGLE sanity: {lc_file.name} has true_x/y centroid columns but no #Astrometry_Transform; "
+                "cannot compare/plot noiseless astrometry in BAGLE frame."
+            )
+    else:
+        raise SmokeTestError(
+            f"BAGLE sanity: {lc_file.name} missing noiseless astrometry columns "
+            "(need RA_centroid_true_deg/Dec_centroid_true_deg or true_x/y with #Astrometry_Transform)."
+        )
+
     x_err_mas = df["x_centroid_error_mas"].to_numpy(dtype=float, copy=False)
     y_err_mas = df["y_centroid_error_mas"].to_numpy(dtype=float, copy=False)
     ast_mask = (
@@ -627,6 +847,44 @@ def run_bagle_joint_fit_sanity(
     y_ast_arcsec = y_ast_all_arcsec[ast_idx]
     x_ast_err_arcsec = np.clip(x_err_mas[ast_idx] / MAS_PER_ARCSEC, 1.0e-6, None)
     y_ast_err_arcsec = np.clip(y_err_mas[ast_idx] / MAS_PER_ARCSEC, 1.0e-6, None)
+    t_ast_true: np.ndarray | None = None
+    x_ast_true_arcsec: np.ndarray | None = None
+    y_ast_true_arcsec: np.ndarray | None = None
+    true_idx_in_ast: np.ndarray | None = None
+    if x_ast_true_all_arcsec is not None and y_ast_true_all_arcsec is not None:
+        x_true_sel = x_ast_true_all_arcsec[ast_idx]
+        y_true_sel = y_ast_true_all_arcsec[ast_idx]
+        finite_true = np.isfinite(t_ast) & np.isfinite(x_true_sel) & np.isfinite(y_true_sel)
+        if np.any(finite_true):
+            true_idx_in_ast = np.where(finite_true)[0]
+            t_ast_true = t_ast[finite_true]
+            x_ast_true_arcsec = x_true_sel[finite_true]
+            y_ast_true_arcsec = y_true_sel[finite_true]
+        else:
+            raise SmokeTestError(
+                f"BAGLE sanity: {lc_file.name} noiseless astrometry columns are present but contain no finite values "
+                "on selected astrometric epochs."
+            )
+
+    fit_t_ast = t_ast
+    fit_x_ast_arcsec = x_ast_arcsec
+    fit_y_ast_arcsec = y_ast_arcsec
+    fit_x_ast_err_arcsec = x_ast_err_arcsec
+    fit_y_ast_err_arcsec = y_ast_err_arcsec
+    if fit_true_astrometry:
+        if t_ast_true is None or x_ast_true_arcsec is None or y_ast_true_arcsec is None or len(t_ast_true) == 0:
+            raise SmokeTestError(
+                f"BAGLE sanity: fit_true_astrometry requested but no finite noiseless astrometry available for {lc_file.name}."
+            )
+        tiny_err_arcsec = max(true_ast_err_mas / MAS_PER_ARCSEC, 1.0e-9)
+        fit_t_ast = t_ast_true
+        fit_x_ast_arcsec = x_ast_true_arcsec
+        fit_y_ast_arcsec = y_ast_true_arcsec
+        fit_x_ast_err_arcsec = np.full_like(fit_x_ast_arcsec, tiny_err_arcsec, dtype=float)
+        fit_y_ast_err_arcsec = np.full_like(fit_y_ast_arcsec, tiny_err_arcsec, dtype=float)
+        warnings.append(
+            f"{lc_file.name}: fitting BAGLE to noiseless astrometry with fixed uncertainty {true_ast_err_mas:.4g} mas."
+        )
 
     t0_guess_jd = sim_zero_time + _safe_get(row, "t0lens1")
     t0_guess = t0_guess_jd - 2400000.5
@@ -723,11 +981,11 @@ def run_bagle_joint_fit_sanity(
         "t_phot1": t_phot,
         "mag1": mag_obs,
         "mag_err1": mag_err,
-        "t_ast1": t_ast,
-        "xpos1": x_ast_arcsec,
-        "ypos1": y_ast_arcsec,
-        "xpos_err1": x_ast_err_arcsec,
-        "ypos_err1": y_ast_err_arcsec,
+        "t_ast1": fit_t_ast,
+        "xpos1": fit_x_ast_arcsec,
+        "ypos1": fit_y_ast_arcsec,
+        "xpos_err1": fit_x_ast_err_arcsec,
+        "ypos_err1": fit_y_ast_err_arcsec,
     }
 
     basename = fit_dir / f"event_{evt:06d}_"
@@ -755,10 +1013,11 @@ def run_bagle_joint_fit_sanity(
     _set_prior_and_bounds("xS0_N", yS0_guess - 0.02, yS0_guess + 0.02)
     half_beta = max(0.5, 3.0 * abs(beta_guess) + 0.2)
     _set_prior_and_bounds("beta", beta_guess - half_beta, beta_guess + half_beta)
-    _set_prior_and_bounds("muL_E", muL_e - 4.0, muL_e + 4.0)
-    _set_prior_and_bounds("muL_N", muL_n - 4.0, muL_n + 4.0)
-    _set_prior_and_bounds("muS_E", muS_e - 4.0, muS_e + 4.0)
-    _set_prior_and_bounds("muS_N", muS_n - 4.0, muS_n + 4.0)
+    mu_half_window = 15.0 if lens_relative_astrometry else 4.0
+    _set_prior_and_bounds("muL_E", muL_e - mu_half_window, muL_e + mu_half_window)
+    _set_prior_and_bounds("muL_N", muL_n - mu_half_window, muL_n + mu_half_window)
+    _set_prior_and_bounds("muS_E", muS_e - mu_half_window, muS_e + mu_half_window)
+    _set_prior_and_bounds("muS_N", muS_n - mu_half_window, muS_n + mu_half_window)
     half_dL = max(200.0, 0.25 * dL_pc)
     _set_prior_and_bounds("dL", dL_pc - half_dL, dL_pc + half_dL)
     _set_prior_and_bounds("dL_dS", max(0.02, dL_dS_guess - 0.12), min(0.98, dL_dS_guess + 0.12))
@@ -796,18 +1055,27 @@ def run_bagle_joint_fit_sanity(
         "mag_src1": mag_src_guess,
     }
 
-    try:
-        fitter.solve()
-        best = fitter.get_best_fit()
-    except Exception as exc:
-        if not _should_try_scipy_fallback(exc):
-            raise SmokeTestError(
-                f"BAGLE sanity: joint fit failed for {lc_file.name}: {exc}"
-            ) from exc
-
+    use_scipy_solver = lens_relative_astrometry
+    if use_scipy_solver:
         warnings.append(
-            f"{lc_file.name}: PyMultiNest solve unavailable ({exc}); used scipy least-squares BAGLE fallback."
+            f"{lc_file.name}: using scipy BAGLE fallback because lens-relative astrometry is required "
+            "for this event and MicrolensSolver assumes absolute astrometry."
         )
+    else:
+        try:
+            fitter.solve()
+            best = fitter.get_best_fit()
+        except Exception as exc:
+            if not _should_try_scipy_fallback(exc):
+                raise SmokeTestError(
+                    f"BAGLE sanity: joint fit failed for {lc_file.name}: {exc}"
+                ) from exc
+            warnings.append(
+                f"{lc_file.name}: PyMultiNest solve unavailable ({exc}); used scipy least-squares BAGLE fallback."
+            )
+            use_scipy_solver = True
+
+    if use_scipy_solver:
         best = _solve_with_scipy_least_squares(
             model,
             ra_deg=ra_deg,
@@ -818,11 +1086,12 @@ def run_bagle_joint_fit_sanity(
             t_phot=t_phot,
             mag_obs=mag_obs,
             mag_err=mag_err,
-            t_ast=t_ast,
-            x_ast_arcsec=x_ast_arcsec,
-            y_ast_arcsec=y_ast_arcsec,
-            x_ast_err_arcsec=x_ast_err_arcsec,
-            y_ast_err_arcsec=y_ast_err_arcsec,
+            t_ast=fit_t_ast,
+            x_ast_arcsec=fit_x_ast_arcsec,
+            y_ast_arcsec=fit_y_ast_arcsec,
+            x_ast_err_arcsec=fit_x_ast_err_arcsec,
+            y_ast_err_arcsec=fit_y_ast_err_arcsec,
+            lens_relative_astrometry=lens_relative_astrometry,
         )
 
     missing_best = [name for name in needed if name not in best]
@@ -851,26 +1120,73 @@ def run_bagle_joint_fit_sanity(
     )
 
     mag_model = np.asarray(best_model.get_photometry(t_phot), dtype=float)
-    ast_model = np.asarray(best_model.get_astrometry(t_ast), dtype=float)
-    if ast_model.ndim != 2 or ast_model.shape[1] < 2:
-        raise SmokeTestError(
-            f"BAGLE sanity: unexpected astrometry output shape from BAGLE model: {ast_model.shape}"
-        )
+    ast_model = _get_model_astrometry(
+        best_model,
+        fit_t_ast,
+        lens_relative_astrometry=lens_relative_astrometry,
+    )
 
     chi2_phot = float(np.sum(((mag_obs - mag_model) / mag_err) ** 2))
     chi2_ast = float(
-        np.sum(((x_ast_arcsec - ast_model[:, 0]) / x_ast_err_arcsec) ** 2)
-        + np.sum(((y_ast_arcsec - ast_model[:, 1]) / y_ast_err_arcsec) ** 2)
+        np.sum(((fit_x_ast_arcsec - ast_model[:, 0]) / fit_x_ast_err_arcsec) ** 2)
+        + np.sum(((fit_y_ast_arcsec - ast_model[:, 1]) / fit_y_ast_err_arcsec) ** 2)
     )
     chi2_total = chi2_phot + chi2_ast
     n_param_eff = 13
-    dof = max(1, int(len(mag_obs) + 2 * len(t_ast) - n_param_eff))
+    dof = max(1, int(len(mag_obs) + 2 * len(fit_t_ast) - n_param_eff))
     red_chi2 = chi2_total / dof
     if red_chi2 > fit_reduced_chi2_max:
         raise SmokeTestError(
             f"BAGLE sanity: poor joint-fit quality for {lc_file.name} "
             f"(reduced chi2={red_chi2:.3f}, threshold={fit_reduced_chi2_max:.3f}, "
             f"chi2_phot={chi2_phot:.2f}, chi2_ast={chi2_ast:.2f}, dof={dof})."
+            f"{lensing_context}"
+        )
+
+    if (
+        true_idx_in_ast is None
+        or x_ast_true_arcsec is None
+        or y_ast_true_arcsec is None
+        or len(true_idx_in_ast) == 0
+    ):
+        raise SmokeTestError(
+            "BAGLE sanity: noiseless astrometry was not carried through fitting; cannot perform strict model-vs-true checks."
+        )
+    if len(true_idx_in_ast) < 20:
+        raise SmokeTestError(
+            f"BAGLE sanity: only {len(true_idx_in_ast)} noiseless astrometric epochs available for strict validation."
+        )
+
+    ast_model_true = _get_model_astrometry(
+        best_model,
+        t_ast_true,
+        lens_relative_astrometry=lens_relative_astrometry,
+    )
+    if len(ast_model_true) != len(t_ast_true):
+        raise SmokeTestError(
+            f"BAGLE sanity: unexpected astrometry length for noiseless epochs: {ast_model_true.shape}"
+        )
+    resid_true_e_mas = (ast_model_true[:, 0] - x_ast_true_arcsec) * MAS_PER_ARCSEC
+    resid_true_n_mas = (ast_model_true[:, 1] - y_ast_true_arcsec) * MAS_PER_ARCSEC
+    true_ast_rms_mas = float(np.sqrt(np.mean(resid_true_e_mas**2 + resid_true_n_mas**2)))
+
+    pair_err_mas = np.hypot(
+        x_ast_err_arcsec[true_idx_in_ast] * MAS_PER_ARCSEC,
+        y_ast_err_arcsec[true_idx_in_ast] * MAS_PER_ARCSEC,
+    )
+    finite_pair_err = pair_err_mas[np.isfinite(pair_err_mas) & (pair_err_mas > 0.0)]
+    if finite_pair_err.size == 0:
+        raise SmokeTestError(
+            "BAGLE sanity: invalid astrometric uncertainties when evaluating model-vs-noiseless residuals."
+        )
+    true_ast_sigma_equiv = true_ast_rms_mas / float(np.median(finite_pair_err))
+    if true_ast_rms_mas > true_ast_rms_mas_max or true_ast_sigma_equiv > true_ast_sigma_max:
+        raise SmokeTestError(
+            f"BAGLE sanity: model does not track noiseless astrometry for {lc_file.name} "
+            f"(RMS_true={true_ast_rms_mas:.3f} mas, limit={true_ast_rms_mas_max:.3f} mas; "
+            f"sigma_equiv={true_ast_sigma_equiv:.2f}, limit={true_ast_sigma_max:.2f}; "
+            f"epochs={len(true_idx_in_ast)})."
+            f"{lensing_context}"
         )
 
     mu_fit = _vec_from_model_attr(best_model, "muRel")
@@ -879,12 +1195,19 @@ def run_bagle_joint_fit_sanity(
             "BAGLE sanity: best-fit model has no finite muRel vector; cannot compare proper motion."
         )
     # Convention handling:
-    # .out murel_helio_* is lens-source, while BAGLE muRel is source-lens.
+    # When astrometry is lens-relative, compare against raw .out murel_helio (lens-source).
+    # Otherwise compare with source-lens convention used by BAGLE muRel.
     mu_ref_raw = np.array([mu_rel_e_ref, mu_rel_n_ref], dtype=float)
-    mu_ref = -mu_ref_raw
-    warnings.append(
-        "Applied sign conversion for PM comparison: .out murel_helio_* (lens-source) -> BAGLE muRel convention (source-lens)."
-    )
+    if lens_relative_astrometry:
+        mu_ref = mu_ref_raw.copy()
+        warnings.append(
+            "PM comparison uses raw .out murel_helio_* (lens-source) because astrometry is lens-relative."
+        )
+    else:
+        mu_ref = -mu_ref_raw
+        warnings.append(
+            "Applied sign conversion for PM comparison: .out murel_helio_* (lens-source) -> BAGLE muRel convention (source-lens)."
+        )
     mu_amp_fit = float(np.hypot(mu_fit[0], mu_fit[1]))
     mu_amp_ref = float(np.hypot(mu_ref[0], mu_ref[1]))
     if mu_amp_ref <= 1.0e-6:
@@ -901,6 +1224,7 @@ def run_bagle_joint_fit_sanity(
             f"out_mu_raw=({mu_ref_raw[0]:.4f},{mu_ref_raw[1]:.4f}) mas/yr, "
             f"|Δamp|/amp={mu_amp_frac:.3f} (tol={mu_amp_frac_tol:.3f}), "
             f"Δdir={mu_dir_diff:.2f} deg (tol={mu_dir_tol_deg:.2f} deg))."
+            f"{lensing_context}"
         )
 
     piE_fit = _vec_from_model_attr(best_model, "piE")
@@ -910,10 +1234,16 @@ def run_bagle_joint_fit_sanity(
         )
     # Same convention handling for piE (direction tied to mu_rel definition).
     piE_ref_raw = np.array([_safe_get(row, "piEE"), _safe_get(row, "piEN")], dtype=float)
-    piE_ref = -piE_ref_raw
-    warnings.append(
-        "Applied sign conversion for parallax comparison: .out piEE/piEN (lens-source convention) -> BAGLE piE convention."
-    )
+    if lens_relative_astrometry:
+        piE_ref = piE_ref_raw.copy()
+        warnings.append(
+            "Parallax comparison uses raw .out piEE/piEN (lens-source) because astrometry is lens-relative."
+        )
+    else:
+        piE_ref = -piE_ref_raw
+        warnings.append(
+            "Applied sign conversion for parallax comparison: .out piEE/piEN (lens-source convention) -> BAGLE piE convention."
+        )
     if not np.all(np.isfinite(piE_ref_raw)):
         raise SmokeTestError(
             "BAGLE sanity: .out missing finite piEE/piEN; cannot compare parallax."
@@ -934,6 +1264,7 @@ def run_bagle_joint_fit_sanity(
             f"out_piE_raw=({piE_ref_raw[0]:.4f},{piE_ref_raw[1]:.4f}), "
             f"|Δamp|/amp={piE_amp_frac:.3f} (tol={piE_amp_frac_tol:.3f}), "
             f"Δdir={piE_dir_diff:.2f} deg (tol={piE_dir_tol_deg:.2f} deg))."
+            f"{lensing_context}"
         )
 
     plot_path = fit_dir / f"event_{evt:06d}_best_model.png"
@@ -947,12 +1278,18 @@ def run_bagle_joint_fit_sanity(
         y_ast_arcsec,
         x_ast_err_arcsec,
         y_ast_err_arcsec,
+        t_ast_true,
+        x_ast_true_arcsec,
+        y_ast_true_arcsec,
         best_model,
         t0_guess,
         title=(
             f"BAGLE joint fit: event {evt} "
             f"(single-lens chi2={out_chi2:.3f}, reduced-fit-chi2={red_chi2:.3f})"
         ),
+        lens_relative_astrometry=lens_relative_astrometry,
+        show_noisy_astrometry=True,
+        noisy_ast_alpha=(0.24 if fit_true_astrometry else 0.16),
     )
 
     result_json_path = fit_dir / f"event_{evt:06d}_summary.json"
@@ -962,9 +1299,24 @@ def run_bagle_joint_fit_sanity(
         "field": field,
         "lc_file": str(lc_file),
         "single_lens_chi2_out": out_chi2,
+        "lensing_context": lensing_context_parts,
+        "astrometry_fit_mode": ("noiseless" if fit_true_astrometry else "noisy"),
+        "astrometry_model_frame": ("lens_relative" if lens_relative_astrometry else "absolute"),
+        "astrometry_fit_error_mas": (
+            float(true_ast_err_mas) if fit_true_astrometry else None
+        ),
         "n_phot_points": int(len(t_phot)),
-        "n_ast_points": int(len(t_ast)),
+        "n_ast_points": int(len(fit_t_ast)),
+        "n_ast_points_noisy": int(len(t_ast)),
+        "n_ast_points_true": int(len(t_ast_true) if t_ast_true is not None else 0),
         "fit_reduced_chi2": red_chi2,
+        "astrometry_true_check": {
+            "rms_mas": true_ast_rms_mas,
+            "sigma_equiv": true_ast_sigma_equiv,
+            "rms_limit_mas": float(true_ast_rms_mas_max),
+            "sigma_limit": float(true_ast_sigma_max),
+            "n_epochs": int(len(true_idx_in_ast)),
+        },
         "proper_motion": {
             "fit": {"E": float(mu_fit[0]), "N": float(mu_fit[1]), "amp": mu_amp_fit},
             "reference_bagle_convention": {"E": float(mu_ref[0]), "N": float(mu_ref[1]), "amp": mu_amp_ref},
@@ -989,7 +1341,7 @@ def run_bagle_joint_fit_sanity(
         field=field,
         out_chi2_single_lens=out_chi2,
         n_phot_points=int(len(t_phot)),
-        n_ast_points=int(len(t_ast)),
+        n_ast_points=int(len(fit_t_ast)),
         fit_reduced_chi2=red_chi2,
         mu_ref_e=float(mu_ref[0]),
         mu_ref_n=float(mu_ref[1]),
@@ -1005,6 +1357,8 @@ def run_bagle_joint_fit_sanity(
         piE_amp_ref=piE_amp_ref,
         piE_amp_fit=piE_amp_fit,
         piE_dir_diff_deg=piE_dir_diff,
+        true_ast_rms_mas=true_ast_rms_mas,
+        true_ast_sigma_equiv=true_ast_sigma_equiv,
         plot_path=plot_path,
         result_json_path=result_json_path,
         warnings=warnings,
