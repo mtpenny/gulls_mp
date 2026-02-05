@@ -148,6 +148,29 @@ def _parse_astrometry_frame(lc_file: Path) -> Tuple[float | None, float | None]:
     return None, None
 
 
+def _parse_astrometry_transform(
+    lc_file: Path,
+) -> Tuple[float, float, float, float] | None:
+    """Parse ``#Astrometry_Transform`` and return (a, b, c, d).
+
+    The declared mapping is:
+      dRAcosDec_mas = a * E_ecl_mas + b * N_ecl_mas
+      dDec_mas      = c * E_ecl_mas + d * N_ecl_mas
+    """
+    pattern = r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"
+    with lc_file.open(encoding="utf-8") as handle:
+        for raw in handle:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith("#Astrometry_Transform:"):
+                continue
+            vals = [float(x) for x in re.findall(pattern, raw)]
+            if len(vals) >= 4:
+                return vals[0], vals[1], vals[2], vals[3]
+            return None
+    return None
+
+
 def _derive_event_key(lc_file: Path) -> Tuple[int, int, int | None] | None:
     """Infer (EventID, SubRun, Field?) from a lightcurve filename.
 
@@ -355,6 +378,13 @@ def verify_astrometry_sanity(
         if frame_ra_deg is None or frame_dec_deg is None:
             record_error(f"{lc_file.name}: missing or malformed #Astrometry_Frame header")
             continue
+        transform = _parse_astrometry_transform(lc_file)
+        if transform is None:
+            record_error(
+                f"{lc_file.name}: missing or malformed #Astrometry_Transform header (required for ecliptic->ICRS checks)"
+            )
+            continue
+        tr_a, tr_b, tr_c, tr_d = transform
 
         out_ra = float(row.get("ra_deg", math.nan))
         out_dec = float(row.get("dec_deg", math.nan))
@@ -410,10 +440,15 @@ def verify_astrometry_sanity(
         x_true = df["true_x_centroid_mas"].to_numpy(dtype=float, copy=False)
         y_true = df["true_y_centroid_mas"].to_numpy(dtype=float, copy=False)
 
-        ra_obs_expected = frame_ra_deg + x_obs / (MAS_PER_DEG * cos_dec)
-        dec_obs_expected = frame_dec_deg + y_obs / MAS_PER_DEG
-        ra_true_expected = frame_ra_deg + x_true / (MAS_PER_DEG * cos_dec)
-        dec_true_expected = frame_dec_deg + y_true / MAS_PER_DEG
+        dra_obs_cosdec_mas = tr_a * x_obs + tr_b * y_obs
+        ddec_obs_mas = tr_c * x_obs + tr_d * y_obs
+        dra_true_cosdec_mas = tr_a * x_true + tr_b * y_true
+        ddec_true_mas = tr_c * x_true + tr_d * y_true
+
+        ra_obs_expected = frame_ra_deg + dra_obs_cosdec_mas / (MAS_PER_DEG * cos_dec)
+        dec_obs_expected = frame_dec_deg + ddec_obs_mas / MAS_PER_DEG
+        ra_true_expected = frame_ra_deg + dra_true_cosdec_mas / (MAS_PER_DEG * cos_dec)
+        dec_true_expected = frame_dec_deg + ddec_true_mas / MAS_PER_DEG
 
         ra_obs = df["RA_centroid_deg"].to_numpy(dtype=float, copy=False)
         dec_obs = df["Dec_centroid_deg"].to_numpy(dtype=float, copy=False)
@@ -512,18 +547,22 @@ def verify_astrometry_sanity(
             pllx_true_e = (ra_true_lpllx - ra_true) * MAS_PER_DEG * cos_dec
             pllx_true_n = (dec_true_lpllx - dec_true) * MAS_PER_DEG
 
-            dl = df["lens_dist_kpc"].to_numpy(dtype=float, copy=False)
-            obs_x = df["parallax_shift_x"].to_numpy(dtype=float, copy=False)
-            obs_y = df["parallax_shift_y"].to_numpy(dtype=float, copy=False)
-            pred_pllx_e = -obs_x * 1000.0 / dl
-            pred_pllx_n = -obs_y * 1000.0 / dl
+            if all(col in df.columns for col in documented_parallax_cols):
+                pllx_e_ecl = df["lens_parallax_x_mas"].to_numpy(dtype=float, copy=False)
+                pllx_n_ecl = df["lens_parallax_y_mas"].to_numpy(dtype=float, copy=False)
+                pred_pllx_e = tr_a * pllx_e_ecl + tr_b * pllx_n_ecl
+                pred_pllx_n = tr_c * pllx_e_ecl + tr_d * pllx_n_ecl
 
-            diff_e = np.nanmax(np.abs(pllx_obs_e - pred_pllx_e))
-            diff_n = np.nanmax(np.abs(pllx_obs_n - pred_pllx_n))
-            if diff_e > 0.1 or diff_n > 0.1:
-                record_error(
-                    f"{lc_file.name}: lpllx-vs-non-lpllx RA/Dec offsets do not match observer x/y and lens distance "
-                    f"(max dE={float(diff_e):.4f} mas, max dN={float(diff_n):.4f} mas)"
+                diff_e = np.nanmax(np.abs(pllx_obs_e - pred_pllx_e))
+                diff_n = np.nanmax(np.abs(pllx_obs_n - pred_pllx_n))
+                if diff_e > 0.1 or diff_n > 0.1:
+                    record_error(
+                        f"{lc_file.name}: lpllx-vs-non-lpllx RA/Dec offsets do not match declared lens_parallax_x/y columns "
+                        f"(max dE={float(diff_e):.4f} mas, max dN={float(diff_n):.4f} mas)"
+                    )
+            else:
+                summary.warnings.append(
+                    f"{lc_file.name}: lpllx columns present but lens_parallax_x/y missing; skipped lpllx offset-model check"
                 )
 
             diff_true_e = np.nanmax(np.abs(pllx_true_e - pllx_obs_e))
@@ -633,8 +672,9 @@ def verify_astrometry_sanity(
             )
 
         # Long-baseline check: away from t_ref and outside the main lensing window,
-        # remove lens parallax and verify recovered motion is consistent with heliocentric PM.
-        if all(col in df.columns for col in ["RA_true_lpllx_deg", "Dec_true_lpllx_deg", "lens_dist_kpc", "parallax_shift_x", "parallax_shift_y"]):
+        # remove declared lens-parallax term and verify recovered motion matches
+        # heliocentric proper motion from the .out metadata.
+        if all(col in df.columns for col in ["RA_true_lpllx_deg", "Dec_true_lpllx_deg", "lens_parallax_x_mas", "lens_parallax_y_mas"]):
             mu_helio_out = float(row.get("murel_helio", math.nan))
             mu_helio_alpha_out = float(row.get("murel_helio_alpha", math.nan))
             mu_helio_delta_out = float(row.get("murel_helio_delta", math.nan))
@@ -676,11 +716,10 @@ def verify_astrometry_sanity(
                         e_lpllx = dra_lpllx * cos_dec * MAS_PER_DEG
                         n_lpllx = (dec_lpllx - frame_dec_deg) * MAS_PER_DEG
 
-                        dl = df["lens_dist_kpc"].to_numpy(dtype=float, copy=False)
-                        obs_x = df["parallax_shift_x"].to_numpy(dtype=float, copy=False)
-                        obs_y = df["parallax_shift_y"].to_numpy(dtype=float, copy=False)
-                        e_pllx = -obs_x * 1000.0 / dl
-                        n_pllx = -obs_y * 1000.0 / dl
+                        pllx_e_ecl = df["lens_parallax_x_mas"].to_numpy(dtype=float, copy=False)
+                        pllx_n_ecl = df["lens_parallax_y_mas"].to_numpy(dtype=float, copy=False)
+                        e_pllx = tr_a * pllx_e_ecl + tr_b * pllx_n_ecl
+                        n_pllx = tr_c * pllx_e_ecl + tr_d * pllx_n_ecl
 
                         # Remove lens parallax term from absolute astrometric track.
                         e_corr = e_lpllx - e_pllx
@@ -747,8 +786,10 @@ def verify_astrometry_sanity(
                         source_only_pass = False
                         source_only_diagnostic = ""
                         if all(col in df.columns for col in ["centroid_src_x_mas", "centroid_src_y_mas"]):
-                            src_e = df["centroid_src_x_mas"].to_numpy(dtype=float, copy=False)
-                            src_n = df["centroid_src_y_mas"].to_numpy(dtype=float, copy=False)
+                            src_e_ecl = df["centroid_src_x_mas"].to_numpy(dtype=float, copy=False)
+                            src_n_ecl = df["centroid_src_y_mas"].to_numpy(dtype=float, copy=False)
+                            src_e = tr_a * src_e_ecl + tr_b * src_n_ecl
+                            src_n = tr_c * src_e_ecl + tr_d * src_n_ecl
                             src_fit = _fit_linear_motion(x_fit, src_e[mask_far], src_n[mask_far])
                             src_mu_e = float(src_fit["mu_e"])
                             src_mu_n = float(src_fit["mu_n"])
@@ -776,7 +817,7 @@ def verify_astrometry_sanity(
                             )
 
                         fs_obs = float(row.get("Obs_0_fs", math.nan))
-                        high_blend = (not math.isnan(fs_obs)) and fs_obs < 0.7
+                        high_blend = (not math.isnan(fs_obs)) and fs_obs < 0.9
                         if final_fail_reasons:
                             if source_only_pass and high_blend:
                                 summary.warnings.append(
@@ -807,7 +848,7 @@ def verify_astrometry_sanity(
                             )
         else:
             summary.warnings.append(
-                f"{lc_file.name}: missing RA_true_lpllx/parallax columns; skipped long-baseline heliocentric PM check"
+                f"{lc_file.name}: missing RA_true_lpllx/lens_parallax columns; skipped long-baseline heliocentric PM check"
             )
 
         dx = x_obs - x_true

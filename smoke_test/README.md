@@ -168,10 +168,11 @@ python smoke_test/run_astrometry_sanity.py \
 The astrometry sanity checker validates:
 - required astrometry column presence and finite values
 - lightcurve `#Astrometry_Frame` consistency with canonical `.out` event metadata
+- declared frame metadata (`#Astrometry_EventToEcl`, `#Astrometry_Transform`, `#Astrometry_BAGLE`) is present for explicit convention tracking
 - astrometric position at epoch nearest `tref` is close to canonical event pointing from `.out`
 - relative proper-motion magnitude near `tref` from lightcurve source/lens tracks is consistent with `.out` (`murel_ref`, `thetaE`, `tE_ref`)
 - centroid `(E,N)` ↔ `RA/Dec` conversion consistency
-- lens-parallax `RA/Dec` offsets against observer `(x,y,z)` and lens distance
+- lens-parallax `RA/Dec` offsets against documented `lens_parallax_x_mas/y_mas` columns
 - long-baseline (far from event) parallax-corrected heliocentric proper-motion magnitude **and direction** consistency with `.out` (`murel_helio`, `murel_helio_alpha`, `murel_helio_delta`)
 - BJD consistency with `SIMULATION_ZERO_TIME + Simulation_time`
 - noise sanity using normalized residual statistics `(observed - true) / sigma`
@@ -242,9 +243,13 @@ ASCII tables with columns including:
 - `measured_relative_flux`: Photometric flux (relative to baseline)
 - `measured_relative_flux_error`: Photometric error
 - `true_relative_flux`: True simulated flux
-- Astrometric centroids in pixel coordinates
-- Astrometric shifts in milliarcseconds (N/E)
-- Sky positions in RA/Dec (degrees)
+- Astrometric centroids in **observer-centric ecliptic EN** milliarcseconds
+- Sky positions in ICRS `RA/Dec` (degrees) generated from ecliptic EN via declared transform
+- Explicit frame/convention headers:
+  - `#Astrometry_Frame`
+  - `#Astrometry_EventToEcl`
+  - `#Astrometry_Transform`
+  - `#Astrometry_BAGLE`
 - Astrometric errors
 - Parallax information
 - Source and lens positions

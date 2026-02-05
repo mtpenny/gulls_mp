@@ -114,8 +114,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   double rEsrc = Event->rE * Sources->data[sn][Sources->DIST]/Lenses->data[ln][Lenses->DIST];
 
-  double cosa = cos(Event->alpha);
-  double sina = sin(Event->alpha);
+  // Event->alpha is stored in degrees in event metadata.
+  const double alpha_rad = Event->alpha * TO_RAD;
+  double cosa = cos(alpha_rad);
+  double sina = sin(alpha_rad);
   
   //Setup orbits for the source(s)
 
@@ -672,81 +674,34 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->astrox2_raw[idx] = 0.0;
 	    }
 	}
-      else if(nlens==2)
-	{
-	  // Binary lens separation and mass ratio
-	  double s = qAdd(xl[1]-xl[0],yl[1]-yl[0]);
-	  double q = Event->p_q[0];
-	  
-	  // Rotation angle from event frame to binary-axis frame
-	  double rot = atan2(yl[1],xl[1]);
-	  double cr = cos(-rot); double sr = sin(-rot);
-	  double cr_inv = cos(rot); double sr_inv = sin(rot);
-
-	  for(int is=0;is<nsrc;is++)
-	    {
-	      if(is==0) rho = Event->rs;	
-	      else rho = Event->scomp_rs[is-1];
-	      
-	      // Transform source to binary-axis frame (origin at center of mass)
-	      double xs_com = xs[is] + l_delta[0];
-	      double ys_com = ys[is] + l_delta[1];
-	      double xsi = cr*xs_com - sr*ys_com;
-	      double ysi = sr*xs_com + cr*ys_com;
-
-	      if(Paramfile->skip_magnification==0)
-		mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);
-	      else mu[is] = 1.0;
-	      
-	      if(Paramfile->astrometry_on)
-		{
-		  // Binary lens astrometry:
-		  // VBM returns centroid (astrox1, astrox2) in binary-axis frame
-		  // (x1 along lens axis, origin at center of mass, units: theta_E).
-		  // Inverse transform to event frame.
-		  double cx_binary = Event->vbm->astrox1;
-		  double cy_binary = Event->vbm->astrox2;
-	      
-		  // Rotate to event frame orientation
-		  double cx_rot = cr_inv * cx_binary - sr_inv * cy_binary;
-		  double cy_rot = sr_inv * cx_binary + cr_inv * cy_binary;
-	      
-		  // Translate from CoM origin to event frame origin
-		  astro_x[is] = cx_rot - l_delta[0];
-		  astro_y[is] = cy_rot - l_delta[1];
-		}
-	      else
-		{
-		  astro_x[is] = xs[is];
-		  astro_y[is] = ys[is];
-		}
-	    }
-	  if(Paramfile->astrometry_on)
-	    {
-	      Event->astrox1_raw[idx] = Event->vbm->astrox1;
-	      Event->astrox2_raw[idx] = Event->vbm->astrox2;
-	    }
-	}
       else
 	{
-	  // N-lens (N >= 3) magnification via VBM MultiMag
+	  // N-lens (N >= 2) magnification/astrometry via VBM MultiMag.
+	  // For binary lenses this keeps all outputs in the same event frame as
+	  // input source/lens coordinates and avoids ad-hoc axis rotations.
 	  for(int is=0;is<nsrc;is++)
 	    {
 	      if(is==0) rho = Event->rs;
 	      else rho = Event->scomp_rs[is-1];
 	      if(Paramfile->skip_magnification==0)
 		{
-		  logfile_ptr.precision(16);
-		  logfile_ptr << Event->id << " " << Event->epoch[idx] << " ";
-		  for(int ilp=0;ilp<nlens*3;ilp++)
-		    logfile_ptr << lens_parameters[ilp] << " ";
-		  logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
+		  if(nlens>2)
+		    {
+		      logfile_ptr.precision(16);
+		      logfile_ptr << Event->id << " " << Event->epoch[idx] << " ";
+		      for(int ilp=0;ilp<nlens*3;ilp++)
+			logfile_ptr << lens_parameters[ilp] << " ";
+		      logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
+		    }
 		  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
-		  logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
+		  if(nlens>2)
+		    {
+		      logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
+		    }
 		  
 		  if(Paramfile->astrometry_on)
 		    {
-		      // N-lens astrometry:
+		      // MultiMag astrometry:
 		      // VBM returns centroid in same frame as input source coordinates.
 		      // No transformation required.
 		      astro_x[is] = Event->vbm->astrox1;

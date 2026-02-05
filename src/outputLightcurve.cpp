@@ -1,10 +1,12 @@
 #include "outputLightcurve.h"
 #include "zodiacalLight.h"
 #include "astroFns.h"
+#include "coords.h"
 #include "constants.h"
 #include <iomanip>
 #include <sstream>
 #include <fstream>
+#include <cmath>
 
 #define DEBUGVAR 0
 
@@ -317,17 +319,73 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
   lcfile << endl;
 
-  // Astrometry reference frame definition
-  // Event frame origin is at catalog (RA, Dec) - does NOT move with lens proper motion
-  // Event frame (x,y) orientation relative to sky (E,N) is UNCERTAIN - validate with plots!
-  // RA/Dec columns assume x~East, y~North but this may be wrong depending on alpha convention
-  // Two RA/Dec versions: without lens parallax (_deg) and with lens parallax attempt (_lpllx_deg)
+  // Astrometry reference-frame definitions used for output columns.
+  // Internal centroid arrays (Event->xc/yc and related diagnostics) are in an
+  // event frame whose orientation is set by alpha. We rotate those coordinates
+  // into observer-centric ecliptic EN before writing the public centroid columns.
+  // RA/Dec columns are generated from ecliptic EN with the local ecliptic->ICRS
+  // tangent-plane transform.
+  const double ra_base_rad = Event->ra;
+  const double dec_base_rad = Event->dec;
+  const double ra_base_deg = ra_base_rad * r2d;
+  const double dec_base_deg = dec_base_rad * r2d;
+  const double alpha_rad = Event->alpha * TO_RAD;
+  const double cos_dec_eq = cos(dec_base_rad);
+  const double inv_cos_dec_eq = (fabs(cos_dec_eq) > 1.0e-12 ? 1.0 / cos_dec_eq : 0.0);
+  const double mas_to_deg = 1.0 / (3600.0 * 1000.0);
+
+  coords c;
+  double dRAc_from_eE = 0.0;
+  double dDec_from_eE = 0.0;
+  double dRAc_from_eN = 0.0;
+  double dDec_from_eN = 0.0;
+  c.muecl2ad(ra_base_rad, dec_base_rad, 1.0, 0.0, &dRAc_from_eE, &dDec_from_eE);
+  c.muecl2ad(ra_base_rad, dec_base_rad, 0.0, 1.0, &dRAc_from_eN, &dDec_from_eN);
+
+  // Per-observatory rotation from internal event-frame x/y to ecliptic EN.
+  // We anchor the event-frame trajectory direction (set by alpha) to the
+  // reference-frame lens-source proper-motion unit vector in ecliptic coords.
+  vector<double> evt_to_ecl_cos(Paramfile->numobservatories, 1.0);
+  vector<double> evt_to_ecl_sin(Paramfile->numobservatories, 0.0);
+  for(int obsi = 0; obsi < Paramfile->numobservatories; ++obsi)
+    {
+      double mu_ref_e = 0.0;
+      double mu_ref_n = 0.0;
+      if(obsi < int(Event->pllx.size()))
+	{
+	  mu_ref_e = Event->pllx[obsi].mulam_r;
+	  mu_ref_n = Event->pllx[obsi].mubet_r;
+	}
+
+      const double mu_ref_norm = hypot(mu_ref_e, mu_ref_n);
+      if(mu_ref_norm > 1.0e-12)
+	{
+	  const double phi_ref = atan2(mu_ref_n, mu_ref_e);
+	  const double gamma = phi_ref - alpha_rad;
+	  evt_to_ecl_cos[obsi] = cos(gamma);
+	  evt_to_ecl_sin[obsi] = sin(gamma);
+	}
+    }
+  const double gamma0_deg = atan2(evt_to_ecl_sin[0], evt_to_ecl_cos[0]) * r2d;
+
   lcfile << "#Astrometry_Frame: ";
-  lcfile << setprecision(12) << "RA_rad=" << Event->ra << " Dec_rad=" << Event->dec 
-         << " RA_deg=" << Event->ra * r2d << " Dec_deg=" << Event->dec * r2d
-         << " thE_mas=" << Event->thE << " t0=" << Event->t0;
+  lcfile << setprecision(12)
+	 << "RA_rad=" << ra_base_rad << " Dec_rad=" << dec_base_rad
+	 << " RA_deg=" << ra_base_deg << " Dec_deg=" << dec_base_deg
+	 << " thE_mas=" << Event->thE << " t0=" << Event->t0
+	 << " xy=ecliptic_EN(observer-centric) origin=canonical_pointing@tref";
   lcfile << endl;
-  lcfile << "#Astrometry_Frame: origin=catalog_position, xy_orientation=UNCERTAIN(validate!)" << endl;
+  lcfile << "#Astrometry_EventToEcl: "
+	 << "E_ecl_mas=cos(gamma_obs)*x_evt_mas-sin(gamma_obs)*y_evt_mas "
+	 << "N_ecl_mas=sin(gamma_obs)*x_evt_mas+cos(gamma_obs)*y_evt_mas "
+	 << "gamma_obs_deg=atan2(murel_ref_beta,murel_ref_lambda)-alpha_deg "
+	 << "gamma_obs0_deg=" << gamma0_deg;
+  lcfile << endl;
+  lcfile << "#Astrometry_Transform: "
+	 << "dRAcosDec_mas=(" << dRAc_from_eE << ")*E_ecl_mas+(" << dRAc_from_eN << ")*N_ecl_mas "
+	 << "dDec_mas=(" << dDec_from_eE << ")*E_ecl_mas+(" << dDec_from_eN << ")*N_ecl_mas"
+	 << endl;
+  lcfile << "#Astrometry_BAGLE: x_E_arcsec=dRAcosDec_mas/1000 y_N_arcsec=dDec_mas/1000" << endl;
 
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)
@@ -361,14 +419,15 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "y_centroid_mas" << " " << "y_centroid_error_mas" << " " <<
     "true_x_centroid_mas" << " " << "true_x_centroid_error_mas" << " " <<
     "true_y_centroid_mas" << " " << "true_y_centroid_error_mas" << " " <<
-    "RA_centroid_deg" << " " << "Dec_centroid_deg" << " " <<             // observed, no lens parallax
-    "RA_centroid_true_deg" << " " << "Dec_centroid_true_deg" << " " <<   // true, no lens parallax
-    "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " << // observed, WITH lens parallax
-    "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<         // true, WITH lens parallax
-    "lens_dist_kpc" << " " <<                                            // lens distance for user validation
-    "lens_parallax_x_mas" << " " << "lens_parallax_y_mas" << " " <<       // lens parallax shift (mas) in event-frame x/y
+    "RA_centroid_deg" << " " << "Dec_centroid_deg" << " " <<               // observed ICRS centroid
+    "RA_centroid_true_deg" << " " << "Dec_centroid_true_deg" << " " <<     // true ICRS centroid
+    "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " <<   // observed + lens-parallax term
+    "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<           // true + lens-parallax term
+    "lens_dist_kpc" << " " <<                                              // lens distance
+    "lens_parallax_x_mas" << " " << "lens_parallax_y_mas" << " " <<       // lens parallax (ecl E/N, mas)
     "parallax_shift_t" << " " << "parallax_shift_u" << " " <<    "BJD" << " " <<
-    "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " ";
+    "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " " <<
+    "observer_x_ecl_AU" << " " << "observer_y_ecl_AU" << " " << "observer_z_ecl_AU" << " ";
   // Astrometry diagnostic columns (mas unless noted)
   // Raw VBM output (VBM's internal frame, units: theta_E for debugging)
   lcfile << "vbm_astrox1_raw_thE" << " " << "vbm_astrox2_raw_thE" << " ";
@@ -377,8 +436,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   lcfile << "centroid_src_lens_x_mas" << " " << "centroid_src_lens_y_mas" << " "; // + lenses
   lcfile << "centroid_final_x_mas" << " " << "centroid_final_y_mas" << " ";       // + ambient = true
   
-  // Per-source positions (event frame, units: theta_E) and magnifications
-  // WARNING: x,y orientation relative to E,N is uncertain - validate with plots!
+  // Per-source and per-lens positions remain in the internal event frame
+  // (units: theta_E). Public centroid columns above are rotated to ecliptic EN.
   for(int i=0;i<Event->nsrc;i++)
     {
       lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " ";
@@ -450,83 +509,122 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       obsidx=Event->obsidx[i];
       shiftedidx = i-Event->nepochsvec[obsidx];
 	    
-      double thE = Event->thE;  // Angular Einstein radius (mas) for unit conversion
-	//fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
-      lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << flush;
-      lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << flush; 
-      lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " << flush;
-      // Observed centroid (xc, yc) and errors are in mas; true centroid (xctrue, yctrue) in θ_E needs conversion
-      lcfile << Event->xc[i] << " " << Event->xcerr[i] << " " << Event->yc[i] << " " << Event->ycerr[i] << " " << flush; 
-      lcfile << Event->xctrue[i] * thE << " " << Event->xctrueerr[i] << " " << Event->yctrue[i] * thE << " " << Event->yctrueerr[i] << " " << flush; 
-      
-      // Convert centroid from event frame (mas) to RA/Dec (degrees)
-      // WARNING: Event frame orientation (x,y) relative to (E,N) is uncertain - validate with plots!
-      // Assuming x ~ East, y ~ North for now. If wrong, these RA/Dec values will be nonsense.
-      // Origin at (Event->ra, Event->dec) which is the catalog position at t_ref (NOT current lens position)
-      double ra_base_deg = Event->ra * r2d;  // radians to degrees
-      double dec_base_deg = Event->dec * r2d;
-      double cos_dec = cos(Event->dec);
-      double mas_to_deg = 1.0 / (3600.0 * 1000.0);
-      
-      // --- VERSION 1: No lens parallax (centroid offset relative to catalog position) ---
-      double ra_obs_deg = ra_base_deg + Event->xc[i] * mas_to_deg / cos_dec;
-      double dec_obs_deg = dec_base_deg + Event->yc[i] * mas_to_deg;
-      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
-      
-      double xctrue_mas = Event->xctrue[i] * thE;
-      double yctrue_mas = Event->yctrue[i] * thE;
-      double ra_true_deg = ra_base_deg + xctrue_mas * mas_to_deg / cos_dec;
-      double dec_true_deg = dec_base_deg + yctrue_mas * mas_to_deg;
-      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
-      
-      // --- VERSION 2: With lens parallax (observer position shifts apparent lens position) ---
-      // sslocation = sun-to-observer vector projected on sky (AU), assuming [0]=x, [1]=y in event frame
-      // Lens parallax: lens appears shifted by -(observer_pos) / D_lens
-      // Sign convention: if observer is at +x from sun, lens at finite distance appears at +x relative to infinity
-      int ln = Event->lens;
-      double D_L_kpc = Lenses->data[ln][Lenses->DIST];
-      double D_L_AU = D_L_kpc * 206265.0;  // 1 kpc ≈ 206265 AU
-      
-      double obs_x_AU = Event->pllx[obsidx].sslocation[shiftedidx][0];
-      double obs_y_AU = Event->pllx[obsidx].sslocation[shiftedidx][1];
-      
-      // Lens parallax shift (radians): Δθ = -obs_pos / D_lens (standard parallax convention)
-      // Actually, closer objects shift WITH observer motion, so Δθ = +obs_pos / D_lens? 
-      // Outputting both signs would be silly - let's use standard: parallax = baseline/distance
-      // where baseline points FROM observer TO sun, so shift = -obs_pos / D
-      double pllx_x_rad = -obs_x_AU / D_L_AU;
-      double pllx_y_rad = -obs_y_AU / D_L_AU;
-      double pllx_x_mas = pllx_x_rad * r2d * 3600.0 * 1000.0;
-      double pllx_y_mas = pllx_y_rad * r2d * 3600.0 * 1000.0;
-      
-      // Add lens parallax to base position, then add centroid offset
-      double ra_obs_lpllx = ra_base_deg + (pllx_x_mas + Event->xc[i]) * mas_to_deg / cos_dec;
-      double dec_obs_lpllx = dec_base_deg + (pllx_y_mas + Event->yc[i]) * mas_to_deg;
-      lcfile << ra_obs_lpllx << " " << dec_obs_lpllx << " " << flush;
-      
-      double ra_true_lpllx = ra_base_deg + (pllx_x_mas + xctrue_mas) * mas_to_deg / cos_dec;
-      double dec_true_lpllx = dec_base_deg + (pllx_y_mas + yctrue_mas) * mas_to_deg;
-      lcfile << ra_true_lpllx << " " << dec_true_lpllx << " " << flush;
-      
-      // Output lens distance and lens parallax shift for user validation
-      lcfile << D_L_kpc << " " << pllx_x_mas << " " << pllx_y_mas << " " << setprecision(6) << flush;
-      
-      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
-      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
-      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
-      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][0] << " " << flush;
-      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << flush; 
-      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " " << flush;
+	      double thE = Event->thE;  // Angular Einstein radius (mas) for unit conversion
+	      lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << flush;
+	      lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << flush; 
+	      lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " << flush;
+
+	      // Rotate internal event-frame centroids into observer-centric ecliptic EN.
+	      const double evt2ecl_c = evt_to_ecl_cos[obsidx];
+	      const double evt2ecl_s = evt_to_ecl_sin[obsidx];
+
+	      const double xc_obs_evt_mas = Event->xc[i];
+	      const double yc_obs_evt_mas = Event->yc[i];
+	      const double xctrue_evt_mas = Event->xctrue[i] * thE;
+	      const double yctrue_evt_mas = Event->yctrue[i] * thE;
+
+	      const double xc_obs_mas = evt2ecl_c * xc_obs_evt_mas - evt2ecl_s * yc_obs_evt_mas;
+	      const double yc_obs_mas = evt2ecl_s * xc_obs_evt_mas + evt2ecl_c * yc_obs_evt_mas;
+	      const double xctrue_mas = evt2ecl_c * xctrue_evt_mas - evt2ecl_s * yctrue_evt_mas;
+	      const double yctrue_mas = evt2ecl_s * xctrue_evt_mas + evt2ecl_c * yctrue_evt_mas;
+
+	      const double xcerr_evt_mas = Event->xcerr[i];
+	      const double ycerr_evt_mas = Event->ycerr[i];
+	      const double xctrueerr_evt_mas = Event->xctrueerr[i];
+	      const double yctrueerr_evt_mas = Event->yctrueerr[i];
+	      const double xcerr_mas = sqrt(evt2ecl_c*evt2ecl_c*xcerr_evt_mas*xcerr_evt_mas
+					    + evt2ecl_s*evt2ecl_s*ycerr_evt_mas*ycerr_evt_mas);
+	      const double ycerr_mas = sqrt(evt2ecl_s*evt2ecl_s*xcerr_evt_mas*xcerr_evt_mas
+					    + evt2ecl_c*evt2ecl_c*ycerr_evt_mas*ycerr_evt_mas);
+	      const double xctrueerr_mas = sqrt(evt2ecl_c*evt2ecl_c*xctrueerr_evt_mas*xctrueerr_evt_mas
+						+ evt2ecl_s*evt2ecl_s*yctrueerr_evt_mas*yctrueerr_evt_mas);
+	      const double yctrueerr_mas = sqrt(evt2ecl_s*evt2ecl_s*xctrueerr_evt_mas*xctrueerr_evt_mas
+						+ evt2ecl_c*evt2ecl_c*yctrueerr_evt_mas*yctrueerr_evt_mas);
+
+	      lcfile << xc_obs_mas << " " << xcerr_mas << " " << yc_obs_mas << " " << ycerr_mas << " " << flush; 
+	      lcfile << xctrue_mas << " " << xctrueerr_mas << " " << yctrue_mas << " " << yctrueerr_mas << " " << flush; 
+
+	      // Transform ecliptic EN offsets to ICRS tangent-plane offsets.
+	      const double dra_cosdec_obs_mas = dRAc_from_eE * xc_obs_mas + dRAc_from_eN * yc_obs_mas;
+	      const double ddec_obs_mas = dDec_from_eE * xc_obs_mas + dDec_from_eN * yc_obs_mas;
+	      const double dra_cosdec_true_mas = dRAc_from_eE * xctrue_mas + dRAc_from_eN * yctrue_mas;
+	      const double ddec_true_mas = dDec_from_eE * xctrue_mas + dDec_from_eN * yctrue_mas;
+
+	      const double ra_obs_deg = ra_base_deg + dra_cosdec_obs_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double dec_obs_deg = dec_base_deg + ddec_obs_mas * mas_to_deg;
+	      const double ra_true_deg = ra_base_deg + dra_cosdec_true_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double dec_true_deg = dec_base_deg + ddec_true_mas * mas_to_deg;
+
+	      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
+	      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
+
+	      // Lens-parallax term in ecliptic EN (mas), based on observer displacement
+	      // relative to the event reference frame.
+	      int ln = Event->lens;
+	      double D_L_kpc = Lenses->data[ln][Lenses->DIST];
+	      double lens_pllx_e_mas = 0.0;
+	      double lens_pllx_n_mas = 0.0;
+	      if(D_L_kpc > 0.0)
+		{
+		  lens_pllx_e_mas = -Event->pllx[obsidx].Eshift[shiftedidx] / D_L_kpc;
+		  lens_pllx_n_mas = -Event->pllx[obsidx].Nshift[shiftedidx] / D_L_kpc;
+		}
+
+	      const double dra_cosdec_obs_lpllx_mas = dRAc_from_eE * (xc_obs_mas + lens_pllx_e_mas)
+		+ dRAc_from_eN * (yc_obs_mas + lens_pllx_n_mas);
+	      const double ddec_obs_lpllx_mas = dDec_from_eE * (xc_obs_mas + lens_pllx_e_mas)
+		+ dDec_from_eN * (yc_obs_mas + lens_pllx_n_mas);
+	      const double dra_cosdec_true_lpllx_mas = dRAc_from_eE * (xctrue_mas + lens_pllx_e_mas)
+		+ dRAc_from_eN * (yctrue_mas + lens_pllx_n_mas);
+	      const double ddec_true_lpllx_mas = dDec_from_eE * (xctrue_mas + lens_pllx_e_mas)
+		+ dDec_from_eN * (yctrue_mas + lens_pllx_n_mas);
+
+	      const double ra_obs_lpllx = ra_base_deg + dra_cosdec_obs_lpllx_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double dec_obs_lpllx = dec_base_deg + ddec_obs_lpllx_mas * mas_to_deg;
+	      const double ra_true_lpllx = ra_base_deg + dra_cosdec_true_lpllx_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double dec_true_lpllx = dec_base_deg + ddec_true_lpllx_mas * mas_to_deg;
+	      lcfile << ra_obs_lpllx << " " << dec_obs_lpllx << " " << flush;
+	      lcfile << ra_true_lpllx << " " << dec_true_lpllx << " " << flush;
+
+	      double obs_x_AU = Event->pllx[obsidx].sslocation[shiftedidx][0];
+	      double obs_y_AU = Event->pllx[obsidx].sslocation[shiftedidx][1];
+	      double obs_z_AU = Event->pllx[obsidx].sslocation[shiftedidx][2];
+
+	      // Output lens distance, lens parallax term, parallax shifts, epochs,
+	      // and observer ecliptic cartesian position (AU).
+	      lcfile << setprecision(16) << D_L_kpc << " " << lens_pllx_e_mas << " " << lens_pllx_n_mas << " " << flush;
+	      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
+	      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
+	      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
+	      lcfile << obs_x_AU << " " << obs_y_AU << " " << obs_z_AU << " " << flush;
+	      lcfile << obs_x_AU << " " << obs_y_AU << " " << obs_z_AU << " " << flush;
 
       // Output astrometry diagnostics
       if(Event->astrox1_raw.size() > (size_t)i)
 	{
 	  // Raw VBM output (theta_E - for coordinate system debugging)
 	  lcfile << Event->astrox1_raw[i] << " " << Event->astrox2_raw[i] << " " << flush;
-	  // Centroid at each blending step (converted to mas)
-	  lcfile << Event->xc_src_only[i] * thE << " " << Event->yc_src_only[i] * thE << " " << flush;
-	  lcfile << Event->xc_src_lens[i] * thE << " " << Event->yc_src_lens[i] * thE << " " << flush;
-	  lcfile << Event->xc_src_lens_amb[i] * thE << " " << Event->yc_src_lens_amb[i] * thE << " " << flush;
+	  // Centroids at each blending step (converted to mas and rotated to ecliptic EN)
+	  const double evt2ecl_c = evt_to_ecl_cos[obsidx];
+	  const double evt2ecl_s = evt_to_ecl_sin[obsidx];
+
+	  const double src_only_evt_x = Event->xc_src_only[i] * thE;
+	  const double src_only_evt_y = Event->yc_src_only[i] * thE;
+	  const double src_lens_evt_x = Event->xc_src_lens[i] * thE;
+	  const double src_lens_evt_y = Event->yc_src_lens[i] * thE;
+	  const double src_lens_amb_evt_x = Event->xc_src_lens_amb[i] * thE;
+	  const double src_lens_amb_evt_y = Event->yc_src_lens_amb[i] * thE;
+
+	  const double src_only_e = evt2ecl_c * src_only_evt_x - evt2ecl_s * src_only_evt_y;
+	  const double src_only_n = evt2ecl_s * src_only_evt_x + evt2ecl_c * src_only_evt_y;
+	  const double src_lens_e = evt2ecl_c * src_lens_evt_x - evt2ecl_s * src_lens_evt_y;
+	  const double src_lens_n = evt2ecl_s * src_lens_evt_x + evt2ecl_c * src_lens_evt_y;
+	  const double src_lens_amb_e = evt2ecl_c * src_lens_amb_evt_x - evt2ecl_s * src_lens_amb_evt_y;
+	  const double src_lens_amb_n = evt2ecl_s * src_lens_amb_evt_x + evt2ecl_c * src_lens_amb_evt_y;
+
+	  lcfile << src_only_e << " " << src_only_n << " " << flush;
+	  lcfile << src_lens_e << " " << src_lens_n << " " << flush;
+	  lcfile << src_lens_amb_e << " " << src_lens_amb_n << " " << flush;
 	}
       else
 	{
