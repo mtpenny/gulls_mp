@@ -111,6 +111,15 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
 - `--field N`: Field index passed via `-f` flag (default: `0`; use `-1` for auto-select)
 - `--exec-timeout SECONDS`: Timeout per executable (default: `180`; `<=0` disables)
+- `--astrometry-sanity`: Run astrometric self-consistency checks on generated `.lc/.out` files
+- `--astrometry-strict-documented-columns`: With `--astrometry-sanity`, fail if documented `lens_parallax_x_mas/y_mas` columns are missing
+- `--astrometry-long-baseline-years`: Coverage required on each side of `tref` (years) for long-baseline heliocentric-PM checks (default: `1.0`)
+- `--astrometry-long-baseline-exclusion-te`: Exclude `|t-t0| <= N*tE` for long-baseline heliocentric-PM fits (default: `5.0`)
+- `--astrometry-long-baseline-direction-tol-deg`: Minimum angular tolerance for long-baseline heliocentric-PM direction checks (default: `15.0`)
+- `--bagle-joint-fit-sanity`: Run an additional BAGLE combined photometry+astrometry fit sanity check
+- `--bagle-event-id`: With `--bagle-joint-fit-sanity`, force a specific `EventID` (otherwise auto-select one with single-lens chi2 < threshold)
+- `--bagle-chi2-max`: With `--bagle-joint-fit-sanity`, event-selection threshold on `ObsGroup_0_chi2` (default: `100.0`)
+- `--bagle-n-live-points`: With `--bagle-joint-fit-sanity`, BAGLE nested-sampling live points (default: `200`)
 
 ### Examples
 
@@ -123,7 +132,79 @@ python smoke_test/run_smoke_test.py --keep-output
 
 # Test with custom build directory
 python smoke_test/run_smoke_test.py --build-bin /path/to/custom/build/bin
+
+# Run only general case plus astrometry sanity checks
+python smoke_test/run_smoke_test.py --cases general-single --astrometry-sanity
+
+# Run general case plus BAGLE joint-fit sanity check
+python smoke_test/run_smoke_test.py \
+  --cases general-single \
+  --bagle-joint-fit-sanity \
+  --bagle-chi2-max 100 \
+  --bagle-n-live-points 250
 ```
+
+## Standalone Astrometry Sanity Checks
+
+You can validate pre-generated outputs without rerunning executables:
+
+```bash
+# Auto-discover run directories under smoke_test/output/
+python smoke_test/run_astrometry_sanity.py
+
+# Check one run directory with explicit parameter file (for BJD consistency checks)
+python smoke_test/run_astrometry_sanity.py \
+  smoke_test/output/general/smoke_general \
+  --params smoke_test/parameterfiles/smoke_general.prm
+
+# Require >=2 years on each side of tref for long-baseline checks
+python smoke_test/run_astrometry_sanity.py \
+  /path/to/run_dir \
+  --long-baseline-years 2.0 \
+  --long-baseline-exclusion-te 8.0 \
+  --long-baseline-direction-tol-deg 10.0
+```
+
+The astrometry sanity checker validates:
+- required astrometry column presence and finite values
+- lightcurve `#Astrometry_Frame` consistency with canonical `.out` event metadata
+- astrometric position at epoch nearest `tref` is close to canonical event pointing from `.out`
+- relative proper-motion magnitude near `tref` from lightcurve source/lens tracks is consistent with `.out` (`murel_ref`, `thetaE`, `tE_ref`)
+- centroid `(E,N)` ↔ `RA/Dec` conversion consistency
+- lens-parallax `RA/Dec` offsets against observer `(x,y,z)` and lens distance
+- long-baseline (far from event) parallax-corrected heliocentric proper-motion magnitude **and direction** consistency with `.out` (`murel_helio`, `murel_helio_alpha`, `murel_helio_delta`)
+- BJD consistency with `SIMULATION_ZERO_TIME + Simulation_time`
+- noise sanity using normalized residual statistics `(observed - true) / sigma`
+
+## BAGLE Joint-Fit Sanity Check
+
+This check performs a full **combined photometric + astrometric** fit with BAGLE on one event that satisfies:
+- `NSource == 1`
+- `ObsGroup_0_chi2 < 100` (configurable)
+- `ObsGroup_0_FiniteSourceflag == 0` (PSPL-like event)
+
+It then:
+- fits `PSPL_PhotAstrom_Par_Param1` using BAGLE nested sampling
+- generates a diagnostic plot with best-fit model vs data
+- uses event timing in MJD (explicit JD/BJD -> MJD conversion)
+- compares fitted proper-motion vector (`muRel`) against `.out` `murel_helio_alpha/delta`
+- compares fitted parallax vector (`piE`) against `.out` `piEE/piEN`
+- fails with detailed diagnostics if amplitude or direction mismatches exceed thresholds
+
+Run it standalone on pre-generated outputs:
+
+```bash
+python smoke_test/run_bagle_fit_sanity.py \
+  smoke_test/output/general/smoke_general \
+  --params smoke_test/parameterfiles/smoke_general.prm \
+  --chi2-max 100 \
+  --n-live-points 250
+```
+
+Typical dependencies:
+- `bagle` (BAGLE_Microlensing)
+- `pymultinest` (+ MultiNest runtime), `dynesty`, `ultranest`
+- `matplotlib` (for the diagnostic plot)
 
 ## Test Configuration
 
