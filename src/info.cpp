@@ -454,7 +454,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
       else
 	{
-	  ofile << "NaN NaN NaN NaN NaN ";
+	  ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {
 	      ofile << "0 ";
