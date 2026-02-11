@@ -174,7 +174,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--lens-ast-rms-demean-mas-max",
         type=float,
-        default=2.0,
+        default=0.05,
         help=(
             "Fail if BAGLE get_lens_astrometry disagrees with GULLS primary-lens astrometry by more than this "
             "RMS (mas) after removing constant x/y offsets."
@@ -300,6 +300,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     summary.lens_ast_rms_demean_mas,
                 )
             )
+        if summary.lens_plot_path is not None:
+            print(f"       lens plot: {summary.lens_plot_path}")
         print(f"       plot: {summary.plot_path}")
         print(f"       summary: {summary.result_json_path}")
         for warning in summary.warnings:

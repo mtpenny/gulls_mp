@@ -3,6 +3,7 @@
 #include "astroFns.h"
 #include "coords.h"
 #include "constants.h"
+#include "constdefs.h"
 #include <iomanip>
 #include <sstream>
 #include <fstream>
@@ -333,6 +334,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   const double cos_dec_eq = cos(dec_base_rad);
   const double inv_cos_dec_eq = (fabs(cos_dec_eq) > 1.0e-12 ? 1.0 / cos_dec_eq : 0.0);
   const double mas_to_deg = 1.0 / (3600.0 * 1000.0);
+  const double days_to_years = 1.0 / DAYINYR;
 
   coords c;
   double dRAc_from_eE = 0.0;
@@ -367,6 +369,27 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	}
     }
   const double gamma0_deg = atan2(evt_to_ecl_sin[0], evt_to_ecl_cos[0]) * r2d;
+
+  // Lens proper motion in RA/Dec (derived from l/b).
+  const int lens_idx = Event->lens;
+  double lens_mu_ra = NAN;
+  double lens_mu_dec = NAN;
+  bool lens_mu_ok = false;
+  if(lens_idx >= 0 && lens_idx < int(Lenses->data.size()))
+    {
+      if(int(Lenses->data[lens_idx].size()) > Lenses->BB)
+	{
+	  const double lens_mul = Lenses->data[lens_idx][Lenses->MUL];
+	  const double lens_mub = Lenses->data[lens_idx][Lenses->MUB];
+	  const double lens_l_rad = Lenses->data[lens_idx][Lenses->LL] * d2r;
+	  const double lens_b_rad = Lenses->data[lens_idx][Lenses->BB] * d2r;
+	  if(std::isfinite(lens_mul) && std::isfinite(lens_mub) && std::isfinite(lens_l_rad) && std::isfinite(lens_b_rad))
+	    {
+	      c.mulb2ad(lens_l_rad, lens_b_rad, lens_mul, lens_mub, &lens_mu_ra, &lens_mu_dec);
+	      lens_mu_ok = std::isfinite(lens_mu_ra) && std::isfinite(lens_mu_dec);
+	    }
+	}
+    }
 
   lcfile << "#Astrometry_Frame: ";
   lcfile << setprecision(12)
@@ -427,6 +450,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "RA_centroid_src_only_deg" << " " << "Dec_centroid_src_only_deg" << " " << // blendless source-only ICRS centroid
     "RA_centroid_src_lens_deg" << " " << "Dec_centroid_src_lens_deg" << " " << // source+lens ICRS centroid
     "RA_lens_primary_deg" << " " << "Dec_lens_primary_deg" << " " <<       // primary-lens ICRS astrometry
+    "lens_pm_parallax_dRAcosDec_mas" << " " << "lens_pm_parallax_dDec_mas" << " " << // lens PM+parallax offsets
     "RA_centroid_lpllx_deg" << " " << "Dec_centroid_lpllx_deg" << " " <<   // observed + lens-parallax term
     "RA_true_lpllx_deg" << " " << "Dec_true_lpllx_deg" << " " <<           // true + lens-parallax term
     "lens_dist_kpc" << " " <<                                              // lens distance
@@ -614,23 +638,42 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 		  dec_lens_primary_deg = dec_base_deg + ddec_lens_mas * mas_to_deg;
 		}
 
+	      // Lens-parallax term in ecliptic EN (mas), based on observer displacement
+	      // relative to the event reference frame.
+	      double D_L_kpc = NAN;
+	      double lens_pllx_e_mas = 0.0;
+	      double lens_pllx_n_mas = 0.0;
+	      if(lens_idx >= 0 && lens_idx < int(Lenses->data.size()))
+		{
+		  D_L_kpc = Lenses->data[lens_idx][Lenses->DIST];
+		  if(D_L_kpc > 0.0)
+		    {
+		      lens_pllx_e_mas = -Event->pllx[obsidx].Eshift[shiftedidx] / D_L_kpc;
+		      lens_pllx_n_mas = -Event->pllx[obsidx].Nshift[shiftedidx] / D_L_kpc;
+		    }
+		}
+
+	      // Expected lens sky position from base RA/Dec + proper motion + parallax.
+	      const double bjd = Event->pllx[obsidx].epochs[shiftedidx];
+	      double lens_pm_parallax_dra_cosdec_mas = NAN;
+	      double lens_pm_parallax_ddec_mas = NAN;
+	      if(lens_mu_ok && std::isfinite(bjd) && std::isfinite(Event->pllx[obsidx].tref))
+		{
+		  const double dt_years = (bjd - Event->pllx[obsidx].tref) * days_to_years;
+		  const double dra_cosdec_pm_mas = lens_mu_ra * dt_years;
+		  const double ddec_pm_mas = lens_mu_dec * dt_years;
+		  const double dra_cosdec_pllx_mas = dRAc_from_eE * lens_pllx_e_mas + dRAc_from_eN * lens_pllx_n_mas;
+		  const double ddec_pllx_mas = dDec_from_eE * lens_pllx_e_mas + dDec_from_eN * lens_pllx_n_mas;
+		  lens_pm_parallax_dra_cosdec_mas = dra_cosdec_pm_mas + dra_cosdec_pllx_mas;
+		  lens_pm_parallax_ddec_mas = ddec_pm_mas + ddec_pllx_mas;
+		}
+
 	      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
 	      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
 	      lcfile << ra_src_only_deg << " " << dec_src_only_deg << " " << flush;
 	      lcfile << ra_src_lens_deg << " " << dec_src_lens_deg << " " << flush;
 	      lcfile << ra_lens_primary_deg << " " << dec_lens_primary_deg << " " << flush;
-
-	      // Lens-parallax term in ecliptic EN (mas), based on observer displacement
-	      // relative to the event reference frame.
-	      int ln = Event->lens;
-	      double D_L_kpc = Lenses->data[ln][Lenses->DIST];
-	      double lens_pllx_e_mas = 0.0;
-	      double lens_pllx_n_mas = 0.0;
-	      if(D_L_kpc > 0.0)
-		{
-		  lens_pllx_e_mas = -Event->pllx[obsidx].Eshift[shiftedidx] / D_L_kpc;
-		  lens_pllx_n_mas = -Event->pllx[obsidx].Nshift[shiftedidx] / D_L_kpc;
-		}
+	      lcfile << lens_pm_parallax_dra_cosdec_mas << " " << lens_pm_parallax_ddec_mas << " " << flush;
 
 	      const double dra_cosdec_obs_lpllx_mas = dRAc_from_eE * (xc_obs_mas + lens_pllx_e_mas)
 		+ dRAc_from_eN * (yc_obs_mas + lens_pllx_n_mas);
@@ -657,7 +700,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      lcfile << setprecision(16) << D_L_kpc << " " << lens_pllx_e_mas << " " << lens_pllx_n_mas << " " << flush;
 	      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
 	      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
-	      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
+	      lcfile << bjd << " " << flush; 
 	      lcfile << obs_x_AU << " " << obs_y_AU << " " << obs_z_AU << " " << flush;
 	      lcfile << obs_x_AU << " " << obs_y_AU << " " << obs_z_AU << " " << flush;
 

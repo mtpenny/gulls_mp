@@ -67,3 +67,9 @@ Tests that document/enforce conventions
   - compares GULLS primary-lens track (`RA_lens_primary_deg/Dec_lens_primary_deg`) against `best_model.get_lens_astrometry(t)` and records both raw RMS and XY-offset-removed RMS;
   - compares fitted PM and parallax vectors (amplitude + direction) against `.out` in the declared model frame convention;
   - falls back to scipy least-squares BAGLE fit if PyMultiNest runtime is unavailable.
+
+Smoke observer notes
+--------------------
+
+- `smoke_test/assets/observatories/smoke.observatory` uses `SPACE=1` and `ORBIT=0` (Earth orbit path from `setupOrbit`).
+- Weather is still loaded globally, but `smoke_test/assets/weather/smoke.weather` is all `1`s, so cadence is not weather-thinned.

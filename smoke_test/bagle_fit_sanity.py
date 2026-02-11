@@ -61,6 +61,7 @@ class BagleJointFitSummary:
     lens_ast_rms_raw_mas: float | None
     lens_ast_rms_demean_mas: float | None
     plot_path: Path
+    lens_plot_path: Path | None
     result_json_path: Path
     warnings: List[str] = field(default_factory=list)
 
@@ -599,6 +600,203 @@ def _plot_joint_fit_diagnostics(
     plt.close(fig)
 
 
+def _plot_lens_track_diagnostics(
+    output_path: Path,
+    t_lens: np.ndarray,
+    lens_obs_x_arcsec: np.ndarray,
+    lens_obs_y_arcsec: np.ndarray,
+    lens_formula_x_arcsec: np.ndarray | None,
+    lens_formula_y_arcsec: np.ndarray | None,
+    model_obj: Any,
+    t0_ref: float,
+    title: str,
+    subtitle: str | None = None,
+    lens_rms_raw_mas: float | None = None,
+    lens_rms_demean_mas: float | None = None,
+) -> None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - optional dependency guard
+        raise SmokeTestError(
+            "BAGLE sanity: matplotlib is required to generate lens-track diagnostics plot"
+        ) from exc
+
+    t_lens = np.asarray(t_lens, dtype=float)
+    lens_obs_x_arcsec = np.asarray(lens_obs_x_arcsec, dtype=float)
+    lens_obs_y_arcsec = np.asarray(lens_obs_y_arcsec, dtype=float)
+    finite = (
+        np.isfinite(t_lens)
+        & np.isfinite(lens_obs_x_arcsec)
+        & np.isfinite(lens_obs_y_arcsec)
+    )
+    if int(np.sum(finite)) < 2:
+        raise SmokeTestError(
+            "BAGLE sanity: insufficient finite points to plot lens-track diagnostics."
+        )
+    t_lens = t_lens[finite]
+    lens_obs_x_arcsec = lens_obs_x_arcsec[finite]
+    lens_obs_y_arcsec = lens_obs_y_arcsec[finite]
+
+    t_dense = np.linspace(float(np.min(t_lens)), float(np.max(t_lens)), 1200)
+    lens_model_dense = np.asarray(model_obj.get_lens_astrometry(t_dense), dtype=float)
+    lens_model_obs = np.asarray(model_obj.get_lens_astrometry(t_lens), dtype=float)
+    if (
+        lens_model_dense.ndim != 2
+        or lens_model_obs.ndim != 2
+        or lens_model_dense.shape[1] < 2
+        or lens_model_obs.shape[1] < 2
+    ):
+        raise SmokeTestError(
+            "BAGLE sanity: unexpected get_lens_astrometry output shape while plotting lens tracks."
+        )
+
+    lens_model_dense_xy = lens_model_dense[:, :2]
+    lens_model_obs_xy = lens_model_obs[:, :2]
+    if lens_model_obs_xy.shape[0] != len(t_lens):
+        raise SmokeTestError(
+            "BAGLE sanity: BAGLE lens astrometry length mismatch while plotting lens tracks."
+        )
+
+    lens_formula_ok = (
+        lens_formula_x_arcsec is not None
+        and lens_formula_y_arcsec is not None
+        and len(lens_formula_x_arcsec) == len(t_lens)
+        and len(lens_formula_y_arcsec) == len(t_lens)
+    )
+
+    resid_e_mas = (lens_obs_x_arcsec - lens_model_obs_xy[:, 0]) * MAS_PER_ARCSEC
+    resid_n_mas = (lens_obs_y_arcsec - lens_model_obs_xy[:, 1]) * MAS_PER_ARCSEC
+    if lens_rms_raw_mas is None:
+        lens_rms_raw_mas = float(np.sqrt(np.mean(resid_e_mas**2 + resid_n_mas**2)))
+    if lens_rms_demean_mas is None:
+        resid_e_dm = resid_e_mas - float(np.median(resid_e_mas))
+        resid_n_dm = resid_n_mas - float(np.median(resid_n_mas))
+        lens_rms_demean_mas = float(np.sqrt(np.mean(resid_e_dm**2 + resid_n_dm**2)))
+
+    dt_lens = t_lens - t0_ref
+    dt_dense = t_dense - t0_ref
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 9), constrained_layout=True)
+
+    axes[0].plot(
+        dt_dense,
+        lens_model_dense_xy[:, 0] * MAS_PER_ARCSEC,
+        "-",
+        lw=1.9,
+        color="tab:red",
+        label="E model",
+        zorder=5,
+    )
+    axes[0].plot(
+        dt_dense,
+        lens_model_dense_xy[:, 1] * MAS_PER_ARCSEC,
+        "-",
+        lw=1.9,
+        color="tab:orange",
+        label="N model",
+        zorder=5,
+    )
+    axes[0].plot(
+        dt_lens,
+        lens_obs_x_arcsec * MAS_PER_ARCSEC,
+        ".",
+        ms=2.2,
+        alpha=0.50,
+        color="tab:blue",
+        label="E GULLS",
+        zorder=1,
+    )
+    axes[0].plot(
+        dt_lens,
+        lens_obs_y_arcsec * MAS_PER_ARCSEC,
+        ".",
+        ms=2.2,
+        alpha=0.50,
+        color="tab:green",
+        label="N GULLS",
+        zorder=1,
+    )
+    if lens_formula_ok:
+        axes[0].plot(
+            dt_lens,
+            np.asarray(lens_formula_x_arcsec) * MAS_PER_ARCSEC,
+            "--",
+            lw=1.4,
+            color="0.35",
+            label="E pm+pllx",
+            zorder=4,
+        )
+        axes[0].plot(
+            dt_lens,
+            np.asarray(lens_formula_y_arcsec) * MAS_PER_ARCSEC,
+            "--",
+            lw=1.4,
+            color="0.55",
+            label="N pm+pllx",
+            zorder=4,
+        )
+    axes[0].set_ylabel("Lens position (mas)")
+    if subtitle:
+        axes[0].set_title(f"{title}\n{subtitle}")
+    else:
+        axes[0].set_title(title)
+    axes[0].legend(loc="best", fontsize=9)
+
+    axes[1].plot(
+        lens_model_dense_xy[:, 0] * MAS_PER_ARCSEC,
+        lens_model_dense_xy[:, 1] * MAS_PER_ARCSEC,
+        "-",
+        lw=2.0,
+        color="tab:red",
+        label="BAGLE lens track",
+        zorder=5,
+    )
+    axes[1].plot(
+        lens_obs_x_arcsec * MAS_PER_ARCSEC,
+        lens_obs_y_arcsec * MAS_PER_ARCSEC,
+        ".",
+        ms=2.0,
+        alpha=0.45,
+        color="tab:blue",
+        label="GULLS lens columns",
+        zorder=1,
+    )
+    if lens_formula_ok:
+        axes[1].plot(
+            np.asarray(lens_formula_x_arcsec) * MAS_PER_ARCSEC,
+            np.asarray(lens_formula_y_arcsec) * MAS_PER_ARCSEC,
+            "--",
+            lw=1.6,
+            color="0.35",
+            label="GULLS lens pm+pllx",
+            zorder=4,
+        )
+    axes[1].set_xlabel("E (mas)")
+    axes[1].set_ylabel("N (mas)")
+    axes[1].set_aspect("equal", adjustable="box")
+    axes[1].legend(loc="best", fontsize=9)
+    axes[1].text(
+        0.02,
+        0.98,
+        (
+            f"RMS raw={lens_rms_raw_mas:.3f} mas\n"
+            f"RMS after XY offset={lens_rms_demean_mas:.3f} mas"
+        ),
+        transform=axes[1].transAxes,
+        va="top",
+        ha="left",
+        fontsize=9,
+        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85, "edgecolor": "0.6"},
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def run_bagle_joint_fit_sanity(
     run_dir: Path,
     out_files: Sequence[Path],
@@ -620,7 +818,7 @@ def run_bagle_joint_fit_sanity(
     true_ast_sigma_max: float = 1.5,
     obs_location: str = "jwst",
     obs_location_fallback: str = "earth",
-    lens_ast_rms_demean_mas_max: float = 2.0,
+    lens_ast_rms_demean_mas_max: float = 0.05,
 ) -> BagleJointFitSummary:
     """Fit one single-source, single-lens-like event with BAGLE and validate vectors."""
     run_dir = run_dir.resolve()
@@ -1335,6 +1533,11 @@ def run_bagle_joint_fit_sanity(
 
     lens_ast_rms_raw_mas: float | None = None
     lens_ast_rms_demean_mas: float | None = None
+    lens_t_plot: np.ndarray | None = None
+    lens_obs_x_plot_arcsec: np.ndarray | None = None
+    lens_obs_y_plot_arcsec: np.ndarray | None = None
+    lens_formula_x_plot_arcsec: np.ndarray | None = None
+    lens_formula_y_plot_arcsec: np.ndarray | None = None
     if "RA_lens_primary_deg" in df.columns and "Dec_lens_primary_deg" in df.columns:
         lens_ra_all = df["RA_lens_primary_deg"].to_numpy(dtype=float, copy=False)
         lens_dec_all = df["Dec_lens_primary_deg"].to_numpy(dtype=float, copy=False)
@@ -1354,6 +1557,18 @@ def run_bagle_joint_fit_sanity(
             t_lens = t_ast[lens_finite]
             lens_obs_x_arcsec = lens_x_sel_arcsec[lens_finite]
             lens_obs_y_arcsec = lens_y_sel_arcsec[lens_finite]
+            lens_t_plot = t_lens.copy()
+            lens_obs_x_plot_arcsec = lens_obs_x_arcsec.copy()
+            lens_obs_y_plot_arcsec = lens_obs_y_arcsec.copy()
+            if "lens_pm_parallax_dRAcosDec_mas" in df.columns and "lens_pm_parallax_dDec_mas" in df.columns:
+                lens_pm_dra_mas = df["lens_pm_parallax_dRAcosDec_mas"].to_numpy(dtype=float, copy=False)
+                lens_pm_ddec_mas = df["lens_pm_parallax_dDec_mas"].to_numpy(dtype=float, copy=False)
+                lens_pm_x_all_arcsec = lens_pm_dra_mas / MAS_PER_ARCSEC
+                lens_pm_y_all_arcsec = lens_pm_ddec_mas / MAS_PER_ARCSEC
+                lens_pm_x_sel = lens_pm_x_all_arcsec[ast_idx]
+                lens_pm_y_sel = lens_pm_y_all_arcsec[ast_idx]
+                lens_formula_x_plot_arcsec = lens_pm_x_sel[lens_finite]
+                lens_formula_y_plot_arcsec = lens_pm_y_sel[lens_finite]
             lens_model = np.asarray(best_model.get_lens_astrometry(t_lens), dtype=float)
             if lens_model.ndim != 2 or lens_model.shape[1] < 2:
                 raise SmokeTestError(
@@ -1496,6 +1711,45 @@ def run_bagle_joint_fit_sanity(
         show_noisy_astrometry=True,
         noisy_ast_alpha=(0.24 if fit_true_astrometry else 0.16),
     )
+    lens_plot_path: Path | None = None
+    if (
+        lens_t_plot is not None
+        and lens_obs_x_plot_arcsec is not None
+        and lens_obs_y_plot_arcsec is not None
+    ):
+        subtitle_parts: List[str] = []
+        ra_evt = _safe_get(row, "ra_deg")
+        dec_evt = _safe_get(row, "dec_deg")
+        l_evt = _safe_get(row, "galactic_l")
+        b_evt = _safe_get(row, "galactic_b")
+        if math.isfinite(ra_evt) and math.isfinite(dec_evt):
+            subtitle_parts.append(f"RA={ra_evt:.6f}° Dec={dec_evt:.6f}°")
+        if math.isfinite(l_evt) and math.isfinite(b_evt):
+            subtitle_parts.append(f"l={l_evt:.6f}° b={b_evt:.6f}°")
+        mu_l = _safe_get(row, "Lens_mul")
+        mu_b = _safe_get(row, "Lens_mub")
+        if math.isfinite(mu_l) and math.isfinite(mu_b):
+            subtitle_parts.append(f"mu_L(l,b)=({mu_l:.3f},{mu_b:.3f}) mas/yr")
+        subtitle = " | ".join(subtitle_parts) if subtitle_parts else None
+
+        lens_plot_path = fit_dir / f"event_{evt:06d}_lens_track.png"
+        _plot_lens_track_diagnostics(
+            lens_plot_path,
+            lens_t_plot,
+            lens_obs_x_plot_arcsec,
+            lens_obs_y_plot_arcsec,
+            lens_formula_x_plot_arcsec,
+            lens_formula_y_plot_arcsec,
+            best_model,
+            t0_guess,
+            title=(
+                f"BAGLE vs GULLS primary-lens track: event {evt} "
+                f"(single-lens chi2={out_chi2:.3f})"
+            ),
+            subtitle=subtitle,
+            lens_rms_raw_mas=lens_ast_rms_raw_mas,
+            lens_rms_demean_mas=lens_ast_rms_demean_mas,
+        )
 
     result_json_path = fit_dir / f"event_{evt:06d}_summary.json"
     payload: Dict[str, Any] = {
@@ -1546,6 +1800,7 @@ def run_bagle_joint_fit_sanity(
             "rms_after_xy_offset_mas": lens_ast_rms_demean_mas,
             "rms_after_xy_offset_limit_mas": float(lens_ast_rms_demean_mas_max),
         },
+        "lens_plot_path": (str(lens_plot_path) if lens_plot_path is not None else None),
         "warnings": warnings,
     }
     result_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -1580,6 +1835,7 @@ def run_bagle_joint_fit_sanity(
         lens_ast_rms_raw_mas=lens_ast_rms_raw_mas,
         lens_ast_rms_demean_mas=lens_ast_rms_demean_mas,
         plot_path=plot_path,
+        lens_plot_path=lens_plot_path,
         result_json_path=result_json_path,
         warnings=warnings,
     )
