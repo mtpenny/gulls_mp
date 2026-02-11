@@ -1360,7 +1360,7 @@ def plot_lightcurves(
             meas_dec_err_deg = _require_column("measured_centroid_dec_error_deg")
         else:
             # Derive sky-frame vectors from RA/Dec columns.
-            true_ra_deg = _require_column("RA_centroid_true_deg")
+            true_ra_deg = _require_column("RA_centroid_true_deg")  # used in Absolute Astrometric Position plot
             true_dec_deg = _require_column("Dec_centroid_true_deg")
             meas_ra_deg = _require_column("RA_centroid_deg")
             meas_dec_deg = _require_column("Dec_centroid_deg")

@@ -341,7 +341,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   double dDec_from_eE = 0.0;
   double dRAc_from_eN = 0.0;
   double dDec_from_eN = 0.0;
-  c.muecl2ad(ra_base_rad, dec_base_rad, 1.0, 0.0, &dRAc_from_eE, &dDec_from_eE);
+  c.muecl2ad(ra_base_rad, dec_base_rad, 1.0, 0.0, &dRAc_from_eE, &dDec_from_eE);  // RA/Dec offsets per mas of ecliptic E/N
   c.muecl2ad(ra_base_rad, dec_base_rad, 0.0, 1.0, &dRAc_from_eN, &dDec_from_eN);
 
   // Per-observatory rotation from internal event-frame x/y to ecliptic EN.
@@ -608,7 +608,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	      // Transform ecliptic EN offsets to ICRS tangent-plane offsets.
 	      const double dra_cosdec_obs_mas = dRAc_from_eE * xc_obs_mas + dRAc_from_eN * yc_obs_mas;
 	      const double ddec_obs_mas = dDec_from_eE * xc_obs_mas + dDec_from_eN * yc_obs_mas;
-	      const double dra_cosdec_true_mas = dRAc_from_eE * xctrue_mas + dRAc_from_eN * yctrue_mas;
+	      const double dra_cosdec_true_mas = dRAc_from_eE * xctrue_mas + dRAc_from_eN * yctrue_mas;  // adding offsets for lam 
 	      const double ddec_true_mas = dDec_from_eE * xctrue_mas + dDec_from_eN * yctrue_mas;
 	      const double dra_cosdec_src_only_mas = dRAc_from_eE * src_only_e + dRAc_from_eN * src_only_n;
 	      const double ddec_src_only_mas = dDec_from_eE * src_only_e + dDec_from_eN * src_only_n;
@@ -617,7 +617,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 
 	      const double ra_obs_deg = ra_base_deg + dra_cosdec_obs_mas * mas_to_deg * inv_cos_dec_eq;
 	      const double dec_obs_deg = dec_base_deg + ddec_obs_mas * mas_to_deg;
-	      const double ra_true_deg = ra_base_deg + dra_cosdec_true_mas * mas_to_deg * inv_cos_dec_eq;
+	      const double ra_true_deg = ra_base_deg + dra_cosdec_true_mas * mas_to_deg * inv_cos_dec_eq;  // used in Absolute Astrometric Position plot
 	      const double dec_true_deg = dec_base_deg + ddec_true_mas * mas_to_deg;
 	      const double ra_src_only_deg = ra_base_deg + dra_cosdec_src_only_mas * mas_to_deg * inv_cos_dec_eq;
 	      const double dec_src_only_deg = dec_base_deg + ddec_src_only_mas * mas_to_deg;
@@ -669,7 +669,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 		}
 
 	      lcfile << setprecision(12) << ra_obs_deg << " " << dec_obs_deg << " " << flush;
-	      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;
+	      lcfile << ra_true_deg << " " << dec_true_deg << " " << flush;  // use in Absolute Astrometric Position plot
 	      lcfile << ra_src_only_deg << " " << dec_src_only_deg << " " << flush;
 	      lcfile << ra_src_lens_deg << " " << dec_src_lens_deg << " " << flush;
 	      lcfile << ra_lens_primary_deg << " " << dec_lens_primary_deg << " " << flush;
