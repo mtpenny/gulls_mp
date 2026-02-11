@@ -15,6 +15,7 @@
 #include<iomanip>
 #include<numeric>
 #include<sys/stat.h>
+#include<cmath>
 //#include<thread>
 //#include<chrono>
 
@@ -517,6 +518,61 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   double last_progress=0;
 
   vector<double> msource(nsrc);
+
+
+  //Throw away some events which we know to not be realistic or to stretch the
+  //capabilities of the MultiLens generator
+
+  int bad_scenario=0;
+
+  if(nlens>=4) bad_scenario+=iPow(2,0);
+  if(Event->mixedbinary>0) bad_scenario+=iPow(2,1);
+  else if(Event->circumbinary>0)
+    {
+      double e = Event->p_e[nlens-1];
+      double mu_hw = Event->p_q[nlens-1];
+      double acrit = 1.60 + 5.10*e - 2.22*sqr(e) + 4.12*mu_hw - 4.27*e*mu_hw
+	- 5.09*sqr(mu_hw) + 4.61*sqr(e*mu_hw); //Holman & Wiegert (1999)
+      cout << "circum binary acrit = " << acrit << " " << Event->p_a[0] << " " << Event->p_a[nlens-1]*acrit << endl;
+      if(Event->p_a[0]<Event->p_a[nlens-1]*acrit) bad_scenario+=iPow(2,2);
+      else
+	{
+	  double period_ratio = Event->p_period[0]/Event->p_period[nlens-1];
+	  double prround = round(period_ratio);
+	  if(prround<=9 && (fmod(period_ratio,prround)<0.02 || fmod(period_ratio,prround)>0.98))
+	    bad_scenario+=iPow(2,3);
+	}
+    }
+  else if(Event->distantbinary>0)
+    {
+      double e = Event->p_e[nlens-1];
+      double mu_hw = Event->p_q[nlens-1];
+      double acrit = 0.464 - 0.380*mu_hw - 0.631*e + 0.586*mu_hw*e
+	+ 0.150*sqr(e) - 0.198*mu_hw*sqrt(e); //Holman & Wiegert (1999)
+      cout << "distant binary acrit = " << acrit << " " << Event->p_a[0] << " " << Event->p_a[nlens-1]*acrit << endl;
+
+      if(Event->p_a[0]>Event->p_a[nlens-1]*acrit) bad_scenario+=iPow(2,4);
+    }
+  
+
+  if(bad_scenario>0)
+    {
+      Event->lcerror = 9000 + bad_scenario;
+      Event->detected = 0;
+      Event->deterror = 0;
+      if(Paramfile->verbosity >= 1)
+	{
+	  cout << "Lightcurve generation skipped due to a bad scenario, event " << Event->id << ", code " << bad_scenario << "" << endl;
+	}
+      if(logfile_ptr.good())
+	{
+	  logfile_ptr << "Lightcurve generation skipped due to a bad scenario, event " << Event->id << ", code " << bad_scenario << "" << endl;
+	}
+      return;
+    }
+
+
+  
   
   for(int idx=0; idx<Event->nepochs; idx++)
     {
