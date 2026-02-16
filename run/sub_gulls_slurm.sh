@@ -38,8 +38,11 @@ fi
 mkdir -p /var/scratch/$USER/$runname/
 mkdir -p $finaldir/$runname/
 
+cd /var/scratch/$USER/$runname/
+~/gulls_mp/run/clear_hanging.sh &
+
 cd $finaldir
-seq -f "%02g" 0 19 | parallel ~/gulls_mp/run/run_general.sh $paramfile ~/gulls_mp/run/fields/gbtdsfields.txt.{} $subrun
+seq -f "%02g" 0 19 | parallel ~/gulls_mp/run/run_gulls.sh $paramfile ~/gulls_mp/run/fields/gbtdsfields.txt.{} $subrun
 
 date
 

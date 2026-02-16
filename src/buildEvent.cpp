@@ -659,6 +659,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double P = pow(10,Lenses->data[lc][Lenses->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Lenses->data[ln][Lenses->datadict["Mass"]];
 	  double M2 = Lenses->data[lc][Lenses->datadict["Mass"]];
+	  cout << "Binary with masses M1=" << M1 << " M2=" << M2 << endl;
 	  Event->lcomp_q.push_back(M2/M1);
 	  Event->qsum += M2/M1;
 	  double acomb = pow(P*P*(M1+M2),1.0/3.0);

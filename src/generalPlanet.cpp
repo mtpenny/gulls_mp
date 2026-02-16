@@ -77,6 +77,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   Event->ncatalog_planets=nplanets;
   int orbtype;
   int skipped_planets=0;
+  double first_inc=0;
 
   for(int i=0;i<nplanets;i++)
     {
@@ -106,8 +107,16 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 			}
 		      else
 			{
-			  double rnd = ran2(Paramfile->seed);
-			  inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+			  if(i==0)
+			    {
+			      double rnd = ran2(Paramfile->seed);
+			      inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+			      first_inc = inc;
+			    }
+			  else
+			    {
+			      inc=first_inc;
+			    }
 			}
 		    }
 		  Event->p_I.push_back(inc);
