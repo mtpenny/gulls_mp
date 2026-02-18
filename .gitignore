@@ -76,4 +76,3 @@ documentation/build/
 
 # PSF files (generated in workflow/smoke tests)
 smoke_test/assets/observatories/WFI_PSF.psf
-src/structures.h
