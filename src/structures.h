@@ -169,6 +169,13 @@ struct filekeywords{
   double phottime;
 
   double lc_timeout;
+  double vbm_timeout_root_solver;
+  double vbm_timeout_magnification;
+  double vbm_timeout_parallax;
+  double vbm_timeout_critical_curves;
+  double vbm_timeout_astrometry;
+  int vbm_timeout_check_interval;
+  int allow_random_stub;
   
   string pathdir;
   string pathfile;

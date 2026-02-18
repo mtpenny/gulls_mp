@@ -31,15 +31,116 @@ char systemslash = '/';
 
 
 #include "VBMicrolensingLibrary.h"
+#include <chrono>
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 
 //#define _PRINT_ERRORS2
 //#define _PRINT_ERRORS
 //#define _PRINT_ERRORS_DARK
+
+namespace {
+constexpr int kDefaultTimeoutCheckInterval = 256;
+
+class TimeBudget {
+public:
+	TimeBudget() : enabled_(false), budget_(0.0), start_() {}
+
+	static TimeBudget Disabled() { return TimeBudget(); }
+
+	static TimeBudget FromSeconds(double seconds) {
+		if (seconds <= 0.0) {
+			return Disabled();
+		}
+		return TimeBudget(seconds);
+	}
+
+	bool enabled() const { return enabled_; }
+
+	bool expired() const {
+		if (!enabled_) {
+			return false;
+		}
+		const auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(
+			std::chrono::steady_clock::now() - start_).count();
+		return elapsed > budget_;
+	}
+
+private:
+	explicit TimeBudget(double seconds) : enabled_(true), budget_(seconds), start_(std::chrono::steady_clock::now()) {}
+
+	bool enabled_;
+	double budget_;
+	std::chrono::steady_clock::time_point start_;
+};
+
+thread_local const TimeBudget* g_budget = nullptr;
+thread_local int g_check_interval = 0;
+thread_local VBMTimeoutError::TimeoutCategory g_timeout_category = VBMTimeoutError::TimeoutCategory::Unknown;
+
+struct ScopedBudget {
+	const TimeBudget* previous_budget;
+	int previous_interval;
+	VBMTimeoutError::TimeoutCategory previous_timeout_category;
+
+	ScopedBudget(const TimeBudget* budget, int interval, VBMTimeoutError::TimeoutCategory timeout_category)
+		: previous_budget(g_budget), previous_interval(g_check_interval), previous_timeout_category(g_timeout_category) {
+		g_budget = budget;
+		g_check_interval = interval;
+		if (budget && budget->enabled()) {
+			const bool reusing_parent_budget = (previous_budget && (previous_budget == budget) && previous_budget->enabled());
+			if (!reusing_parent_budget) {
+				g_timeout_category = timeout_category;
+			}
+		}
+	}
+
+	~ScopedBudget() {
+		g_budget = previous_budget;
+		g_check_interval = previous_interval;
+		g_timeout_category = previous_timeout_category;
+	}
+};
+
+inline const TimeBudget* SelectBudget(const TimeBudget& budget) {
+	if (g_budget && g_budget->enabled()) {
+		return g_budget;
+	}
+	return budget.enabled() ? &budget : nullptr;
+}
+
+inline int SelectCheckInterval(int configured_interval) {
+	if (configured_interval > 0) {
+		return configured_interval;
+	}
+	if (g_check_interval > 0) {
+		return g_check_interval;
+	}
+	return 0;
+}
+
+inline bool ShouldCheck(int iter, int fallback_interval = kDefaultTimeoutCheckInterval) {
+	const int interval = g_check_interval > 0 ? g_check_interval : fallback_interval;
+	if (interval <= 0) {
+		return true;
+	}
+	return (iter % interval) == 0;
+}
+
+inline void CheckTimeout(const char* where) {
+	if (!g_budget || !g_budget->enabled()) {
+		return;
+	}
+	if (!g_budget->expired()) {
+		return;
+	}
+	throw VBMTimeoutError(g_timeout_category, where ? where : "");
+}
+} // namespace
 
 #pragma region skiplist/queue
 
@@ -487,6 +588,9 @@ void VBMicrolensing::LoadESPLTable(const char* filename) {
 }
 
 double VBMicrolensing::PSPLMag(double u) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double u2, u22;
 	u2 = u * u;
 	u22 = u2 + 2;
@@ -497,6 +601,9 @@ double VBMicrolensing::PSPLMag(double u) {
 }
 
 double VBMicrolensing::ESPLMag(double u, double RSv) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	double mag, z, fr, cz, cr, u2;
 	int iz, ir;
 
@@ -547,6 +654,9 @@ double VBMicrolensing::ESPLMag(double u, double RSv) {
 }
 
 double VBMicrolensing::ESPLMag2(double u, double rho) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, u2, u2_1, u2_2, u2_4, s_u2_4, u6, rho2, quad;
 	int c = 0;
 
@@ -576,6 +686,9 @@ double VBMicrolensing::ESPLMag2(double u, double rho) {
 }
 
 double VBMicrolensing::ESPLMagDark(double u, double RSv) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	double Mag = -1.0, Magold = 0., Tolv = Tol;
 	double tc, rb, lc, rc, cb, u2;
 	int c = 0, flag;
@@ -585,6 +698,9 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 	double LDastrox1 = 0.0;
 
 	while ((Mag < 0.9) && (c < 3)) {
+		if (ShouldCheck(c + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("ESPLMagDark");
+		}
 
 		first = new annulus;
 		first->bin = 0.;
@@ -629,6 +745,9 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 		flag = 0;
 		nannuli = nannold = 1;
 		while (((flag < nannold + 5) && (currerr > Tolv) && (currerr > RelTol * Mag)) || (nannuli < minannuli)) {
+			if (ShouldCheck(nannuli, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("ESPLMagDark");
+			}
 			maxerr = 0;
 			for (scan2 = first->next; scan2; scan2 = scan2->next) {
 #ifdef _PRINT_ERRORS_DARK
@@ -715,6 +834,9 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 
 
 double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, _sols_for_skiplist_curve** Images) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static VBcomplex a, q, m1, m2, y;
 	static double av = -1.0, qv = -1.0;
 	static VBcomplex  coefs[24], d1, d2, dy, dJ, dz;
@@ -773,6 +895,9 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 	astrox2 = 0.;
 	nim0 = 0;
 	for (scan1 = Prov->first; scan1; scan1 = scan2) {
+		if (ShouldCheck(nim0 + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryMag0");
+		}
 		scan2 = scan1->next;
 		Prov2 = new _skiplist_curve(scan1, 0);						// create an object of class _curve with one member(_point class variable),
 		(*Images)->append(Prov2);
@@ -806,6 +931,9 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v) 
 }
 
 double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v, double RS, _sols_for_skiplist_curve** images) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, mag1, mag2, RSi, RSo, delta1, delta2, minerr, magbest, deltabest, cerr, starterr;
 	static int NPSsafe;
 	static bool weird;
@@ -817,13 +945,17 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 	if (weird) therr = 1.e100;
 	starterr = therr;
 	if (therr > 10 * (Tol + RelTol * Mag)) {
-		mag1 = -1;
-		delta1 = 3.33333333e-6;
-		magbest = Mag;
-		minerr = therr;
-		deltabest = RS * 1.e7;
-		do {
-			delete* images;
+			mag1 = -1;
+			delta1 = 3.33333333e-6;
+			magbest = Mag;
+			minerr = therr;
+			deltabest = RS * 1.e7;
+			int safe_iter1 = 0;
+			do {
+				if (ShouldCheck(++safe_iter1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("BinaryMagSafe");
+				}
+				delete* images;
 			delta1 *= 3.;
 			RSi = RS * (1 - delta1);
 			if (RSi < 0) {
@@ -848,13 +980,17 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 		delta1 = deltabest;
 		if (mag1 < 0) mag1 = 1.0;
 
-		mag2 = -1;
-		delta2 = 3.33333333e-6;
-		magbest = Mag;
-		minerr = starterr;
-		deltabest = RS * 1.e7;
-		do {
-			delta2 *= 3.;
+			mag2 = -1;
+			delta2 = 3.33333333e-6;
+			magbest = Mag;
+			minerr = starterr;
+			deltabest = RS * 1.e7;
+			int safe_iter2 = 0;
+			do {
+				if (ShouldCheck(++safe_iter2, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("BinaryMagSafe");
+				}
+				delta2 *= 3.;
 			RSo = RS * (1 + delta2);
 			delete* images;
 			mag2 = BinaryMag(s, q, y1v, y2v, RSo, Tol, images);
@@ -880,6 +1016,9 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 }
 
 double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static VBcomplex a, q, m1, m2, y0, y, yc, z, zc;
 	static double av = -1.0, qv = -1.0;
 	static VBcomplex coefs[24], d1, d2, dy, dJ, dz;
@@ -981,7 +1120,11 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 #endif
 	flag = 0;
 	flagbad = 0;
+	int timeout_iter = 0;
 	while (flag == 0) {
+		if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryMag");
+		}
 		Prov = NewImages(y, coefs, stheta);
 		if (Prov->length > 0) {
 			flag = 1;
@@ -1039,7 +1182,11 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 	//currerr = 0. ;
 	astrox1 = 0.;
 	astrox2 = 0.;
+	timeout_iter = 0;
 	do {
+		if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryMag");
+		}
 		stheta = Thetas->insert_at_certain_position(itheta, th);
 		// this method can only be used when inserting an element in the middle of linked list
 		// i.e. *first's 'th' < current 'th' < *last's 'th'
@@ -1169,6 +1316,9 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 }
 
 double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, double rho) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, rho2, y2a;//, sms , dy1, dy2;
 	static int c;
 	static _sols_for_skiplist_curve* Images;
@@ -1207,6 +1357,9 @@ double VBDefaultCumulativeFunction(double cb, double* a1) {
 }
 
 double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, double RSv, double Tolnew) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, Magold, Tolv;
 	static double LDastrox1, LDastrox2;
 	static double tc, lc, rc, cb, rb;
@@ -1227,6 +1380,9 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 	y_1 = y1;
 	y_2 = y2;
 	while ((Mag < 0.9) && (c < 3)) {
+		if (ShouldCheck(c + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryMagDark");
+		}
 
 		first = new annulus;
 		first->bin = 0.;
@@ -1283,6 +1439,9 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		flag = 0;
 		nannuli = nannold = 1;
 		while (((flag < nannold + 5) && (currerr > Tolv) && (currerr > RelTol * Mag) && nannuli < maxannuli) || (nannuli < minannuli)) {
+			if (ShouldCheck(nannuli, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("BinaryMagDark");
+			}
 			maxerr = 0;
 			for (scan2 = first->next; scan2; scan2 = scan2->next) {
 #ifdef _PRINT_ERRORS_DARK
@@ -1387,6 +1546,9 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 }
 
 void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2, double RSv, double* a1_list, int nfil, double* mag_list, double Tol) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	annulus* scan;
 	int imax = 0;
 	double Mag, r2, cr2, scr2, a1;
@@ -1394,16 +1556,26 @@ void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2
 	multidark = true;
 
 	for (int i = 1; i < nfil; i++) {
+		if (ShouldCheck(i, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryMagMultiDark");
+		}
 		if (a1_list[i] > a1_list[imax]) imax = i;
 	}
 	a1 = a1_list[imax];
 	mag_list[imax] = BinaryMagDark(a, q, y1, y2, RSv, Tol);
 
 	for (int i = 0; i < nfil; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryMagMultiDark");
+		}
 		if (i != imax) {
 			Mag = 0;
 			a1 = a1_list[i];
+			int scan_iter = 0;
 			for (scan = annlist->next; scan; scan = scan->next) {
+				if (ShouldCheck(++scan_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("BinaryMagMultiDark");
+				}
 				r2 = scan->bin * scan->bin;
 				cr2 = 1 - r2;
 				scr2 = sqrt(cr2);
@@ -2614,6 +2786,9 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBcomplex* s) 
     }
 
 double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curve** Images) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag = -1.0, Ai;
 	VBcomplex yi;
 	_theta* stheta;
@@ -2637,6 +2812,9 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 	astrox1 = 0;
 	astrox2 = 0;
 	for (scan1 = Prov->first; scan1; scan1 = scan2) {
+		if (ShouldCheck(nim0 + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("MultiMag0");
+		}
 		scan2 = scan1->next;
 		Prov2 = new _skiplist_curve(scan1, 0);						// create an object of class _curve with one member(_point class variable),
 		// input is pointer(scan1) that points to the member; 
@@ -2672,6 +2850,9 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s) {
 }
 
 double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static VBcomplex y0, yi;
 	static double Mag = -1.0, th, thoff = 0.01020304, thoff2 = 0.7956012033974483; //0.01020304
 	static double errimage, maxerr, currerr, Magold, rhorad2, th2;
@@ -2789,10 +2970,14 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
     astrox1 = 0.;
 		astrox2 = 0.;
 
-		stheta = Thetas->first;
-		while (stheta->next)
-		{
-			Mag += stheta->Mag;
+			stheta = Thetas->first;
+			int timeout_iter = 0;
+			while (stheta->next)
+			{
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("MultiMag");
+				}
+				Mag += stheta->Mag;
 			if (astrometry) { 
 				astrox1 += stheta->astrox1; 
 				astrox2 += stheta->astrox2; 
@@ -2814,8 +2999,12 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		Magold = -1.;
 		NPSold = NPS + 1;
 
-		while (((currerr > errimage) && (currerr > RelTol * Mag) && (NPS < NPSmax) && (flag < NPSold))) {
-			stheta = Thetas->insert_at_certain_position(itheta, th);
+			timeout_iter = 0;
+			while (((currerr > errimage) && (currerr > RelTol * Mag) && (NPS < NPSmax) && (flag < NPSold))) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("MultiMag");
+				}
+				stheta = Thetas->insert_at_certain_position(itheta, th);
 			// this method can only be used when inserting an element in the middle of linked list
 			// i.e. *first's 'th' < current 'th' < *last's 'th'
 			// but we can safely use this method as we only insert in the middle of linked list inside the do-loop
@@ -2909,8 +3098,11 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		return Mag;
 
 	}
-	catch (...) {
-		FILE* f = fopen("Geom.txt", "w");
+		catch (const VBMTimeoutError&) {
+			throw;
+		}
+		catch (...) {
+			FILE* f = fopen("Geom.txt", "w");
 		fprintf(f, "\n%d\n", n);
 		for (int i = 0; i < n; i++) {
 			fprintf(f, "%.16lf %.16lf %.16lf\n", m[i], a[i].re, a[i].im);
@@ -2944,6 +3136,9 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol) 
 }
 
 double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for_skiplist_curve** images) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, mag1, mag2, RSi, RSo, delta1, delta2, minerr, magbest, deltabest, cerr, starterr;
 	static int NPSsafe;
 	static bool weird;
@@ -2955,13 +3150,17 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 	if (weird) therr = 1.e100;
 	starterr = therr;
 	if (therr > 10 * (Tol + RelTol * Mag)) {
-		mag1 = -1;
-		delta1 = 3.33333333e-6;
-		magbest = Mag;
-		minerr = therr;
-		deltabest = RS * 1.e7;
-		do {
-			delete* images;
+			mag1 = -1;
+			delta1 = 3.33333333e-6;
+			magbest = Mag;
+			minerr = therr;
+			deltabest = RS * 1.e7;
+			int safe_iter1 = 0;
+			do {
+				if (ShouldCheck(++safe_iter1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("MultiMagSafe");
+				}
+				delete* images;
 			delta1 *= 3.;
 			RSi = RS * (1 - delta1);
 			if (RSi < 0) {
@@ -2986,13 +3185,17 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 		delta1 = deltabest;
 		if (mag1 < 0) mag1 = 1.0;
 
-		mag2 = -1;
-		delta2 = 3.33333333e-6;
-		magbest = Mag;
-		minerr = starterr;
-		deltabest = RS * 1.e7;
-		do {
-			delta2 *= 3.;
+			mag2 = -1;
+			delta2 = 3.33333333e-6;
+			magbest = Mag;
+			minerr = starterr;
+			deltabest = RS * 1.e7;
+			int safe_iter2 = 0;
+			do {
+				if (ShouldCheck(++safe_iter2, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("MultiMagSafe");
+				}
+				delta2 *= 3.;
 			RSo = RS * (1 + delta2);
 			delete* images;
 			mag2 = MultiMag(y1s, y2s, RSo, Tol, images);
@@ -3017,6 +3220,9 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 }
 
 double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double Tolnew) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, Magold, Tolv;
 	static double LDastrox1, LDastrox2;
 	static double tc, lc, rc, cb, rb;
@@ -3036,6 +3242,9 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 	Tol = Tolnew;
 
 	while ((Mag < 0.9) && (c < 3)) {
+		if (ShouldCheck(c + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("MultiMagDark");
+		}
 
 		first = new annulus;
 		first->bin = 0.;
@@ -3092,6 +3301,9 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		flag = 0;
 		nannuli = nannold = 1;
 		while (((flag < nannold + 5) && (currerr > Tolv) && (currerr > RelTol * Mag) && nannuli < maxannuli) || (nannuli < minannuli)) {
+			if (ShouldCheck(nannuli, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("MultiMagDark");
+			}
 			maxerr = 0;
 			for (scan2 = first->next; scan2; scan2 = scan2->next) {
 #ifdef _PRINT_ERRORS_DARK
@@ -3197,6 +3409,9 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 
 
 double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	static double Mag, rho2, y2a, y1v, y2v;//, sms , dy1, dy2;
 	static int c;
 	static _sols_for_skiplist_curve* Images;
@@ -4872,6 +5087,9 @@ void VBMicrolensing::CombineCentroids(double* mags, double* c1s, double* c2s, do
 }
 
 void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double tn, u, u1;
 	u0 = pr[0];
 	t0 = pr[2];
@@ -4885,6 +5103,9 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PSPLAstroLightCurve");
+		}
 		ComputeParallax(ts[i], t0);
 		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u1 = u0 + pai1 * Et[1] - pai2 * Et[0];
@@ -4903,6 +5124,9 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 
 
 void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double tn, u, u1;
 	u0 = pr[0];
 	t0 = pr[2];
@@ -4917,6 +5141,9 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("ESPLAstroLightCurve");
+		}
 		ComputeParallax(ts[i], t0);
 		tn = (ts[i] +lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u1 = u0 + pai1 * Et[1] - pai2 * Et[0];
@@ -4934,6 +5161,9 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 }
 
 void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double tn, u, FR, s = exp(pr[0]), q = exp(pr[1]);
 	u0 = pr[2];
 	t0 = pr[6];
@@ -4949,6 +5179,9 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryAstroLightCurve");
+		}
 		ComputeParallax(ts[i], t0);
 		tn = (ts[i] + lighttravel - t0_par) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
@@ -4969,6 +5202,9 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 
 
 void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double tn, u, FR, s = exp(pr[0]), q = exp(pr[1]), w1 = pr[9], w2 = pr[10], w3 = pr[11];
 	u0 = pr[2];
 	t0 = pr[6];
@@ -5009,6 +5245,9 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 	pphi0 = atan2(Cinc * Sphi0, Cphi0);
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryAstroLightCurveOrbital");
+		}
 		ComputeParallax(ts[i], t0);
 
 		phi = (ts[i] + lighttravel - t0_par - lighttravel0) * w + phi0;
@@ -5036,6 +5275,9 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 
 
 void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double tn, u, FR, s = exp(pr[0]), q = exp(pr[1]), w1 = pr[9], w2 = pr[10], w3 = pr[11], szs = pr[12], ar = pr[13] + 1.e-8;
 	u0 = pr[2];
 	t0 = pr[6];
@@ -5095,13 +5337,20 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 	tperi = t0_par - (EE0 - co1tperi) / n;
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryAstroLightCurveKepler");
+		}
 		ComputeParallax(ts[i], t0);
 		M = n * (ts[i] + lighttravel - tperi - lighttravel0);
 		while (M > M_PI) M -= 2 * M_PI;
 		while (M < -M_PI) M += 2 * M_PI;
 		EE = M + e * sin(M);
 		dE = 1;
+		int kepler_iter = 0;
 		while (fabs(dE) > 1.e-8) {
+			if (ShouldCheck(++kepler_iter, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("BinaryAstroLightCurveKepler");
+			}
 			dM = M - (EE - e * sin(EE));
 			dE = dM / (1 - e * cos(EE));
 			EE += dE;
@@ -5137,6 +5386,8 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 }
 
 void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
 
 	tE_inv = exp(-pr[0]);
 	double w[3] = { pr[9] + 1.01e-15, pr[10] + 1.01e-15, pr[11] + 1.01e-15 };
@@ -5210,6 +5461,9 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 	s1 = s2 * qs;
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinSourceAstroLightCurveXallarap");
+		}
 
 		ComputeParallax(ts[i], t0);
 		paitB = pai1 * Et[0] + pai2 * Et[1]; // Parallax correction referred to tB
@@ -5266,6 +5520,9 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 
 
 void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, double *seps, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double tn, u, FRl, s = exp(pr[0]), q = exp(pr[1]), w1 = pr[9], w2 = pr[10], w3 = pr[11];
 	tE_inv = exp(-pr[5]);
 
@@ -5373,6 +5630,9 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinSourceBinLensAstroLightCurve");
+		}
 		ComputeParallax(ts[i], t0);
 
 		// Binary lens calculation
@@ -5441,6 +5701,9 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 
 
 void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), di, mindi, u, u0 = pr[2], t0 = pr[6], pai1 = pr[10], pai2 = pr[11];
 	double q[3] = { 1, exp(pr[1]),exp(pr[8]) };
 	double FR[3]; 
@@ -5466,6 +5729,9 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 	SetLensGeometry(3, q, s);
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("TripleAstroLightCurve");
+		}
 		ComputeParallax(ts[i], t0);
 		tn = (ts[i] +lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
@@ -5547,12 +5813,18 @@ void VBMicrolensing::ESPLLightCurveParallax(double* pr, double* ts, double* mags
 
 
 void VBMicrolensing::BinaryLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	double s = exp(pr[0]), q = exp(pr[1]), rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]);
 	double salpha = sin(pr[3]), calpha = cos(pr[3]);
 
 	//	_sols *Images; double Mag; // For debugging
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryLightCurve");
+		}
 		tn = (ts[i] - pr[6]) * tE_inv;
 		y1s[i] = pr[2] * salpha - tn * calpha;
 		y2s[i] = -pr[2] * calpha - tn * salpha;
@@ -5569,6 +5841,9 @@ void VBMicrolensing::BinaryLightCurve(double* pr, double* ts, double* mags, doub
 
 
 void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	double s = exp(pr[0]), q = exp(pr[1]), rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), t0, u0;
 	double salpha = sin(pr[3]), calpha = cos(pr[3]), xc;
 
@@ -5578,6 +5853,9 @@ void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, dou
 	u0 = pr[2] + xc * salpha;
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("BinaryLightCurveW");
+		}
 		tn = (ts[i] - t0) * tE_inv;
 		y1s[i] = u0 * salpha - tn * calpha;
 		y2s[i] = -u0 * calpha - tn * salpha;
@@ -5587,17 +5865,26 @@ void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, dou
 
 
 void VBMicrolensing::BinaryLightCurveParallax(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	astrometry = false;
 	BinaryAstroLightCurve(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, np);
 }
 
 
 void VBMicrolensing::BinaryLightCurveOrbital(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	astrometry = false;
 	BinaryAstroLightCurveOrbital(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, seps, np);
 }
 
 void VBMicrolensing::BinaryLightCurveKepler(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	astrometry = false;
 	BinaryAstroLightCurveKepler(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, seps, np);
 }
@@ -5855,6 +6142,9 @@ void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* 
 
 
 void VBMicrolensing::TripleLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	double rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), di, mindi;
 	double q[3] = { 1, exp(pr[1]),exp(pr[8]) };
 	VBcomplex s[3];
@@ -5869,6 +6159,9 @@ void VBMicrolensing::TripleLightCurve(double* pr, double* ts, double* mags, doub
 	SetLensGeometry(3, q, s);
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("TripleLightCurve");
+		}
 		tn = (ts[i] - pr[6]) * tE_inv;
 		y1s[i] = pr[2] * salpha - tn * calpha;
 		y2s[i] = -pr[2] * calpha - tn * salpha;
@@ -5894,6 +6187,9 @@ void VBMicrolensing::TripleLightCurveParallax(double* pr, double* ts, double* ma
 }
 
 void VBMicrolensing::LightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np, int nl) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	double rho = exp(pr[2]), tn, tE_inv = exp(-pr[1]), di, mindi;
 
 	double* q = (double*)malloc(sizeof(double) * (nl));
@@ -5916,6 +6212,9 @@ void VBMicrolensing::LightCurve(double* pr, double* ts, double* mags, double* y1
 	free(s);
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("LightCurve");
+		}
 		tn = (ts[i] - pr[0]) * tE_inv;
 		y1s[i] = -tn;
 		y2s[i] = 0.;
@@ -6278,6 +6577,9 @@ void VBMicrolensing::SetLDprofile(LDprofiles LDval) {
 //////////////////////////////
 
 void VBMicrolensing::LoadSunTable(char* filename) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+
 	FILE* f;
 	double RA, Dec, dis, phiprec;
 
@@ -6295,8 +6597,12 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 		ndataEar = 1;
 
 		// Finding start of data
-		while (!feof(f)) {
-			fscanf(f, "%s", teststring);
+			int timeout_iter = 0;
+			while (!feof(f)) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("LoadSunTable");
+				}
+				fscanf(f, "%s", teststring);
 			if (!feof(f)) {
 				fgetc(f); //fseek(f, 1, SEEK_CUR);
 				teststring[5] = 0;
@@ -6310,8 +6616,12 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 		if (flag2) {
 			flag2 = 0;
 //			startpos = ftell(f);
-			while (!feof(f)) {
-				fscanf(f, "%[^\n]s", teststring);
+				timeout_iter = 0;
+				while (!feof(f)) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("LoadSunTable");
+					}
+					fscanf(f, "%[^\n]s", teststring);
 				if (!feof(f)) {
 					//fseek(f, 1, SEEK_CUR);
 					fgetc(f);
@@ -6330,9 +6640,12 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 		// Allocating memory according to the length of the table
 		posEar = (double**)malloc(sizeof(double*) * ndataEar);
 
-		for (int j = 0; j < ndataEar; j++) {
-			posEar[j] = (double*)malloc(sizeof(double) * 3);
-		}
+			for (int j = 0; j < ndataEar; j++) {
+				if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("LoadSunTable");
+				}
+				posEar[j] = (double*)malloc(sizeof(double) * 3);
+			}
 		ndataEar--;
 		fclose(f);
 
@@ -6343,8 +6656,12 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 //		fseek(f, startpos, SEEK_SET);
 		
 		// Finding start of data
-		while (!feof(f)) {
-			fscanf(f, "%s", teststring);
+			timeout_iter = 0;
+			while (!feof(f)) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("LoadSunTable");
+				}
+				fscanf(f, "%s", teststring);
 			if (!feof(f)) {
 				fgetc(f); //fseek(f, 1, SEEK_CUR);
 				teststring[5] = 0;
@@ -6354,8 +6671,11 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 				}
 			}
 		}
-		for (int id = 0; id < ndataEar; id++) {
-			if (fscanf(f, "%lf %lf %lf %lf %lf", &tcur, &RA, &Dec, &dis, &phiprec) == 5) {
+			for (int id = 0; id < ndataEar; id++) {
+				if (ShouldCheck(id + 1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("LoadSunTable");
+				}
+				if (fscanf(f, "%lf %lf %lf %lf %lf", &tcur, &RA, &Dec, &dis, &phiprec) == 5) {
 				if (stepEar < 0) {
 					if (startEar < 0) {
 						startEar = tcur;
@@ -6386,6 +6706,9 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+
 	double RA, Dec, dis, phiprec;
 	FILE* f;
 	char CoordinateString[512];
@@ -6412,8 +6735,12 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 		// Looking for satellite table files in the specified directory
 		sprintf(filename, "%s%csatellite*.txt", sateltabledir, systemslash);
 		nsat = 0;
-		for (unsigned char c = 32; c < 255; c++) {
-			filename[strlen(filename) - 5] = c;
+			int timeout_iter = 0;
+			for (unsigned char c = 32; c < 255; c++) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("SetObjectCoordinates");
+				}
+				filename[strlen(filename) - 5] = c;
 			f = fopen(filename, "r");
 			if (f != 0) {
 				nsat++;
@@ -6428,8 +6755,12 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 
 		// Reading satellite table files
 		ic = 0;
-		for (unsigned char c = 32; c < 255; c++) {
-			filename[strlen(filename) - 5] = c;
+			timeout_iter = 0;
+			for (unsigned char c = 32; c < 255; c++) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("SetObjectCoordinates");
+				}
+				filename[strlen(filename) - 5] = c;
 			f = fopen(filename, "r");
 			if (f != 0) {
 				int flag2 = 0;
@@ -6437,8 +6768,12 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 				ndatasat[ic] = 1;
 
 				// Finding start of data
-				while (!feof(f)) {
-					fscanf(f, "%s", teststring);
+					int file_iter = 0;
+					while (!feof(f)) {
+						if (ShouldCheck(++file_iter, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("SetObjectCoordinates");
+						}
+						fscanf(f, "%s", teststring);
 					if (!feof(f)) {
 						fgetc(f); //fseek(f, 1, SEEK_CUR);
 						teststring[5] = 0;
@@ -6451,8 +6786,12 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 				// Finding end of data
 				if (flag2) {
 					flag2 = 0;
-					while (!feof(f)) {
-						fscanf(f, "%[^\n]s", teststring);
+						file_iter = 0;
+						while (!feof(f)) {
+							if (ShouldCheck(++file_iter, kDefaultTimeoutCheckInterval)) {
+								CheckTimeout("SetObjectCoordinates");
+							}
+							fscanf(f, "%[^\n]s", teststring);
 						if (!feof(f)) {
 							//fseek(f, 1, SEEK_CUR);
 							fgetc(f);
@@ -6473,15 +6812,22 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 				tsat[ic] = (double*)malloc(sizeof(double) * ndatasat[ic]);
 				possat[ic] = (double**)malloc(sizeof(double*) * ndatasat[ic]);
 				
-				for (int j = 0; j < ndatasat[ic]; j++) {
-					possat[ic][j] = (double*)malloc(sizeof(double) * 3);
-				}
+					for (int j = 0; j < ndatasat[ic]; j++) {
+						if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("SetObjectCoordinates");
+						}
+						possat[ic][j] = (double*)malloc(sizeof(double) * 3);
+					}
 				ndatasat[ic]--;
 
 				f = fopen(filename, "r");
 				// Finding start of data
-				while (!feof(f)) {
-					fscanf(f, "%s", teststring);
+					file_iter = 0;
+					while (!feof(f)) {
+						if (ShouldCheck(++file_iter, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("SetObjectCoordinates");
+						}
+						fscanf(f, "%s", teststring);
 					if (!feof(f)) {
 						fgetc(f); //fseek(f, 1, SEEK_CUR);
 						teststring[5] = 0;
@@ -6495,9 +6841,12 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 				// Reading data
 				if (f) {
 					double tcur;
-					for (int id = 0; id < ndatasat[ic]; id++) {
+						for (int id = 0; id < ndatasat[ic]; id++) {
+							if (ShouldCheck(id + 1, kDefaultTimeoutCheckInterval)) {
+								CheckTimeout("SetObjectCoordinates");
+							}
 
-						if (fscanf(f, "%lf %lf %lf %lf %lf", &(tsat[ic][id]), &RA, &Dec, &dis, &phiprec) == 5) {
+							if (fscanf(f, "%lf %lf %lf %lf %lf", &(tsat[ic][id]), &RA, &Dec, &dis, &phiprec) == 5) {
 							tsat[ic][id] -= 2450000;
 							RA *= M_PI / 180;
 							Dec *= M_PI / 180;
@@ -6523,6 +6872,9 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* CoordinateString) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+
 	double RA, Dec, hr, mn, sc, deg, pr, ssc, sp, r;
 
 	hr = mn = sc = deg = pr = ssc = -1.e100;
@@ -6532,14 +6884,27 @@ void VBMicrolensing::SetObjectCoordinates(char* CoordinateString) {
 		Dec = (fabs(deg) + pr / 60 + ssc / 3600) * M_PI / 180;
 		if (deg < 0) Dec = -Dec;
 
-		for (int i = 0; i < 3; i++) {
-			Obj[i] = (cos(RA) * cos(Dec) * Eq2000[i] + sin(RA) * cos(Dec) * Quad2000[i] + sin(Dec) * North2000[i]);
+			for (int i = 0; i < 3; i++) {
+				if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("SetObjectCoordinates");
+				}
+				Obj[i] = (cos(RA) * cos(Dec) * Eq2000[i] + sin(RA) * cos(Dec) * Quad2000[i] + sin(Dec) * North2000[i]);
 			//rad[i] = Eq2000[i];
 			//tang[i] = North2000[i];
 		}
-		sp = 0;
-		for (int i = 0; i < 3; i++) sp += North2000[i] * Obj[i];
-		for (int i = 0; i < 3; i++) rad[i] = -North2000[i] + sp * Obj[i];
+			sp = 0;
+			for (int i = 0; i < 3; i++) {
+				if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("SetObjectCoordinates");
+				}
+				sp += North2000[i] * Obj[i];
+			}
+			for (int i = 0; i < 3; i++) {
+				if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("SetObjectCoordinates");
+				}
+				rad[i] = -North2000[i] + sp * Obj[i];
+			}
 
 		r = sqrt(rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]); // Celestial South projected orthogonal to LOS
 		rad[0] /= r;
@@ -6559,6 +6924,9 @@ bool VBMicrolensing::AreCoordinatesSet() {
 }
 
 void VBMicrolensing::ComputeParallax(double t, double t0) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+
 	static double dtflight = 0.0000993512; // = angle covered by Earth as light covers 1 au.
 	static double au_c = 0.005775518331436995; // au/c in days.
 	static double a0 = 1.00000261, adot = 0.00000562; // Ephemeris from JPL website 
@@ -6594,14 +6962,18 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			ic = (int)floor(ty);
 			ty -= ic;
 			for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
-			if (t_in_HJD) {
-				double told = t, tnew;
-				lighttravel0 = 0;
-				for (int i = 0; i < 3; i++) lighttravel0 += Ear[i] * Obj[i];
-				lighttravel0 *= au_c;
-				tnew = t0_par - lighttravel0;
-				while (fabs(told - tnew) > 1.e-8) {
-					told = tnew;
+				if (t_in_HJD) {
+					double told = t, tnew;
+					int timeout_iter = 0;
+					lighttravel0 = 0;
+					for (int i = 0; i < 3; i++) lighttravel0 += Ear[i] * Obj[i];
+					lighttravel0 *= au_c;
+					tnew = t0_par - lighttravel0;
+					while (fabs(told - tnew) > 1.e-8) {
+						if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("ComputeParallax");
+						}
+						told = tnew;
 					ty = (told - startEar) / stepEar;
 					ic = (int)floor(ty);
 					ty -= ic;
@@ -6654,11 +7026,15 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 		lighttravel = 0;
 		for (int i = 0; i < 3; i++) lighttravel += Ear[i] * Obj[i];
 		lighttravel *= au_c;
-		if (t_in_HJD) {
-			double told = t, tnew;
-			tnew = t - lighttravel;
-			while (fabs(told - tnew) > 1.e-8) {
-				told = tnew;
+			if (t_in_HJD) {
+				double told = t, tnew;
+				int timeout_iter = 0;
+				tnew = t - lighttravel;
+				while (fabs(told - tnew) > 1.e-8) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("ComputeParallax");
+					}
+					told = tnew;
 				ty = (told - startEar) / stepEar;
 				ic = (int)floor(ty);
 				ty -= ic;
@@ -6696,11 +7072,15 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			M = L - om;
 			M -= floor((M + M_PI) / (2 * M_PI)) * 2 * M_PI;
 
-			EE = M + e * sin(M);
-			dE = 1;
-			dLtof = 0;
-			while (fabs(dE) > 1.e-8) {
-				if (t_in_HJD) {
+				EE = M + e * sin(M);
+				dE = 1;
+				dLtof = 0;
+				int timeout_iter = 0;
+				while (fabs(dE) > 1.e-8) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("ComputeParallax");
+					}
+					if (t_in_HJD) {
 					// Correction to calculate Earth position at JD not HJD
 					x1 = a * (cos(EE) - e);
 					y1 = a * sqrt(1 - e * e) * sin(EE);
@@ -6767,11 +7147,15 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 		M = L - om;
 		M -= floor((M + M_PI) / (2 * M_PI)) * 2 * M_PI;
 
-		EE = M + e * sin(M);
-		dE = 1;
-		dLtof = 0;
-		while (fabs(dE) > 1.e-8) {
-			if (t_in_HJD) {
+			EE = M + e * sin(M);
+			dE = 1;
+			dLtof = 0;
+			int timeout_iter = 0;
+			while (fabs(dE) > 1.e-8) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("ComputeParallax");
+				}
+				if (t_in_HJD) {
 				// Correction to calculate Earth position at JD not HJD
 				x1 = a * (cos(EE) - e);
 				y1 = a * sqrt(1 - e * e) * sin(EE);
@@ -6880,6 +7264,9 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 _sols* VBMicrolensing::PlotCrit() {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.critical_curves_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::CriticalCurves);
+
 	VBcomplex ej, y, z;
 	int NPS = 200;
 	_sols* CriticalCurves;
@@ -6889,11 +7276,17 @@ _sols* VBMicrolensing::PlotCrit() {
 
 	CriticalCurves = new _sols;
 	for (int i = 0; i < 2 * n; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit");
+		}
 		Prov = new _curve;
 		CriticalCurves->append(Prov);
 	}
 
 	for (int j = 0; j < NPcrit; j++) {
+		if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit");
+		}
 		ej = VBcomplex(cos(2 * j * M_PI / NPcrit), -sin(2 * j * M_PI / NPcrit));
 		polycritcoefficients(ej);
 		cmplx_roots_gen(zcr, coefs, 2 * n, true, true);
@@ -6918,7 +7311,11 @@ _sols* VBMicrolensing::PlotCrit() {
 	}
 
 	Prov = CriticalCurves->first;
+	int merge_iter = 0;
 	while (Prov->next) {
+		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit");
+		}
 		SD = *(Prov->first) - *(Prov->last);
 		MD = 1.e100;
 		isso = 0;
@@ -6941,8 +7338,15 @@ _sols* VBMicrolensing::PlotCrit() {
 	// Caustics
 
 	for (Prov = CriticalCurves->last; Prov; Prov = Prov->prev) {
+		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit");
+		}
 		Prov2 = new _curve;
+		int point_iter = 0;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
+			if (ShouldCheck(++point_iter, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("PlotCrit");
+			}
 			y = z = VBcomplex(scanpoint->x1 - s_offset->re, scanpoint->x2 - s_offset->im);
 			for (int i = 0; i < n; i++) {
 				y = y - m[i] / conj(z - a[i]);
@@ -6955,6 +7359,9 @@ _sols* VBMicrolensing::PlotCrit() {
 }
 
 _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.critical_curves_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::CriticalCurves);
+
 	VBcomplex  a, q, ej, zr[4], x1, x2;
 	int NPS = 200;
 	_sols* CriticalCurves;
@@ -6968,11 +7375,17 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 
 	CriticalCurves = new _sols;
 	for (int i = 0; i < 4; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit(a,q)");
+		}
 		Prov = new _curve;
 		CriticalCurves->append(Prov);
 	}
 
 	for (int j = 0; j < NPcrit; j++) {
+		if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit(a,q)");
+		}
 		ej = VBcomplex(cos(2 * j * M_PI / NPcrit), -sin(2 * j * M_PI / NPcrit));
 		VBcomplex  coefs[5] = { a * a / 16.0 * (4.0 - a * a * ej) * (1.0 + q),a * (q - 1.0),(q + 1.0) * (1.0 + a * a * ej / 2.0),0.0,-(1.0 + q) * ej };
 		cmplx_roots_gen(zr, coefs, 4, true, true);
@@ -6997,7 +7410,11 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 	}
 
 	Prov = CriticalCurves->first;
+	int merge_iter = 0;
 	while (Prov->next) {
+		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit(a,q)");
+		}
 		SD = *(Prov->first) - *(Prov->last);
 		MD = 1.e100;
 		isso = 0;
@@ -7020,8 +7437,15 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 	// Caustics
 
 	for (Prov = CriticalCurves->last; Prov; Prov = Prov->prev) {
+		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("PlotCrit(a,q)");
+		}
 		Prov2 = new _curve;
+		int point_iter = 0;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
+			if (ShouldCheck(++point_iter, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("PlotCrit(a,q)");
+			}
 			x1 = VBcomplex(scanpoint->x1 - centeroffset, 0.0);
 			x2 = VBcomplex(scanpoint->x2, 0.0);
 			Prov2->append(real(_L_1) + centeroffset, real(_L_2));
@@ -7652,6 +8076,9 @@ void VBMicrolensing::polycoefficients_multipoly() {
 
 
 void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.root_solver_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);
+
 	//roots - array which will hold all roots that had been found.
 	//If the flag 'use_roots_as_starting_points' is set to
 	//.true., then instead of point(0, 0) we use value from
@@ -7683,11 +8110,19 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 
 	if (!use_roots_as_starting_points) {
 		for (int jj = 0; jj < degree; jj++) {
+			if (ShouldCheck(jj + 1, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("cmplx_roots_gen");
+			}
 			roots[jj] = VBcomplex(0, 0);
 		}
 	}
 
-	for (j = 0; j <= degree; j++) poly2[j] = poly[j];
+	for (j = 0; j <= degree; j++) {
+		if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_gen");
+		}
+		poly2[j] = poly[j];
+	}
 
 	// Don't do Laguerre's for small degree polynomials
 	if (degree <= 1) {
@@ -7696,6 +8131,9 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 	}
 
 	for (n = degree; n >= 3; n--) {
+		if (ShouldCheck(degree - n + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_gen");
+		}
 		// Look for smallest root first
 		ismallest = n - 1;
 		abssmall = abs2(roots[ismallest]);
@@ -7717,8 +8155,11 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 
 		// Divide by root
 		coef = poly2[n];
-		for (i = n - 1; i >= 0; i--) {
-			prev = poly2[i];
+			for (i = n - 1; i >= 0; i--) {
+				if (ShouldCheck(n - i, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("cmplx_roots_gen");
+				}
+				prev = poly2[i];
 			poly2[i] = coef;
 			coef = prev + roots[n - 1] * coef;
 		}
@@ -7738,6 +8179,9 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 
 	if (polish_roots_after) {
 		for (n = 0; n < degree - 1; n++) {
+			if (ShouldCheck(n + 1, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("cmplx_roots_gen");
+			}
 			cmplx_newton_spec(poly, degree, &roots[n], iter, success); // Polish roots with full polynomial
 		}
 	}
@@ -7746,6 +8190,8 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 }
 
 void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.root_solver_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);
 
 	static VBcomplex poly2[MAXM];
 	static int l, j, i, k, ind, degreenew, croots, m;
@@ -7755,18 +8201,37 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 
 
 	//	n = (int) round(sqrt(degree - 1));
-	for (l = 0; l < n; l++) nrootsmp_mp[l] = 0;
 	for (l = 0; l < n; l++) {
+		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_multigen");
+		}
+		nrootsmp_mp[l] = 0;
+	}
+	for (l = 0; l < n; l++) {
+		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_multigen");
+		}
 		for (i = 0; i < degree; i++) {
+			if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("cmplx_roots_multigen");
+			}
 			zr_mp[l][i] = VBcomplex(0., 0.);
 		}
 	}
 	//Cycle reference systems
 	for (l = 0; l < n; l++) {
+		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_multigen");
+		}
 
 		br = false;
 		//copy poly coefs
-		for (j = 0; j <= degree; j++) poly2[j] = poly[l][j];
+			for (j = 0; j <= degree; j++) {
+				if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("cmplx_roots_multigen");
+				}
+				poly2[j] = poly[l][j];
+			}
 		//Don't do Lagierre's for small degree polybnomials
 		if (l != n - 1) {
 			if (degree <= 1) {
@@ -7774,9 +8239,12 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				nrootsmp_mp[l] = 1;
 				break;
 			}
-			//Do Laguerre for degree >=3
-			for (m = degree; m >= 3; m--) {
-				cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
+				//Do Laguerre for degree >=3
+				for (m = degree; m >= 3; m--) {
+					if (ShouldCheck(degree - m + 1, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("cmplx_roots_multigen");
+					}
+					cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
 				if (!success) {
 					zr_mp[l][m - 1] = VBcomplex(0, 0);
 					cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
@@ -7797,8 +8265,11 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				//Divide by root
 				//cmplx_newton_spec(poly[l], degree, &zr_mp[l][m - 1], iter, success);
 				coef = poly2[m];
-				for (i = m - 1; i >= 0; i--) {
-					prev = poly2[i];
+					for (i = m - 1; i >= 0; i--) {
+						if (ShouldCheck(m - i, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("cmplx_roots_multigen");
+						}
+						prev = poly2[i];
 					poly2[i] = coef;
 					coef = prev + zr_mp[l][m - 1] * coef;
 				}
@@ -7845,10 +8316,16 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				degreenew -= nrootsmp_mp[i];
 			}
 
-			for (int m = degree; m > degreenew; m--) {
-				coef = poly2[m];
-				for (i = m - 1; i >= 0; i--) {
-					prev = poly2[i];
+				for (int m = degree; m > degreenew; m--) {
+					if (ShouldCheck(degree - m + 1, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("cmplx_roots_multigen");
+					}
+					coef = poly2[m];
+					for (i = m - 1; i >= 0; i--) {
+						if (ShouldCheck(m - i, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("cmplx_roots_multigen");
+						}
+						prev = poly2[i];
 					poly2[i] = coef;
 					coef = prev + zr_mp[l][m - 1] * coef;
 				}
@@ -7861,8 +8338,11 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				break;
 			}
 
-			for (m = degreenew; m >= 3; m--) {
-				cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
+				for (m = degreenew; m >= 3; m--) {
+					if (ShouldCheck(degreenew - m + 1, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("cmplx_roots_multigen");
+					}
+					cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
 				if (!success) {
 					zr_mp[l][m - 1] = VBcomplex(0, 0);
 					cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
@@ -7872,8 +8352,11 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				// Divide by root
 				//cmplx_newton_spec(poly[l], degree, &zr_mp[l][m - 1], iter, success);
 				coef = poly2[m];
-				for (i = m - 1; i >= 0; i--) {
-					prev = poly2[i];
+					for (i = m - 1; i >= 0; i--) {
+						if (ShouldCheck(m - i, kDefaultTimeoutCheckInterval)) {
+							CheckTimeout("cmplx_roots_multigen");
+						}
+						prev = poly2[i];
 					poly2[i] = coef;
 					coef = prev + zr_mp[l][m - 1] * coef;
 				}
@@ -7886,12 +8369,21 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 
 	ind = degree - 1;
 	for (l = 0; l < n - 1; l++) {
+		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_multigen");
+		}
 		for (i = 0; i < nrootsmp_mp[l]; i++) {
+			if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("cmplx_roots_multigen");
+			}
 			roots[ind] = zr_mp[l][degree - 1 - i] + s_sort[l] - s_sort[0];
 			ind--;
 		}
 	}
 	for (i = 0; i < nrootsmp_mp[n - 1]; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_roots_multigen");
+		}
 		roots[ind] = zr_mp[n - 1][i] + s_sort[n - 1] - s_sort[0];
 		ind--;
 	}
@@ -8051,6 +8543,9 @@ void VBMicrolensing::cmplx_laguerre(VBcomplex* poly, int degree, VBcomplex* root
 	two_n_div_n_1 = 2.0 / n_1_nth;
 	c_one_nth = VBcomplex(one_nth, 0.0);
 	for (i = 1; i <= MAXIT; i++) {
+		if (ShouldCheck(i, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_laguerre");
+		}
 		ek = abs(poly[degree]); // Preparing stopping criterion
 		absroot = abs(*root);
 		// Calculate the values of polynomial and its first and second derivatives
@@ -8194,6 +8689,9 @@ void VBMicrolensing::cmplx_newton_spec(VBcomplex* poly, int degree, VBcomplex* r
 
 	stopping_crit2 = 0.0; //value not important, will be initialized anyway on the first loop
 	for (i = 1; i <= MAXIT; i++) {
+		if (ShouldCheck(i, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_newton_spec");
+		}
 		faq = 1.0;
 		//prepare stopping criterion
 		//calculate value of polynomial and its first two derivatives
@@ -8357,7 +8855,11 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 
 	mode = starting_mode; // mode = 2 full laguerre, mode = 1 SG, mode = 0 newton
 
+	int outer_timeout_iter = 0;
 	for (;;) { //infinite loop, just to be able to come back from newton, if more than 10 iteration there
+		if (ShouldCheck(++outer_timeout_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("cmplx_laguerre2newton");
+		}
 
 		////////////
 		///mode 2///
@@ -8369,8 +8871,11 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 			two_n_div_n_1 = 2.0 / n_1_nth;
 			c_one_nth = VBcomplex(one_nth, 0.0);
 
-			for (i = 1; i <= MAXIT; i++) {
-				faq = 1.0;
+				for (i = 1; i <= MAXIT; i++) {
+					if (ShouldCheck(i, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("cmplx_laguerre2newton");
+					}
+					faq = 1.0;
 
 				//prepare stoping criterion
 				ek = abs(poly[degree]);
@@ -8465,8 +8970,11 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 
 		if (mode == 1) {//SECOND-ORDER GENERAL METHOD (SG)
 
-			for (i = j; i <= MAXIT; i++) {
-				faq = 1.0;
+				for (i = j; i <= MAXIT; i++) {
+					if (ShouldCheck(i - j + 1, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("cmplx_laguerre2newton");
+					}
+					faq = 1.0;
 				//calculate value of polynomial and its first two derivatives
 				p = poly[degree];
 				dp = zero;
@@ -8550,8 +9058,11 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 		//------------------------------------------------------------------------------- mode 0
 		if (mode == 0) { // Newton's Method
 
-			for (i = j; i <= j + 10; i++) { // Do only 10 iterations the most then go back to Laguerre
-				faq = 1.0;
+				for (i = j; i <= j + 10; i++) { // Do only 10 iterations the most then go back to Laguerre
+					if (ShouldCheck(i - j + 1, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("cmplx_laguerre2newton");
+					}
+					faq = 1.0;
 
 				//calc polynomial and first two derivatives
 				p = poly[degree];

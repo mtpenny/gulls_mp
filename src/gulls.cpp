@@ -4,6 +4,7 @@
 #include<iostream>
 #include<fstream>
 #include<ctime>
+#include<exception>
 #include<sys/timeb.h>
 #include "VBMicrolensingLibrary.h"
 
@@ -58,8 +59,27 @@ static void usage(int status) {
   exit(status);
 }
 
+static int timeout_exit_code(VBMTimeoutError::TimeoutCategory category) {
+  switch (category) {
+  case VBMTimeoutError::TimeoutCategory::RootSolver:
+    return 41;
+  case VBMTimeoutError::TimeoutCategory::Magnification:
+    return 42;
+  case VBMTimeoutError::TimeoutCategory::Parallax:
+    return 43;
+  case VBMTimeoutError::TimeoutCategory::CriticalCurves:
+    return 44;
+  case VBMTimeoutError::TimeoutCategory::Astrometry:
+    return 45;
+  case VBMTimeoutError::TimeoutCategory::Unknown:
+  default:
+    return 40;
+  }
+}
+
 
 int main(int argc, char *argv[]){                   /* BEGIN MAIN */
+  try {
 
   //set up program timers
   Paramfile.alltime=0;
@@ -142,6 +162,13 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 
   if(Paramfile.verbosity) {printf("readParamfile\n"); fflush(stdout);}
   readParamfile(input_filename, &Paramfile);
+  if(gulls_random_is_stub() && !Paramfile.allow_random_stub)
+    {
+      cerr << "FATAL: Random backend '" << gulls_random_backend_name() << "' is a CI/testing stub." << endl;
+      cerr << "Set ALLOW_RANDOM_STUB=1 in the parameter file only for intentional stub runs." << endl;
+      cerr << "Aborting to protect science runs." << endl;
+      return EXIT_FAILURE;
+    }
   if(field<0)
     {
       output_filename = Paramfile.outputdir + Paramfile.run_name + string("_") + instance + string(".out"); //Create simulation output filename
@@ -201,6 +228,16 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   }
   VBM.Tol=Paramfile.vbm_tol;
   VBM.RelTol=Paramfile.vbm_reltol;
+  {
+    VBMicrolensing::TimeoutConfig timeout_cfg;
+    timeout_cfg.root_solver_seconds = Paramfile.vbm_timeout_root_solver;
+    timeout_cfg.magnification_seconds = Paramfile.vbm_timeout_magnification;
+    timeout_cfg.parallax_seconds = Paramfile.vbm_timeout_parallax;
+    timeout_cfg.critical_curves_seconds = Paramfile.vbm_timeout_critical_curves;
+    timeout_cfg.astrometry_seconds = Paramfile.vbm_timeout_astrometry;
+    timeout_cfg.check_interval = Paramfile.vbm_timeout_check_interval;
+    VBM.SetTimeouts(timeout_cfg);
+  }
   Event.vbm = &VBM;
   /* Initialise and warmup random number generator */
   idum = &var;        
@@ -467,5 +504,29 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   clock2str(st,st1);
   
   return(0);
+  } catch (const VBMTimeoutError& err) {
+    const int exit_code = timeout_exit_code(err.category());
+    cerr << "FATAL: " << err.what() << endl;
+    cerr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+    if (!err.where().empty()) {
+      cerr << "Timeout source: " << err.where() << endl;
+    }
+    if (logfile_ptr.is_open()) {
+      logfile_ptr << "FATAL: " << err.what() << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+      if (!err.where().empty()) {
+        logfile_ptr << "Timeout source: " << err.where() << endl;
+      }
+      logfile_ptr.flush();
+    }
+    return exit_code;
+  } catch (const std::exception& err) {
+    cerr << "FATAL: Unhandled exception: " << err.what() << endl;
+    if (logfile_ptr.is_open()) {
+      logfile_ptr << "FATAL: Unhandled exception: " << err.what() << endl;
+      logfile_ptr.flush();
+    }
+    return 1;
+  }
   
 }
