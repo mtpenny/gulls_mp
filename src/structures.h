@@ -160,11 +160,10 @@ struct filekeywords{
   int multiple_sources;
   int multiple_lenses;
 
+  int astrometry_on;  // Enable astrometry calculations/output
+  double astrometry_error_floor_mas; // Systematic astrometric floor (mas)
+
   int skip_magnification;
-  
-  // Astrometry controls
-  int astrometry_on;  // Enable astrometry calculation (slows down VBM significantly)
-  double astrometry_error_floor_mas; // Systematic floor for astrometric errors (mas)
   
   long* seed;
 
@@ -177,7 +176,6 @@ struct filekeywords{
   string pathdir;
   string pathfile;
   string basedir;
-  string inputdir; 
   string starsdir;
   /*string scriptdir;
   string paramdir;
@@ -196,7 +194,6 @@ struct filekeywords{
   string sourcelist; 
   string lensdir; 
   string lenslist; 
-  string plansdir; 
   string planetdir;
   string planetroot;
   string outputdir;
@@ -319,11 +316,8 @@ struct event{
   vector<string> paramsHeader;
   // Flag array for which observatory sees the event in which field
   //int isseenby[MAX_NUM_OBSERVATORIES][MAX_NUM_FIELDS]; 
-  // Flux fractions (fraction of total baseline flux from each component)
-  double fs[MAX_NUM_OBSERVATORIES];      // Source(s) flux fraction
-  double fl1[MAX_NUM_OBSERVATORIES];     // Primary lens flux fraction
-  double fl2[MAX_NUM_OBSERVATORIES];     // Secondary lens flux fraction (if luminous)
-  double famb[MAX_NUM_OBSERVATORIES];    // Ambient stars flux fraction     
+  //fraction of total flux contrib by source
+  double fs[MAX_NUM_OBSERVATORIES];     
   int nepochs;                            /*TOTAL NUMBER OF EPOCHS */
   int nepochsvec[MAX_NUM_OBSERVATORIES+1];    /*CUMULATIVE SUM OF EPOCHS*/
   int numobservatories;
@@ -375,21 +369,19 @@ struct event{
   vector<double> texp;
   vector<double> moonObjDist;
   vector<double> deltaVmoon;
-  vector<double> Atrue; //true magnification without noise
+  vector<double> Atrue;
   vector<double> Atrueerr;
-  vector<double> Aobs; //relative flux with photometric noise
+  vector<double> Aobs;
   vector<double> Aerr;
   vector<double> Afit;
-  vector<double> musrc1; //magnification of source 1
-  vector<double> musrc2; //magnification of source 2
   vector<bool> nosat;      /*Is point unsaturated? */
   vector<double> backmag;
   vector<double> dF;
   vector<double> dF_debug;
   vector<double> dF_diff;
-  vector<double> xs; //source 1 position
+  vector<double> xs; //source position
   vector<double> ys;
-  vector<double> xs2; //source 2 position
+  vector<double> xs2; //source position
   vector<double> ys2;
   vector<vector<double> > xsrc, ysrc, mu_src;
   vector<double> xl1; //lens 1 position
@@ -405,23 +397,32 @@ struct event{
   vector<double> yctrue; //y centroid no noise
   vector<double> ycerr; //y centroid error
   vector<double> yctrueerr; //x centroid error no noise
-  
-  // Astrometry intermediate centroids (units: theta_E)
-  // Each step of blending is tracked for debugging
-  vector<double> xc_src_only;     // Lensed source(s) centroid (no baseline blending)
+
+  // Astrometry stage diagnostics (event frame, theta_E)
+  vector<double> xc_src_only;
   vector<double> yc_src_only;
-  vector<double> xc_src_lens;     // After blending with luminous lens(es)
+  vector<double> xc_src_lens;
   vector<double> yc_src_lens;
-  vector<double> xc_src_lens_amb; // After blending with ambient stars (= final xctrue)
-  vector<double> yc_src_lens_amb;
-  
-  // Raw VBMicrolensing library outputs (units: theta_E)
-  // Coordinate frame depends on lens configuration:
-  //   - Single lens: astrox1 along source-lens axis, astrox2 = 0 (axial symmetry)
-  //   - Binary lens: x1 along binary axis, x2 perpendicular, origin at center of mass
-  //   - N-lens: same frame as input source coordinates
-  vector<double> astrox1_raw;
-  vector<double> astrox2_raw;
+  vector<vector<double> > astrox1_raw;
+  vector<vector<double> > astrox2_raw;
+  vector<vector<double> > astrox_raw;
+  vector<vector<double> > astroy_raw;
+
+  // Public sky astrometry products (degrees / mas)
+  vector<double> lambda_noiseless_deg;
+  vector<double> beta_noiseless_deg;
+  vector<double> ra_noiseless_deg;
+  vector<double> dec_noiseless_deg;
+  vector<double> ra_measured_deg;
+  vector<double> dec_measured_deg;
+  vector<double> sigma_ast_mas;
+  vector<double> ra_err_deg;
+  vector<double> dec_err_deg;
+  vector<double> ra_src_only_deg;
+  vector<double> dec_src_only_deg;
+  vector<double> ra_src_lens_deg;
+  vector<double> dec_src_lens_deg;
+  string VBM_function;
   
 
   vector<double> data; //generic data to be output

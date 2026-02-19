@@ -183,6 +183,23 @@ def _parse_astrometry_bagle_model_frame(lc_file: Path) -> str | None:
     return None
 
 
+def _parse_header_keyvals(lc_file: Path, prefix: str) -> Dict[str, str]:
+    with lc_file.open(encoding="utf-8") as handle:
+        for raw in handle:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith(prefix):
+                continue
+            parsed: Dict[str, str] = {}
+            for token in raw.strip().split()[1:]:
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                parsed[key.strip()] = value.strip()
+            return parsed
+    return {}
+
+
 def _pm_gal_to_icrs(l_deg: float, b_deg: float, mu_l: float, mu_b: float) -> Tuple[float, float]:
     if not _HAS_ASTROPY:
         raise RuntimeError("astropy not available")
@@ -819,6 +836,7 @@ def run_bagle_joint_fit_sanity(
     obs_location: str = "jwst",
     obs_location_fallback: str = "earth",
     lens_ast_rms_demean_mas_max: float = 0.05,
+    microlensing_mask_te: float = 5.0,
 ) -> BagleJointFitSummary:
     """Fit one single-source, single-lens-like event with BAGLE and validate vectors."""
     run_dir = run_dir.resolve()
@@ -831,6 +849,10 @@ def run_bagle_joint_fit_sanity(
     if lens_ast_rms_demean_mas_max <= 0.0:
         raise SmokeTestError(
             f"BAGLE sanity: lens_ast_rms_demean_mas_max must be positive, got {lens_ast_rms_demean_mas_max}."
+        )
+    if microlensing_mask_te < 0.0:
+        raise SmokeTestError(
+            f"BAGLE sanity: microlensing_mask_te must be non-negative, got {microlensing_mask_te}."
         )
 
     # BAGLE uses on-disk caches during import/runtime. In sandboxed environments,
@@ -859,7 +881,39 @@ def run_bagle_joint_fit_sanity(
             "Install BAGLE (and typically pymultinest, dynesty, ultranest) before running."
         ) from exc
 
-    out_tables = [pd.read_csv(path, sep=r"\s+") for path in out_files]
+    def _read_out_table_strict(path: Path) -> pd.DataFrame:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            raise SmokeTestError(f"BAGLE sanity: .out file is empty: {path}")
+
+        header_cols = lines[0].split()
+        expected_ncols = len(header_cols)
+        if expected_ncols == 0:
+            raise SmokeTestError(f"BAGLE sanity: .out header is empty: {path}")
+
+        rows: List[List[str]] = []
+        for line_number, raw in enumerate(lines[1:], start=2):
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "\t" in raw:
+                raise SmokeTestError(
+                    f"BAGLE sanity: malformed .out table {path}:{line_number} contains tab delimiters"
+                )
+            row = raw.split()
+            if len(row) != expected_ncols:
+                raise SmokeTestError(
+                    f"BAGLE sanity: malformed .out table {path}:{line_number} has {len(row)} columns; "
+                    f"header has {expected_ncols}"
+                )
+            rows.append(row)
+
+        if not rows:
+            raise SmokeTestError(f"BAGLE sanity: .out file has no data rows: {path}")
+
+        return pd.DataFrame(rows, columns=header_cols)
+
+    out_tables = [_read_out_table_strict(path) for path in out_files]
     if not out_tables:
         raise SmokeTestError(f"BAGLE sanity: no .out files found under {run_dir}")
     out_df = pd.concat(out_tables, ignore_index=True)
@@ -920,10 +974,58 @@ def run_bagle_joint_fit_sanity(
             f"Closest events:\n{head}"
         )
 
-    row = candidates.sort_values(
+    candidate_rows = candidates.sort_values(
         ["ObsGroup_0_chi2", "EventID"],
         ascending=[True, True],
-    ).iloc[0]
+    )
+
+    row = None
+    lc_file = None
+    df = None
+    mask_skips: List[str] = []
+    min_epochs_after_mask = 60
+    for _, candidate_row in candidate_rows.iterrows():
+        evt_try = int(float(candidate_row["EventID"]))
+        subrun_try = int(float(candidate_row["SubRun"]))
+        field_try = int(float(candidate_row["Field"]))
+        lc_try = _find_lc_for_event(run_dir, evt_try, subrun_try, field_try)
+        df_try = pd.read_csv(lc_try, sep=r"\s+", comment="#")
+        if "Simulation_time" not in df_try.columns:
+            raise SmokeTestError(
+                f"BAGLE sanity: {lc_try.name} missing required Simulation_time column"
+            )
+
+        sim_time_try = df_try["Simulation_time"].to_numpy(dtype=float, copy=False)
+        t0_try = _safe_get(candidate_row, "t0lens1")
+        tE_try = abs(_safe_get(candidate_row, "tE_ref"))
+        if math.isnan(t0_try) or math.isnan(tE_try) or tE_try <= 0.0:
+            continue
+
+        if microlensing_mask_te > 0.0:
+            mask_halfwidth_days_try = microlensing_mask_te * max(tE_try, 1.0e-12)
+            outside_event_window_try = np.abs(sim_time_try - t0_try) > mask_halfwidth_days_try
+        else:
+            outside_event_window_try = np.ones_like(sim_time_try, dtype=bool)
+
+        n_outside = int(np.sum(outside_event_window_try & np.isfinite(sim_time_try)))
+        if n_outside < min_epochs_after_mask:
+            mask_skips.append(
+                f"{lc_try.name} (EventID={evt_try}): only {n_outside} epochs remain after mask"
+            )
+            continue
+
+        row = candidate_row
+        lc_file = lc_try
+        df = df_try
+        break
+
+    if row is None or lc_file is None or df is None:
+        detail = "\n".join(mask_skips[:8]) if mask_skips else "No candidate passed mask-based epoch availability checks."
+        raise SmokeTestError(
+            "BAGLE sanity: all selected events were skipped because the microlensing mask left insufficient data.\n"
+            + detail
+        )
+
     evt = int(float(row["EventID"]))
     subrun = int(float(row["SubRun"]))
     field = int(float(row["Field"]))
@@ -942,14 +1044,39 @@ def run_bagle_joint_fit_sanity(
         if math.isfinite(q_val) and q_val > 0.0:
             lensing_context_parts.append(f"Planet_0_q={q_val:.4g}")
 
-    lc_file = _find_lc_for_event(run_dir, evt, subrun, field)
-    df = pd.read_csv(lc_file, sep=r"\s+", comment="#")
+    contract = _parse_header_keyvals(lc_file, "#Astrometry_Contract:")
+    contract_cols = _parse_header_keyvals(lc_file, "#Astrometry_Columns:")
+    warnings: List[str] = []
+    for skip_msg in mask_skips[:5]:
+        warnings.append(f"BAGLE candidate skipped: {skip_msg}.")
+
+    def _resolve_col(contract_keys: tuple[str, ...], *fallbacks: str, allow_none: bool = False) -> str | None:
+        candidates: List[str] = []
+        for contract_key in contract_keys:
+            if contract_key not in contract_cols:
+                continue
+            mapped = contract_cols[contract_key]
+            if mapped.strip().lower() == "none":
+                return None if allow_none else None
+            candidates.append(mapped)
+        candidates.extend(fallbacks)
+        for col in candidates:
+            if col in df.columns:
+                return col
+        return None
+
     astrometry_model_frame_raw = _parse_astrometry_bagle_model_frame(lc_file)
     if astrometry_model_frame_raw is None:
-        raise SmokeTestError(
-            f"BAGLE sanity: {lc_file.name} missing #Astrometry_BAGLE model_frame; "
-            "output must explicitly declare BAGLE astrometry convention."
-        )
+        astrometry_model_frame_raw = contract.get("model_frame")
+        if astrometry_model_frame_raw is None:
+            astrometry_model_frame_raw = "absolute"
+            warnings.append(
+                f"{lc_file.name}: missing #Astrometry_BAGLE model_frame; defaulting BAGLE comparison to absolute frame."
+            )
+        else:
+            warnings.append(
+                f"{lc_file.name}: BAGLE model_frame inferred from #Astrometry_Contract ({astrometry_model_frame_raw})."
+            )
     astrometry_model_frame = astrometry_model_frame_raw
     if astrometry_model_frame not in ("lens_relative", "absolute"):
         raise SmokeTestError(
@@ -974,23 +1101,49 @@ def run_bagle_joint_fit_sanity(
     if lensing_context_parts:
         lensing_context = " Likely cause: " + "; ".join(lensing_context_parts) + "."
 
+    col_ra_obs = _resolve_col(
+        ("sky_ra_measured_deg", "sky_ra_obs_deg"),
+        "RA_measured_deg",
+        "RA_obs_deg",
+        "RA_centroid_deg",
+    )
+    col_dec_obs = _resolve_col(
+        ("sky_dec_measured_deg", "sky_dec_obs_deg"),
+        "Dec_measured_deg",
+        "Dec_obs_deg",
+        "Dec_centroid_deg",
+    )
+    col_ra_det = _resolve_col(
+        ("sky_ra_noiseless_deg", "sky_ra_det_deg"),
+        "RA_noiseless_deg",
+        "RA_det_deg",
+        "RA_centroid_true_deg",
+    )
+    col_dec_det = _resolve_col(
+        ("sky_dec_noiseless_deg", "sky_dec_det_deg"),
+        "Dec_noiseless_deg",
+        "Dec_det_deg",
+        "Dec_centroid_true_deg",
+    )
+    col_x_err = _resolve_col(("event_x_err_mas",), "x_centroid_error", "x_centroid_error_mas", allow_none=True)
+    col_y_err = _resolve_col(("event_y_err_mas",), "y_centroid_error", "y_centroid_error_mas", allow_none=True)
+    col_sigma = _resolve_col(("sky_sigma_mas",), "sigma_ast_mas")
+
     required_lc_cols = [
         "Simulation_time",
         "measured_relative_flux",
         "measured_relative_flux_error",
-        "RA_centroid_deg",
-        "Dec_centroid_deg",
-        "x_centroid_error_mas",
-        "y_centroid_error_mas",
+        col_ra_obs,
+        col_dec_obs,
+        col_sigma,
     ]
-    missing_lc = [col for col in required_lc_cols if col not in df.columns]
+    missing_lc = [col for col in required_lc_cols if col is None or col not in df.columns]
     if missing_lc:
         raise SmokeTestError(
             f"BAGLE sanity: {lc_file.name} missing required columns: {', '.join(missing_lc)}"
         )
 
     sim_time = df["Simulation_time"].to_numpy(dtype=float, copy=False)
-    warnings: List[str] = []
     warnings.append(
         f"{lc_file.name}: BAGLE astrometry model_frame={astrometry_model_frame} (from #Astrometry_BAGLE contract)."
     )
@@ -1024,9 +1177,30 @@ def run_bagle_joint_fit_sanity(
         )
     t_mjd = t_jd - 2400000.5
 
+    t0_event_days = _safe_get(row, "t0lens1")
+    tE_event_days = abs(_safe_get(row, "tE_ref"))
+    if math.isnan(t0_event_days) or math.isnan(tE_event_days) or tE_event_days <= 0.0:
+        raise SmokeTestError(
+            f"BAGLE sanity: event {evt} has invalid t0lens1/tE_ref in .out"
+        )
+    if microlensing_mask_te > 0.0:
+        mask_halfwidth_days = microlensing_mask_te * max(tE_event_days, 1.0e-12)
+        outside_event_window = np.abs(sim_time - t0_event_days) > mask_halfwidth_days
+        warnings.append(
+            f"{lc_file.name}: BAGLE fit/validation mask applied: excluded epochs with "
+            f"|t-t0|<={microlensing_mask_te:.2f}*tE (|t-t0|<={mask_halfwidth_days:.3f} day)."
+        )
+    else:
+        outside_event_window = np.ones_like(sim_time, dtype=bool)
+        warnings.append(
+            f"{lc_file.name}: BAGLE fit/validation mask disabled (microlensing_mask_te=0)."
+        )
+
     flux = df["measured_relative_flux"].to_numpy(dtype=float, copy=False)
     flux_err = df["measured_relative_flux_error"].to_numpy(dtype=float, copy=False)
     phot_mask = (
+        outside_event_window
+        &
         np.isfinite(t_mjd)
         & np.isfinite(flux)
         & np.isfinite(flux_err)
@@ -1056,8 +1230,8 @@ def run_bagle_joint_fit_sanity(
         ra_deg = ra_frame
         dec_deg = dec_frame
 
-    ra_obs_deg = df["RA_centroid_deg"].to_numpy(dtype=float, copy=False)
-    dec_obs_deg = df["Dec_centroid_deg"].to_numpy(dtype=float, copy=False)
+    ra_obs_deg = df[col_ra_obs].to_numpy(dtype=float, copy=False)
+    dec_obs_deg = df[col_dec_obs].to_numpy(dtype=float, copy=False)
     cos_dec = math.cos(math.radians(dec_deg))
     if abs(cos_dec) < 1.0e-8:
         raise SmokeTestError(
@@ -1096,21 +1270,21 @@ def run_bagle_joint_fit_sanity(
         warnings.append(
             f"{lc_file.name}: using blendless source-only astrometry from centroid_src_x/y with #Astrometry_Transform."
         )
-    elif "RA_centroid_true_deg" in df.columns and "Dec_centroid_true_deg" in df.columns:
+    elif col_ra_det is not None and col_dec_det is not None:
         if fit_true_astrometry:
             raise SmokeTestError(
                 f"BAGLE sanity: fit_true_astrometry requested for {lc_file.name}, "
                 "but blendless source-only astrometry columns are missing "
                 "(need RA_centroid_src_only_deg/Dec_centroid_src_only_deg or centroid_src_x/y with #Astrometry_Transform)."
             )
-        ra_true_deg = df["RA_centroid_true_deg"].to_numpy(dtype=float, copy=False)
-        dec_true_deg = df["Dec_centroid_true_deg"].to_numpy(dtype=float, copy=False)
+        ra_true_deg = df[col_ra_det].to_numpy(dtype=float, copy=False)
+        dec_true_deg = df[col_dec_det].to_numpy(dtype=float, copy=False)
         dra_true_deg = (ra_true_deg - ra_deg + 180.0) % 360.0 - 180.0
         x_ast_true_all_arcsec = dra_true_deg * cos_dec * 3600.0
         y_ast_true_all_arcsec = (dec_true_deg - dec_deg) * 3600.0
-        true_ast_source = "RA/Dec blended true centroid fallback"
+        true_ast_source = "RA/Dec deterministic centroid fallback"
         warnings.append(
-            f"{lc_file.name}: blendless astrometry columns missing; falling back to RA_centroid_true/Dec_centroid_true."
+            f"{lc_file.name}: blendless astrometry columns missing; falling back to deterministic RA/Dec astrometry columns."
         )
     elif "true_x_centroid_mas" in df.columns and "true_y_centroid_mas" in df.columns:
         if fit_true_astrometry:
@@ -1140,14 +1314,24 @@ def run_bagle_joint_fit_sanity(
             f"BAGLE sanity: {lc_file.name} missing usable noiseless astrometry columns "
             "(prefer RA_centroid_src_only_deg/Dec_centroid_src_only_deg; "
             "fallbacks: centroid_src_x/y with #Astrometry_Transform, "
-            "or legacy RA_centroid_true/Dec_centroid_true)."
+                "or deterministic RA_noiseless/Dec_noiseless style columns)."
         )
     if true_ast_source is not None:
         warnings.append(f"{lc_file.name}: noiseless astrometry source = {true_ast_source}.")
 
-    x_err_mas = df["x_centroid_error_mas"].to_numpy(dtype=float, copy=False)
-    y_err_mas = df["y_centroid_error_mas"].to_numpy(dtype=float, copy=False)
+    if col_x_err is not None and col_y_err is not None:
+        x_err_mas = df[col_x_err].to_numpy(dtype=float, copy=False)
+        y_err_mas = df[col_y_err].to_numpy(dtype=float, copy=False)
+    else:
+        sigma_mas = df[col_sigma].to_numpy(dtype=float, copy=False)
+        x_err_mas = sigma_mas.copy()
+        y_err_mas = sigma_mas.copy()
+        warnings.append(
+            f"{lc_file.name}: event_x/y error columns omitted by contract; using {col_sigma} symmetrically for BAGLE astrometric errors."
+        )
     ast_mask = (
+        outside_event_window
+        &
         np.isfinite(t_mjd)
         & np.isfinite(x_ast_all_arcsec)
         & np.isfinite(y_ast_all_arcsec)
@@ -1206,14 +1390,10 @@ def run_bagle_joint_fit_sanity(
             f"{lc_file.name}: fitting BAGLE to noiseless astrometry with fixed uncertainty {true_ast_err_mas:.4g} mas."
         )
 
-    t0_guess_jd = sim_zero_time + _safe_get(row, "t0lens1")
+    t0_guess_jd = sim_zero_time + t0_event_days
     t0_guess = t0_guess_jd - 2400000.5
-    tE_guess = abs(_safe_get(row, "tE_ref"))
+    tE_guess = tE_event_days
     thetaE_guess = abs(_safe_get(row, "thetaE"))
-    if math.isnan(t0_guess) or math.isnan(tE_guess) or tE_guess <= 0.0:
-        raise SmokeTestError(
-            f"BAGLE sanity: event {evt} has invalid t0lens1/tE_ref in .out"
-        )
     if math.isnan(thetaE_guess) or thetaE_guess <= 0.0:
         raise SmokeTestError(
             f"BAGLE sanity: event {evt} has invalid thetaE in .out"
@@ -1229,7 +1409,7 @@ def run_bagle_joint_fit_sanity(
         fs_guess = 0.9
     fs_guess = min(max(fs_guess, 0.02), 0.999)
 
-    far_mask = np.abs(sim_time - _safe_get(row, "t0lens1")) > 3.0 * max(tE_guess, 1.0)
+    far_mask = np.abs(sim_time - t0_event_days) > 3.0 * max(tE_guess, 1.0)
     base_flux_pool = flux[(far_mask) & np.isfinite(flux) & (flux > 0.0)]
     if base_flux_pool.size == 0:
         base_flux_pool = flux[np.isfinite(flux) & (flux > 0.0)]
@@ -1548,10 +1728,15 @@ def run_bagle_joint_fit_sanity(
         lens_x_sel_arcsec = lens_x_all_arcsec[ast_idx]
         lens_y_sel_arcsec = lens_y_all_arcsec[ast_idx]
         lens_finite = np.isfinite(t_ast) & np.isfinite(lens_x_sel_arcsec) & np.isfinite(lens_y_sel_arcsec)
-        if int(np.sum(lens_finite)) < 20:
+        n_lens_finite = int(np.sum(lens_finite))
+        if n_lens_finite == 0:
             warnings.append(
-                f"{lc_file.name}: primary-lens astrometry columns present but only {int(np.sum(lens_finite))} finite epochs "
-                "on selected astrometry rows; skipping lens-track comparison."
+                f"{lc_file.name}: primary-lens astrometry comparison skipped because mask/quality cuts left zero usable epochs."
+            )
+        elif n_lens_finite < 20:
+            warnings.append(
+                f"{lc_file.name}: primary-lens astrometry comparison skipped because only {n_lens_finite} "
+                "usable epochs remain after mask/quality cuts (<20)."
             )
         else:
             t_lens = t_ast[lens_finite]
@@ -1604,9 +1789,22 @@ def run_bagle_joint_fit_sanity(
                 f"RMS_after_xy_offset={lens_ast_rms_demean_mas:.3f} mas)."
             )
     else:
-        warnings.append(
-            f"{lc_file.name}: primary-lens astrometry columns missing (RA_lens_primary_deg/Dec_lens_primary_deg); "
-            "skipping lens-track comparison."
+        available_lens_cols = [
+            col for col in df.columns if col.startswith("lens") and ("_x" in col or "_y" in col)
+        ]
+        hint = ""
+        if available_lens_cols:
+            hint = (
+                " Available lens-track-like columns: "
+                + ", ".join(available_lens_cols[:8])
+                + (" ..." if len(available_lens_cols) > 8 else "")
+                + "."
+            )
+        raise SmokeTestError(
+            f"BAGLE sanity: {lc_file.name} missing required primary-lens astrometry columns "
+            "(RA_lens_primary_deg/Dec_lens_primary_deg). "
+            "Either publish these in the .lc output or update BAGLE sanity to consume the published lens-track frame."
+            + hint
         )
 
     mu_fit = _vec_from_model_attr(best_model, "muRel")

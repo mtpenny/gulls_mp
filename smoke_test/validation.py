@@ -20,14 +20,61 @@ _CANONICAL_PSF_HASHES: Dict[str, str] = {
 
 def verify_outputs(output_dir: Path) -> List[Path]:
     out_files = sorted(output_dir.glob("*.out"))
-    lc_files = list(output_dir.rglob("*.lc"))
+    lc_files = sorted(output_dir.rglob("*.lc"))
     if not out_files:
         raise SmokeTestError(f"No .out files found in {output_dir}")
     if not lc_files:
         raise SmokeTestError(f"No .lc files found under {output_dir}")
     if out_files[0].stat().st_size == 0:
         raise SmokeTestError(f"Summary file is empty: {out_files[0]}")
+    for lc_file in lc_files:
+        _verify_lightcurve_table_format(lc_file)
     return out_files
+
+
+def _verify_line_delimiters(path: Path, line: str, line_number: int) -> None:
+    if "\t" in line:
+        raise SmokeTestError(
+            f"{path}:{line_number} contains tab delimiters; expected single-space-delimited columns"
+        )
+    if "  " in line:
+        raise SmokeTestError(
+            f"{path}:{line_number} contains malformed delimiters (double spaces)"
+        )
+
+
+def _verify_lightcurve_table_format(lc_file: Path) -> None:
+    lines = lc_file.read_text(encoding="utf-8").splitlines()
+
+    header_line: str | None = None
+    header_line_number = -1
+    for line_number, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        header_line = raw
+        header_line_number = line_number
+        break
+
+    if header_line is None:
+        raise SmokeTestError(f"Lightcurve file {lc_file} has no table header line")
+
+    _verify_line_delimiters(lc_file, header_line, header_line_number)
+    header_columns = header_line.split()
+    expected_ncols = len(header_columns)
+    if expected_ncols == 0:
+        raise SmokeTestError(f"Lightcurve file {lc_file} has an empty table header")
+
+    for line_number, raw in enumerate(lines[header_line_number:], start=header_line_number + 1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        _verify_line_delimiters(lc_file, raw, line_number)
+        row_columns = raw.split()
+        if len(row_columns) != expected_ncols:
+            raise SmokeTestError(
+                f"{lc_file}:{line_number} has {len(row_columns)} columns but header has {expected_ncols}"
+            )
 
 
 def _resolve_param_path(raw: str, role: str) -> Path:
@@ -747,6 +794,71 @@ def verify_input_files_exist(params: Dict[str, str]) -> None:
         )
 
 
+def verify_planet_file_schema(
+    params: Dict[str, str],
+    field: int,
+    instance: str,
+) -> None:
+    """Validate selected planet file has consistent column counts across all data rows."""
+    planet_dir_str = params.get("PLANET_DIR")
+    planet_root = params.get("PLANET_ROOT", "").strip()
+    if not planet_dir_str or not planet_root:
+        return
+
+    if field < 0:
+        # Cannot determine filename when field is auto-selected at runtime.
+        return
+
+    planet_dir = _resolve_param_path(planet_dir_str, "planet directory")
+    planet_file = (planet_dir / f"{planet_root}{field}.{instance}").resolve()
+    if not planet_file.exists():
+        raise SmokeTestError(
+            f"Planet file not found for selected field/subrun: {planet_file}"
+        )
+
+    lines = planet_file.read_text(encoding="utf-8").splitlines()
+    header_cols: List[str] | None = None
+    data_width: int | None = None
+    data_rows = 0
+
+    for line_number, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        cols = stripped.split()
+
+        is_numeric = True
+        for token in cols:
+            try:
+                float(token)
+            except ValueError:
+                is_numeric = False
+                break
+
+        if not is_numeric:
+            if header_cols is None:
+                header_cols = cols
+            continue
+
+        data_rows += 1
+        if data_width is None:
+            data_width = len(cols)
+        elif len(cols) != data_width:
+            raise SmokeTestError(
+                f"Planet file {planet_file}:{line_number} has {len(cols)} columns; "
+                f"expected {data_width} based on earlier data rows"
+            )
+
+    if data_rows == 0:
+        raise SmokeTestError(f"Planet file {planet_file} has no numeric data rows")
+
+    if header_cols is not None and data_width is not None and len(header_cols) != data_width:
+        raise SmokeTestError(
+            f"Planet file {planet_file} header has {len(header_cols)} columns but data rows have {data_width}"
+        )
+
+
 def verify_psf_files(params: Dict[str, str]) -> None:
     """Validate that detector PSF binaries are present and match detector expectations."""
     obs_dir_str = params.get("OBSERVATORY_DIR")
@@ -980,6 +1092,7 @@ __all__ = [
     "verify_catalog_alignment", 
     "verify_catalog_columns",
     "verify_input_files_exist",
+    "verify_planet_file_schema",
     "verify_psf_files",
     "verify_nfilters_matches_catalogs",
     "verify_outputs",

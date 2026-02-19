@@ -25,7 +25,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     double sina = sin(alpha);
     double VBM_origin = (1.0 - m1) * (-a);
     vector<int> obsoffset(Paramfile->numobservatories,0);
-    Event->vbm->astrometry = true; // ensure centroid information is populated for each call
     Event->Amax=-1;
     Event->umin=1e50;
     Event->lcerror=0;
@@ -72,9 +71,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
      
     //if the event is saturated in each band, no need to calculate the lightcurve
     if(Event->nepochs==0 || Event->allsat)
-    {
-        return;
-    }
+     {
+      return;
+     }
     vector<int> idxshift;
     int shiftedidx;
     const double timeout = Paramfile->lc_timeout;
@@ -100,42 +99,25 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
         obsidx = Event->obsidx[idx];
         shiftedidx=idx-idxshift[obsidx];
         double amp = 0.0;
-        double combinedAstroX = 0.0;
-        double combinedAstroY = 0.0;
         if (Paramfile->identicalSequence && obsidx > 0)
 	  {
             // Lightcurve is identical from observatory to observatory
-            amp = Event->Atrue[shiftedidx];  // use previously calculated magnification
-			combinedAstroX = Event->xctrue[shiftedidx];  // true centroid x
-			combinedAstroY = Event->yctrue[shiftedidx];  // true centroid y
-			Event->musrc1[idx] = Event->musrc1[shiftedidx];
-			Event->musrc2[idx] = Event->musrc2[shiftedidx];
-			Event->Atrue[idx] = Event->Atrue[shiftedidx];
-			Event->vbm_rootaccuracy[idx] = Event->vbm_rootaccuracy[shiftedidx];
-			Event->vbm_squarecheck[idx] = Event->vbm_squarecheck[shiftedidx];
-			Event->vbm_therr[idx] = Event->vbm_therr[shiftedidx];
-			Event->xs[idx] = Event->xs[shiftedidx];
-			Event->ys[idx] = Event->ys[shiftedidx];
-			Event->xs2[idx] = Event->xs2[shiftedidx];
-			Event->ys2[idx] = Event->ys2[shiftedidx];
-			Event->xl1[idx] = Event->xl1[shiftedidx];
-			Event->yl1[idx] = Event->yl1[shiftedidx];
-			Event->xl2[idx] = Event->xl2[shiftedidx];
-			Event->yl2[idx] = Event->yl2[shiftedidx];
-	  } else {
-
+            amp = Event->Atrue[shiftedidx];
+	  }
+	else
+	  {
 	    double tt = (Event->epoch[idx] - Event->t0) / Event->tE_r;
             double uu = u0;
 
             if (Paramfile->pllxMultiplyer)
-	        {
+	      {
                 tt += Event->pllx[obsidx].tshift[shiftedidx];
                 uu += Event->pllx[obsidx].ushift[shiftedidx];
-	        }
+	      }
             Event->umin=min(Event->umin,qAdd(tt,uu));
             
 	    double xsCoM = tt * cosa - uu * sina + VBM_origin;
-		double ysCenter = tt * sina + uu * cosa;
+            double ysCenter = tt * sina + uu * cosa;
 
             Event->xs[idx] = xsCoM;
             Event->ys[idx] = ysCenter;
@@ -150,10 +132,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	    Event->mu_src[0][idx] = amp;
 
 	    cout << 0 << " " << Event->epoch[idx] << " " << amp << endl;
-
-	    // TODO: Astrometry work retrieved VBM centroid offsets here via Event->vbm->astrox1, astrox2.
-	    // These were interpreted as source centroid shifts in the lens plane. When re-implementing,
-	    // store them to combinedAstroX/Y and later blend across multiple sources. - copilot
 
 	    Event->vbm_rootaccuracy[idx] = Event->vbm->rootaccuracy;
 	    Event->vbm_squarecheck[idx] = Event->vbm->squarecheck;
@@ -178,33 +156,25 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		Event->xsrc[1][idx] = xs2CoM;
 		Event->ysrc[1][idx] = ys2Center;
 		Event->mu_src[1][idx] = amp2;
-
-		// TODO: Astrometry work blended centroid shifts from multiple sources here.
-		// The centroid was flux-weighted: combinedAstroX = (flux1*src1AstroX + flux2*src2AstroX)/totalFlux
-		// where src1AstroX/Y and src2AstroX/Y came from Event->vbm->astrox1/astrox2 after each BinaryMag2 call.
-		// The flux ratio came from Event->scomp_fsofs1[0][filt] and Event->fs[obsidx]. - copilot
 	      
 		int filt = World[obsidx].filter;		
 		Event->Atrue[idx] = amp + Event->scomp_fsofs1[0][filt] * (amp2-1);
 
-		// Store individual source magnifications
-		Event->musrc1[idx] = amp;
-		Event->musrc2[idx] = amp2;
-
-	      } else {
-		
-		Event->musrc1[idx] = amp;
-		Event->musrc2[idx] = 0.0; // No second source
-		Event->Atrue[idx] = amp;
+		//Put binary source astrometry here
+		//Event->xctrue[idx] = ;
+		//Event->yctrue[idx] = ;
 
 	      }
-	}
+	    else
+	      {
+		Event->Atrue[idx] = amp;
 
-	// TODO: Astrometry work stored the blended centroid to xctrue/yctrue/xc/yc here:
-	// Event->xctrue[idx] = combinedAstroX; Event->yctrue[idx] = combinedAstroY;
-	// Event->xc[idx] = combinedAstroX; Event->yc[idx] = combinedAstroY; (noisy version set in photometry)
-	// Event->xctrueerr[idx] = 0.0; Event->yctrueerr[idx] = 0.0;
-	// Event->xcerr[idx] = 0.0; Event->ycerr[idx] = 0.0; - copilot
+
+		//put single source astrometry here
+		//Event->xctrue[idx] = ;
+		//Event->yctrue[idx] = ;
+	      }
+	  }
 
         // Keep track of highest magnification
         if (amp > Event->Amax)

@@ -171,6 +171,24 @@ def _parse_astrometry_transform(
     return None
 
 
+def _parse_header_keyvals(lc_file: Path, prefix: str) -> Dict[str, str]:
+    """Parse ``key=value`` tokens from a single header line."""
+    with lc_file.open(encoding="utf-8") as handle:
+        for raw in handle:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith(prefix):
+                continue
+            parsed: Dict[str, str] = {}
+            for token in raw.strip().split()[1:]:
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                parsed[key.strip()] = value.strip()
+            return parsed
+    return {}
+
+
 def _derive_event_key(lc_file: Path) -> Tuple[int, int, int | None] | None:
     """Infer (EventID, SubRun, Field?) from a lightcurve filename.
 
@@ -352,6 +370,219 @@ def verify_astrometry_sanity(
             record_error(f"{lc_file.name}: table is empty")
             continue
         summary.checked_epochs += len(df)
+
+        contract = _parse_header_keyvals(lc_file, "#Astrometry_Contract:")
+        contract_cols = _parse_header_keyvals(lc_file, "#Astrometry_Columns:")
+        has_contract_v2 = bool(contract_cols) and all(
+            any(key in contract_cols for key in aliases)
+            for aliases in (
+                ("sky_ra_noiseless_deg", "sky_ra_det_deg"),
+                ("sky_dec_noiseless_deg", "sky_dec_det_deg"),
+                ("sky_ra_measured_deg", "sky_ra_obs_deg"),
+                ("sky_dec_measured_deg", "sky_dec_obs_deg"),
+            )
+        )
+
+        if has_contract_v2:
+            row = _match_out_row(lc_file, out_rows)
+            if row is None:
+                record_error(
+                    f"{lc_file.name}: unable to match this lightcurve to an EventID/SubRun/Field row in .out"
+                )
+                continue
+
+            def _resolve_col(
+                contract_keys: tuple[str, ...],
+                fallbacks: tuple[str, ...],
+                allow_none: bool = False,
+            ) -> str | None:
+                candidates: list[str] = []
+                for key in contract_keys:
+                    contract_val = contract_cols.get(key)
+                    if contract_val is None:
+                        continue
+                    if contract_val.strip().lower() == "none":
+                        return None if allow_none else None
+                    candidates.append(contract_val)
+                candidates.extend(fallbacks)
+                for col in candidates:
+                    if col in df.columns:
+                        return col
+                return None
+
+            col_sim = "Simulation_time"
+            col_x_err = _resolve_col(("event_x_err_mas",), ("x_centroid_error",), allow_none=True)
+            col_y_err = _resolve_col(("event_y_err_mas",), ("y_centroid_error",), allow_none=True)
+            col_x_true = _resolve_col(
+                ("event_x_thetaE", "event_x_true"),
+                ("true_x_centroid",),
+            )
+            col_y_true = _resolve_col(
+                ("event_y_thetaE", "event_y_true"),
+                ("true_y_centroid",),
+            )
+            col_x_true_err = _resolve_col(("event_x_true_err",), ("true_x_centroid_error",), allow_none=True)
+            col_y_true_err = _resolve_col(("event_y_true_err",), ("true_y_centroid_error",), allow_none=True)
+            col_ra_det = _resolve_col(("sky_ra_noiseless_deg", "sky_ra_det_deg"), ("RA_noiseless_deg", "RA_det_deg"))
+            col_dec_det = _resolve_col(("sky_dec_noiseless_deg", "sky_dec_det_deg"), ("Dec_noiseless_deg", "Dec_det_deg"))
+            col_ra_obs = _resolve_col(("sky_ra_measured_deg", "sky_ra_obs_deg"), ("RA_measured_deg", "RA_obs_deg"))
+            col_dec_obs = _resolve_col(("sky_dec_measured_deg", "sky_dec_obs_deg"), ("Dec_measured_deg", "Dec_obs_deg"))
+            col_sigma = _resolve_col(("sky_sigma_mas",), ("sigma_ast_mas",))
+
+            required_v2 = [
+                ("Simulation_time", col_sim),
+                ("event_x_true", col_x_true),
+                ("event_y_true", col_y_true),
+                ("sky_ra_noiseless_deg", col_ra_det),
+                ("sky_dec_noiseless_deg", col_dec_det),
+                ("sky_ra_measured_deg", col_ra_obs),
+                ("sky_dec_measured_deg", col_dec_obs),
+                ("sky_sigma_mas", col_sigma),
+                ("parallax_shift_x", "parallax_shift_x"),
+                ("parallax_shift_y", "parallax_shift_y"),
+                ("parallax_shift_z", "parallax_shift_z"),
+            ]
+            missing_v2 = [label for label, col in required_v2 if col is None or col not in df.columns]
+            if missing_v2:
+                record_error(
+                    f"{lc_file.name}: missing required v2 astrometry columns: {', '.join(sorted(set(missing_v2)))}"
+                )
+                continue
+
+            bad_numeric = _nan_or_inf_columns(df, [col for _, col in required_v2 if col is not None])
+            if bad_numeric:
+                record_error(
+                    f"{lc_file.name}: non-finite values in v2 astrometry columns: {', '.join(bad_numeric)}"
+                )
+                continue
+
+            frame_ra_deg, frame_dec_deg = _parse_astrometry_frame(lc_file)
+            if frame_ra_deg is None or frame_dec_deg is None:
+                frame_ra_deg = float(row.get("ra_deg", math.nan))
+                frame_dec_deg = float(row.get("dec_deg", math.nan))
+            if not math.isfinite(frame_ra_deg) or not math.isfinite(frame_dec_deg):
+                record_error(f"{lc_file.name}: missing finite frame RA/Dec (header and .out)")
+                continue
+
+            out_ra = float(row.get("ra_deg", math.nan))
+            out_dec = float(row.get("dec_deg", math.nan))
+            if math.isfinite(out_ra) and math.isfinite(out_dec):
+                dra_mas = abs(_angle_diff_deg(frame_ra_deg, out_ra)) * math.cos(frame_dec_deg * DEG_TO_RAD) * MAS_PER_DEG
+                ddec_mas = abs(frame_dec_deg - out_dec) * MAS_PER_DEG
+                if dra_mas > 0.05 or ddec_mas > 0.05:
+                    record_error(
+                        f"{lc_file.name}: frame RA/Dec mismatch .out row (dRA={dra_mas:.3e} mas, dDec={ddec_mas:.3e} mas)"
+                    )
+
+            if col_x_err is not None and col_y_err is not None:
+                xerr = df[col_x_err].to_numpy(dtype=float, copy=False)
+                yerr = df[col_y_err].to_numpy(dtype=float, copy=False)
+                if np.any(xerr < 0) or np.any(yerr < 0):
+                    record_error(f"{lc_file.name}: negative astrometric error values found")
+            else:
+                sigma_err = df[col_sigma].to_numpy(dtype=float, copy=False)
+                if np.any(sigma_err < 0):
+                    record_error(f"{lc_file.name}: negative sigma_ast_mas values found")
+
+            if (col_x_true_err is None) != (col_y_true_err is None):
+                record_error(f"{lc_file.name}: event_x_true_err/event_y_true_err must be both present or both none")
+            if col_x_true_err is not None and col_y_true_err is not None:
+                txerr = df[col_x_true_err].to_numpy(dtype=float, copy=False)
+                tyerr = df[col_y_true_err].to_numpy(dtype=float, copy=False)
+                true_unit = contract.get("event_true_unit", "mas").strip().lower()
+                true_tol = 1.0e-8 if true_unit == "thetae" else 1.0e-3
+                if np.nanmax(np.abs(txerr)) > true_tol or np.nanmax(np.abs(tyerr)) > true_tol:
+                    record_error(
+                        f"{lc_file.name}: true centroid error columns should be ~0 but max abs is "
+                        f"{max(float(np.nanmax(np.abs(txerr))), float(np.nanmax(np.abs(tyerr)))):.3e} "
+                        f"(unit={true_unit})"
+                    )
+
+            tref = float(row.get("tref", math.nan))
+            if math.isnan(tref):
+                record_error(f"{lc_file.name}: .out row is missing finite tref")
+                continue
+
+            sim_time = df[col_sim].to_numpy(dtype=float, copy=False)
+            idx_ref = int(np.argmin(np.abs(sim_time - tref)))
+            dt_ref = float(abs(sim_time[idx_ref] - tref))
+            if dt_ref > 0.5:
+                summary.warnings.append(
+                    f"{lc_file.name}: nearest epoch to tref is far (|t-tref|={dt_ref:.4f} day), "
+                    "tref-anchor checks are less diagnostic"
+                )
+
+            ra_det = df[col_ra_det].to_numpy(dtype=float, copy=False)
+            dec_det = df[col_dec_det].to_numpy(dtype=float, copy=False)
+            if "RA_centroid_src_only_deg" in df.columns and "Dec_centroid_src_only_deg" in df.columns and math.isfinite(out_ra) and math.isfinite(out_dec):
+                ra_src = df["RA_centroid_src_only_deg"].to_numpy(dtype=float, copy=False)
+                dec_src = df["Dec_centroid_src_only_deg"].to_numpy(dtype=float, copy=False)
+                dra_ref = _angle_diff_deg(float(ra_src[idx_ref]), out_ra) * math.cos(out_dec * DEG_TO_RAD) * MAS_PER_DEG
+                ddec_ref = (float(dec_src[idx_ref]) - out_dec) * MAS_PER_DEG
+                ref_offset_mas = math.hypot(dra_ref, ddec_ref)
+                theta_e_mas = float(row.get("thetaE", math.nan))
+                tol_ref_mas = max(1.0, 4.0 * theta_e_mas) if not math.isnan(theta_e_mas) else 1.0
+                if ref_offset_mas > tol_ref_mas:
+                    record_error(
+                        f"{lc_file.name}: source-only astrometry at epoch nearest tref is not close to canonical pointing "
+                        f"(offset={ref_offset_mas:.4f} mas, tol={tol_ref_mas:.4f} mas, |t-tref|={dt_ref:.4f} day)"
+                    )
+            else:
+                summary.warnings.append(
+                    f"{lc_file.name}: skipped tref anchoring check for v2 schema (no source-only RA/Dec columns)."
+                )
+
+            ra_obs = df[col_ra_obs].to_numpy(dtype=float, copy=False)
+            dec_obs = df[col_dec_obs].to_numpy(dtype=float, copy=False)
+            sigma_ast = df[col_sigma].to_numpy(dtype=float, copy=False)
+            cos_det = np.cos(np.deg2rad(dec_det))
+            dra_noise_mas = np.array(
+                [
+                    _angle_diff_deg(float(ra_obs[j]), float(ra_det[j])) * float(cos_det[j]) * MAS_PER_DEG
+                    for j in range(len(df))
+                ],
+                dtype=float,
+            )
+            ddec_noise_mas = (dec_obs - dec_det) * MAS_PER_DEG
+            mask_sig = sigma_ast > 0.0
+            if np.any(mask_sig):
+                zscores.append(dra_noise_mas[mask_sig] / sigma_ast[mask_sig])
+                zscores.append(ddec_noise_mas[mask_sig] / sigma_ast[mask_sig])
+
+            if "BJD" in df.columns and sim_zero_time is not None:
+                bjd = df["BJD"].to_numpy(dtype=float, copy=False)
+                expected_bjd = sim_zero_time + sim_time
+                bjd_abs_err = np.abs(bjd - expected_bjd)
+                if np.nanmedian(bjd_abs_err) > 1.0e-3 or np.nanmax(bjd_abs_err) > 5.0e-3:
+                    sample = ", ".join(f"{val:.6f}" for val in bjd[:3])
+                    record_error(
+                        f"{lc_file.name}: BJD is inconsistent with SIMULATION_ZERO_TIME + Simulation_time "
+                        f"(median |Δ|={float(np.nanmedian(bjd_abs_err)):.3e} day, max |Δ|={float(np.nanmax(bjd_abs_err)):.3e} day; "
+                        f"first BJD values: {sample})"
+                    )
+                if len(bjd) > 2 and np.unique(np.round(bjd, 10)).size < 3:
+                    record_error(
+                        f"{lc_file.name}: BJD shows <3 unique values over {len(bjd)} epochs, suggesting severe precision loss"
+                    )
+            elif "BJD" in df.columns and sim_zero_time is None:
+                summary.warnings.append(
+                    f"{lc_file.name}: skipped BJD epoch-alignment check (SIMULATION_ZERO_TIME missing)"
+                )
+            else:
+                record_error(f"{lc_file.name}: missing BJD column")
+
+            obs_x = df["parallax_shift_x"].to_numpy(dtype=float, copy=False)
+            obs_y = df["parallax_shift_y"].to_numpy(dtype=float, copy=False)
+            obs_z = df["parallax_shift_z"].to_numpy(dtype=float, copy=False)
+            if np.ptp(obs_x) < 1.0e-8 and np.ptp(obs_y) < 1.0e-8 and np.ptp(obs_z) < 1.0e-8:
+                record_error(
+                    f"{lc_file.name}: observer parallax_shift_(x,y,z) appears constant; expected epoch-dependent observer position"
+                )
+
+            summary.warnings.append(
+                f"{lc_file.name}: using Astrometry_Contract v2 checks (schema declared in header)."
+            )
+            continue
 
         missing = _missing_columns(df.columns, required_cols)
         if missing:

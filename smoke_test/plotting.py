@@ -30,11 +30,19 @@ VBM_CLASS = VBMicrolensingClass  # type: ignore
 
 
 def _derive_event_key(lc_file: Path) -> Tuple[int, int, int] | None:
+    """Map legacy filename order to summary-key order.
+
+    Lightcurve filenames encode trailing IDs as:
+      ..._<SubRun>_<Field>_<EventID>
+    Summary metrics are keyed as:
+      (EventID, SubRun, Field)
+    """
     stem = lc_file.stem.split(".", 1)[0]
     parts = stem.rsplit("_", 3)
     if len(parts) < 4:
         return None
-    return tuple(int(part) for part in parts[-3:])
+    subrun, field, event = (int(part) for part in parts[-3:])
+    return (event, subrun, field)
 
 
 def _format_metric(value: float | None, precision: int = 3) -> str:
@@ -98,6 +106,24 @@ def _parse_astrometry_frame(lc_file: Path) -> Tuple[float | None, float | None]:
             if ra_deg is not None or dec_deg is not None:
                 return ra_deg, dec_deg
     return None, None
+
+
+def _parse_header_keyvals(lc_file: Path, prefix: str) -> Dict[str, str]:
+    """Parse ``key=value`` tokens from a single header line."""
+    with lc_file.open(encoding="utf-8") as header_reader:
+        for raw in header_reader:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith(prefix):
+                continue
+            parsed: Dict[str, str] = {}
+            for token in raw.strip().split()[1:]:
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                parsed[key.strip()] = value.strip()
+            return parsed
+    return {}
 
 
 def _resolve_lensframe_columns(
@@ -682,15 +708,20 @@ def _render_astrometric_figure(
     true_y_vals: np.ndarray | None,
     meas_x: np.ndarray | None,
     meas_y: np.ndarray | None,
+    event_frame_data: Dict[str, np.ndarray] | None = None,
     src1_flux: np.ndarray | None = None,
     src2_flux: np.ndarray | None = None,
+    panel_labels: Dict[str, str] | None = None,
+    event_info_rows: List[Tuple[str, str]] | None = None,
 ) -> Tuple[Path, Path | None]:
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(13.5, 10))
     fig.suptitle(title, fontsize=14)
     ax_light = axes[0, 0]
-    ax_time = axes[0, 1]
+    ax_event = axes[0, 1]
     ax_radec = axes[1, 0]
-    ax_ne = axes[1, 1]
+    ax_info = axes[1, 1]
+
+    labels = panel_labels or {}
 
     ax_light.errorbar(
         time,
@@ -744,9 +775,22 @@ def _render_astrometric_figure(
         label="Baseline",
         zorder=3,
     )
-    ax_light.set_xlabel("Time (days)")
+    light_x_col = labels.get("light_x_col", "Simulation_time")
+    light_y_col = labels.get("light_y_col", "measured_relative_flux")
+    light_yerr_col = labels.get("light_yerr_col", "measured_relative_flux_error")
+    light_true_col = labels.get("light_true_col", "true_relative_flux")
+    ax_light.set_xlabel(f"Time (days) [{light_x_col}]")
     ax_light.set_ylabel("Relative Flux")
     ax_light.set_title("Light Curve")
+    ax_light.text(
+        0.01,
+        0.98,
+        f"cols: {light_y_col}, {light_yerr_col}, {light_true_col}",
+        transform=ax_light.transAxes,
+        va="top",
+        ha="left",
+        fontsize=7,
+    )
     ax_light.legend()
     ax_light.grid(True, alpha=0.3)
 
@@ -825,9 +869,28 @@ def _render_astrometric_figure(
             label=vbm_model.get("sky_label", "VBM BinaryAstroLightCurve (sky)"),
         )
 
+    radec_obs_ra_col = labels.get("radec_obs_ra_col", "measured_centroid_ra_deg")
+    radec_obs_dec_col = labels.get("radec_obs_dec_col", "measured_centroid_dec_deg")
+    radec_obs_ra_err_col = labels.get("radec_obs_ra_err_col", "measured_centroid_ra_error_deg")
+    radec_obs_dec_err_col = labels.get("radec_obs_dec_err_col", "measured_centroid_dec_error_deg")
+    radec_true_ra_col = labels.get("radec_true_ra_col", "true_centroid_ra_deg")
+    radec_true_dec_col = labels.get("radec_true_dec_col", "true_centroid_dec_deg")
     ax_radec.set_xlabel("RA (degrees)")
     ax_radec.set_ylabel("Dec (degrees)")
-    ax_radec.set_title("Absolute Astrometric Position")
+    ax_radec.set_title("Absolute Astrometric Position (RA/Dec)")
+    ax_radec.text(
+        0.01,
+        0.98,
+        (
+            f"obs cols: {radec_obs_ra_col}, {radec_obs_dec_col}\n"
+            f"obs err cols: {radec_obs_ra_err_col}, {radec_obs_dec_err_col}\n"
+            f"noiseless cols: {radec_true_ra_col}, {radec_true_dec_col}"
+        ),
+        transform=ax_radec.transAxes,
+        va="top",
+        ha="left",
+        fontsize=7,
+    )
     ax_radec.grid(True, alpha=0.3)
     ax_radec.axis("equal")
 
@@ -854,101 +917,92 @@ def _render_astrometric_figure(
             ax_radec.plot([], [], color=spec["color"], linewidth=2, label=spec["label"])
     ax_radec.legend(ncol=2, fontsize=8)
 
-    ax_ne.plot(
-        true_E_mas,
-        true_N_mas,
-        color="black",
-        linewidth=1.2,
-        alpha=0.8,
-        label="True track",
-        zorder=4,
+    ax_info.axis("off")
+    ax_info.set_title("Event Info / Validation Inputs")
+    info_rows = event_info_rows or []
+    if not info_rows:
+        info_rows = [("info", "n/a")]
+    info_table = ax_info.table(
+        cellText=[[field, value] for field, value in info_rows],
+        colLabels=["Field", "Value"],
+        cellLoc="left",
+        colLoc="left",
+        loc="center",
     )
-    ax_ne.scatter(
-        true_E_mas,
-        true_N_mas,
-        c=time,
-        cmap=cmap,
-        norm=norm,
-        s=18,
-        marker="x",
-        linewidths=0.8,
-        alpha=1.0,
-        label="True samples",
-        zorder=3,
-    )
-    ax_ne.errorbar(
-        meas_E_mas,
-        meas_N_mas,
-        xerr=meas_E_err_mas,
-        yerr=meas_N_err_mas,
-        fmt="none",
-        ecolor="lightgray",
-        alpha=0.5,
-        capsize=2,
-        zorder=0,
-    )
-    ax_ne.scatter(
-        meas_E_mas,
-        meas_N_mas,
-        c=time,
-        cmap=cmap,
-        norm=norm,
-        s=25,
-        alpha=0.5,
-        label="Measured",
-        zorder=1,
-    )
-    if vbm_model is not None:
-        vbm_E_mas = np.asarray(vbm_model["sky_ra"], dtype=float)  # type: ignore[index]
-        vbm_N_mas = np.asarray(vbm_model["sky_dec"], dtype=float)  # type: ignore[index]
-        ax_ne.plot(
-            vbm_E_mas,
-            vbm_N_mas,
-            color="tab:purple",
-            linewidth=1.2,
-            alpha=0.9,
-            label=vbm_model.get("sky_label", "VBM BinaryAstroLightCurve (sky)"),
-        )
-    ax_ne.set_xlabel("ΔEast (mas)")
-    ax_ne.set_ylabel("ΔNorth (mas)")
-    ax_ne.set_title("Astrometric Centroid (N/E), Relative to the Lens")
-    ax_ne.grid(True, alpha=0.3)
-    ax_ne.axis("equal")
-
-    if span_years and vector_specs:
-        start_E = true_E_mas[0]
-        start_N = true_N_mas[0]
-        for spec in vector_specs:
-            pm_ra = spec["pm_ra"]
-            pm_dec = spec["pm_dec"]
-            delta_E_mas = pm_ra * span_years
-            delta_N_mas = pm_dec * span_years
-            end_E = start_E + delta_E_mas
-            end_N = start_N + delta_N_mas
-            ax_ne.annotate(
-                "",
-                xy=(end_E, end_N),
-                xytext=(start_E, start_N),
-                arrowprops=dict(color=spec["color"], arrowstyle="->", linewidth=1),
-                zorder=5,
-            )
-            ax_ne.plot([], [], color=spec["color"], linewidth=2, label=spec["label"])
-    ax_ne.legend(ncol=2, fontsize=8)
+    info_table.auto_set_font_size(False)
+    info_table.set_fontsize(8)
+    info_table.scale(1.0, 1.15)
 
     fig.tight_layout(rect=[0, 0.12, 1, 1])
     cbar_ax = fig.add_axes([0.25, 0.06, 0.5, 0.025])
     cbar = fig.colorbar(sc_ra, cax=cbar_ax, orientation="horizontal")
     cbar.set_label("Time (days)")
 
-    ax_time.plot(time, true_N_mas, "b-", label="True N", linewidth=2, alpha=0.7)
-    ax_time.plot(time, meas_N_mas, "r.", label="Meas N", markersize=2, alpha=0.5)
-    ax_time.plot(time, true_E_mas, "g-", label="True E", linewidth=2, alpha=0.7)
-    ax_time.plot(time, meas_E_mas, "m.", label="Meas E", markersize=2, alpha=0.5)
-    ax_time.set_xlabel("Time (days)")
-    ax_time.set_ylabel("Centroid Shift (mas)")
-    ax_time.set_title("Astrometric Timeseries (N and E)")
-    ax_time.legend(fontsize=8)
-    ax_time.grid(True, alpha=0.3)
+    evt = event_frame_data or {}
+    centroid_x = evt.get("centroid_x")
+    centroid_y = evt.get("centroid_y")
+    if centroid_x is not None and centroid_y is not None:
+        mask_cent = np.isfinite(centroid_x) & np.isfinite(centroid_y) & np.isfinite(time)
+        if np.any(mask_cent):
+            ax_event.plot(
+                centroid_x[mask_cent],
+                centroid_y[mask_cent],
+                color="black",
+                linewidth=1.2,
+                alpha=0.8,
+                label="Centroid track",
+                zorder=4,
+            )
+            ax_event.scatter(
+                centroid_x[mask_cent],
+                centroid_y[mask_cent],
+                c=time[mask_cent],
+                cmap=cmap,
+                norm=norm,
+                s=18,
+                marker="x",
+                linewidths=0.8,
+                alpha=1.0,
+                label="Centroid samples",
+                zorder=5,
+            )
+
+    def _plot_track(x: np.ndarray | None, y: np.ndarray | None, color: str, label: str, z: int) -> None:
+        if x is None or y is None:
+            return
+        mask = np.isfinite(x) & np.isfinite(y)
+        if not np.any(mask):
+            return
+        ax_event.plot(x[mask], y[mask], color=color, linewidth=1.1, alpha=0.9, label=label, zorder=z)
+
+    _plot_track(evt.get("source0_x"), evt.get("source0_y"), "tab:blue", "Source 0", 2)
+    _plot_track(evt.get("lens0_x"), evt.get("lens0_y"), "tab:red", "Lens 0", 2)
+    _plot_track(evt.get("lens1_x"), evt.get("lens1_y"), "tab:orange", "Lens 1", 2)
+
+    event_x_col = labels.get("event_x_col", "true_x_centroid")
+    event_y_col = labels.get("event_y_col", "true_y_centroid")
+    cols_note_parts = [event_x_col, event_y_col]
+    for key in ("source0_x_col", "source0_y_col", "source0_mu_col", "lens0_x_col", "lens0_y_col", "lens1_x_col", "lens1_y_col"):
+        val = labels.get(key)
+        if val:
+            cols_note_parts.append(val)
+    ax_event.set_xlabel("Event-frame x (theta_E)")
+    ax_event.set_ylabel("Event-frame y (theta_E)")
+    ax_event.set_title("Event-Frame Tracks")
+    ax_event.text(
+        0.01,
+        0.98,
+        "cols: " + ", ".join(cols_note_parts),
+        transform=ax_event.transAxes,
+        va="top",
+        ha="left",
+        fontsize=7,
+    )
+    ax_event.grid(True, alpha=0.3)
+    ax_event.axis("equal")
+    handles, labels_ = ax_event.get_legend_handles_labels()
+    if handles:
+        ax_event.legend(fontsize=8)
 
     plot_file = output_dir / f"{lc_file.stem}_plot.png"
     fig.savefig(plot_file, dpi=150, bbox_inches="tight")
@@ -1047,6 +1101,7 @@ def plot_lightcurves(
         exec_name = exec_name[:-2]
     vbm_supported = exec_name in {"gulls_croin", "gullsfish", "gulls_std"}
     vbm_required = astrometry_expected and vbm_supported and exec_name != "gullssingle"
+    plot_failures: List[str] = []
     
     for lc_file in lc_files:
         planet_vals, event_vals = _parse_header(lc_file)
@@ -1072,7 +1127,7 @@ def plot_lightcurves(
             if event_key is not None:
                 summary = summaries.get(event_key)
         if summary is None:
-            raise SmokeTestError(f"Smoke test failed: summary metrics missing for {lc_file.name}")
+            plot_failures.append(f"summary metrics missing for {lc_file.name}")
 
         title = f"Smoke Test: {lc_file.stem}"
         theta_e_float: float | None = None
@@ -1082,6 +1137,7 @@ def plot_lightcurves(
         source_dist_float: float | None = None
         event_ra_float: float | None = None
         event_dec_float: float | None = None
+        tE = math.nan
         if summary:
             lens_mass = _format_metric(summary.get("lens_mass"))
             lens_dist = _format_metric(summary.get("lens_dist"))
@@ -1171,9 +1227,74 @@ def plot_lightcurves(
             "Dec_centroid_true_deg",
         ]
 
+        contract = _parse_header_keyvals(lc_file, "#Astrometry_Contract:")
+        contract_cols = _parse_header_keyvals(lc_file, "#Astrometry_Columns:")
+        vbm_function_meta = _parse_header_keyvals(lc_file, "#VBM_function:")
+        vbm_function_name = vbm_function_meta.get("name", "n/a")
+
+        def _mapped_col(contract_key: str, *fallbacks: str) -> str | None:
+            candidates: List[str] = []
+            if contract_key in contract_cols:
+                candidates.append(contract_cols[contract_key])
+            candidates.extend(fallbacks)
+            for name in candidates:
+                if name in column_names:
+                    return name
+            return None
+
+        ra_obs_col = _mapped_col(
+            "sky_ra_measured_deg",
+            "sky_ra_obs_deg",
+            "RA_measured_deg",
+            "RA_obs_deg",
+            "RA_centroid_deg",
+        )
+        dec_obs_col = _mapped_col(
+            "sky_dec_measured_deg",
+            "sky_dec_obs_deg",
+            "Dec_measured_deg",
+            "Dec_obs_deg",
+            "Dec_centroid_deg",
+        )
+        ra_true_col = _mapped_col(
+            "sky_ra_noiseless_deg",
+            "sky_ra_det_deg",
+            "RA_noiseless_deg",
+            "RA_det_deg",
+            "RA_centroid_true_deg",
+        )
+        dec_true_col = _mapped_col(
+            "sky_dec_noiseless_deg",
+            "sky_dec_det_deg",
+            "Dec_noiseless_deg",
+            "Dec_det_deg",
+            "Dec_centroid_true_deg",
+        )
+        ra_err_col = _mapped_col("sky_ra_err_deg", "RA_err_deg", "measured_centroid_ra_error_deg")
+        dec_err_col = _mapped_col("sky_dec_err_deg", "Dec_err_deg", "measured_centroid_dec_error_deg")
+
         lensframe_cols, lensframe_unit = _resolve_lensframe_columns(column_names)
+        lensframe_meas_unit = lensframe_unit.lower() if isinstance(lensframe_unit, str) else lensframe_unit
+        lensframe_true_unit = lensframe_meas_unit
+        event_frame_centroid_x_col = _mapped_col("event_x_thetaE", "event_x_true", "true_x_centroid")
+        event_frame_centroid_y_col = _mapped_col("event_y_thetaE", "event_y_true", "true_y_centroid")
+        contract_lensframe_cols = {
+            "meas_x": _mapped_col("event_x_obs_mas"),
+            "meas_x_err": _mapped_col("event_x_err_mas"),
+            "meas_y": _mapped_col("event_y_obs_mas"),
+            "meas_y_err": _mapped_col("event_y_err_mas"),
+            "true_x": event_frame_centroid_x_col,
+            "true_x_err": _mapped_col("event_x_true_err"),
+            "true_y": event_frame_centroid_y_col,
+            "true_y_err": _mapped_col("event_y_true_err"),
+        }
+        if all(contract_lensframe_cols[key] is not None for key in ("meas_x", "meas_x_err", "meas_y", "meas_y_err", "true_x", "true_x_err", "true_y", "true_y_err")):
+            lensframe_cols = {key: str(val) for key, val in contract_lensframe_cols.items()}
+            lensframe_meas_unit = "mas"
+            lensframe_true_unit = contract.get("event_true_unit", "mas").strip().lower()
+
         has_full_sky = all(col in column_names for col in skyframe_cols)
-        has_radec = all(col in column_names for col in radec_cols)
+        has_radec = all(col is not None for col in [ra_obs_col, dec_obs_col, ra_true_col, dec_true_col])
 
         astrom_mode = None
         if has_full_sky:
@@ -1190,7 +1311,7 @@ def plot_lightcurves(
                 "lens-frame (thetaE)": lensframe_thetae_cols,
                 "lens-frame (mas)": lensframe_mas_cols,
                 "sky-frame": skyframe_cols,
-                "RA/Dec": radec_cols,
+                "RA/Dec": [name for name in [ra_obs_col, dec_obs_col, ra_true_col, dec_true_col] if name is not None],
             }
             for label, cols in debug_sets.items():
                 missing = [col for col in cols if col not in column_names]
@@ -1236,21 +1357,66 @@ def plot_lightcurves(
         plot_x_err: np.ndarray | None = None
         plot_y_err: np.ndarray | None = None
         plot_unit_label = "Einstein radii"
+        event_frame_data: Dict[str, np.ndarray] = {}
 
         if lensframe_cols:
             lensframe_data = {
                 key: _require_column(col_name) for key, col_name in lensframe_cols.items()
             }
+            true_x_vals = lensframe_data["true_x"]
+            true_y_vals = lensframe_data["true_y"]
+            meas_x = lensframe_data["meas_x"]
+            meas_y = lensframe_data["meas_y"]
+            meas_x_err = lensframe_data["meas_x_err"]
+            meas_y_err = lensframe_data["meas_y_err"]
 
-            # Prepare lens-frame arrays for plotting (Einstein radii if possible).
-            if lensframe_unit == "thetaE":
-                true_x_vals = lensframe_data["true_x"]
-                true_y_vals = lensframe_data["true_y"]
-                meas_x = lensframe_data["meas_x"]
-                meas_y = lensframe_data["meas_y"]
-                meas_x_err = lensframe_data["meas_x_err"]
-                meas_y_err = lensframe_data["meas_y_err"]
+            if lensframe_meas_unit == "mas":
+                meas_x_mas = meas_x
+                meas_y_mas = meas_y
+                meas_x_err_mas = meas_x_err
+                meas_y_err_mas = meas_y_err
+            elif lensframe_meas_unit == "thetae" and theta_e_float is not None and theta_e_float > 0:
+                meas_x_mas = meas_x * theta_e_float
+                meas_y_mas = meas_y * theta_e_float
+                meas_x_err_mas = meas_x_err * theta_e_float
+                meas_y_err_mas = meas_y_err * theta_e_float
+
+            # Prepare lens-frame arrays for plotting in a single unit.
+            if lensframe_meas_unit == "mas":
+                plot_unit_label = "mas"
+                plot_meas_x = meas_x
+                plot_meas_y = meas_y
+                plot_x_err = meas_x_err
+                plot_y_err = meas_y_err
+                if lensframe_true_unit == "mas":
+                    plot_true_x = true_x_vals
+                    plot_true_y = true_y_vals
+                elif lensframe_true_unit == "thetae" and theta_e_float is not None and theta_e_float > 0:
+                    plot_true_x = true_x_vals * theta_e_float
+                    plot_true_y = true_y_vals * theta_e_float
+                else:
+                    # Do not fake units: measured data stay in mas, true curve omitted.
+                    plot_true_x = np.full_like(plot_meas_x, np.nan)
+                    plot_true_y = np.full_like(plot_meas_y, np.nan)
+            elif lensframe_meas_unit == "thetae":
                 plot_unit_label = "Einstein radii"
+                plot_meas_x = meas_x
+                plot_meas_y = meas_y
+                plot_x_err = meas_x_err
+                plot_y_err = meas_y_err
+                if lensframe_true_unit in {"thetae", "theta_e"}:
+                    plot_true_x = true_x_vals
+                    plot_true_y = true_y_vals
+                elif lensframe_true_unit == "mas" and theta_e_float is not None and theta_e_float > 0:
+                    scale = 1.0 / theta_e_float
+                    plot_true_x = true_x_vals * scale
+                    plot_true_y = true_y_vals * scale
+                else:
+                    plot_true_x = np.full_like(plot_meas_x, np.nan)
+                    plot_true_y = np.full_like(plot_meas_y, np.nan)
+            else:
+                # Unknown declared unit; avoid misleading unit conversion.
+                plot_unit_label = "native"
                 plot_true_x = true_x_vals
                 plot_true_y = true_y_vals
                 plot_meas_x = meas_x
@@ -1258,41 +1424,17 @@ def plot_lightcurves(
                 plot_x_err = meas_x_err
                 plot_y_err = meas_y_err
 
-                if theta_e_float is not None and theta_e_float > 0:
-                    meas_x_mas = meas_x * theta_e_float
-                    meas_y_mas = meas_y * theta_e_float
-                    meas_x_err_mas = meas_x_err * theta_e_float
-                    meas_y_err_mas = meas_y_err * theta_e_float
-            else:
-                # Lens-frame columns are already in mas.
-                meas_x_mas = lensframe_data["meas_x"]
-                meas_y_mas = lensframe_data["meas_y"]
-                meas_x_err_mas = lensframe_data["meas_x_err"]
-                meas_y_err_mas = lensframe_data["meas_y_err"]
+        if true_x_vals is None and event_frame_centroid_x_col is not None and event_frame_centroid_y_col is not None:
+            true_x_vals = _require_column(event_frame_centroid_x_col)
+            true_y_vals = _require_column(event_frame_centroid_y_col)
 
-                if theta_e_float is not None and theta_e_float > 0:
-                    scale = 1.0 / theta_e_float
-                    plot_unit_label = "Einstein radii"
-                    true_x_vals = lensframe_data["true_x"] * scale
-                    true_y_vals = lensframe_data["true_y"] * scale
-                    meas_x = lensframe_data["meas_x"] * scale
-                    meas_y = lensframe_data["meas_y"] * scale
-                    meas_x_err = lensframe_data["meas_x_err"] * scale
-                    meas_y_err = lensframe_data["meas_y_err"] * scale
-                    plot_true_x = true_x_vals
-                    plot_true_y = true_y_vals
-                    plot_meas_x = meas_x
-                    plot_meas_y = meas_y
-                    plot_x_err = meas_x_err
-                    plot_y_err = meas_y_err
-                else:
-                    plot_unit_label = "mas"
-                    plot_true_x = lensframe_data["true_x"]
-                    plot_true_y = lensframe_data["true_y"]
-                    plot_meas_x = lensframe_data["meas_x"]
-                    plot_meas_y = lensframe_data["meas_y"]
-                    plot_x_err = lensframe_data["meas_x_err"]
-                    plot_y_err = lensframe_data["meas_y_err"]
+        if true_x_vals is not None and true_y_vals is not None:
+            event_frame_data["centroid_x"] = true_x_vals
+            event_frame_data["centroid_y"] = true_y_vals
+        for key in ("source0_x", "source0_y", "source0_mu", "lens0_x", "lens0_y", "lens1_x", "lens1_y"):
+            arr = _optional_column(key)
+            if arr is not None:
+                event_frame_data[key] = arr
 
         if not has_astrom:
             _plot_photometry_only(
@@ -1359,43 +1501,58 @@ def plot_lightcurves(
             meas_ra_err_deg = _require_column("measured_centroid_ra_error_deg")
             meas_dec_err_deg = _require_column("measured_centroid_dec_error_deg")
         else:
-            # Derive sky-frame vectors from RA/Dec columns.
-            true_ra_deg = _require_column("RA_centroid_true_deg")  # used in Absolute Astrometric Position plot
-            true_dec_deg = _require_column("Dec_centroid_true_deg")
-            meas_ra_deg = _require_column("RA_centroid_deg")
-            meas_dec_deg = _require_column("Dec_centroid_deg")
+            # Use RA/Dec columns directly (no synthetic N/E reconstruction).
+            if ra_true_col is None or dec_true_col is None or ra_obs_col is None or dec_obs_col is None:
+                raise SmokeTestError(
+                    f"Smoke test failed: could not resolve RA/Dec astrometry columns for {lc_file.name}"
+                )
+            true_ra_deg = _require_column(ra_true_col)  # used in Absolute Astrometric Position plot
+            true_dec_deg = _require_column(dec_true_col)
+            meas_ra_deg = _require_column(ra_obs_col)
+            meas_dec_deg = _require_column(dec_obs_col)
 
-            base_ra_deg, base_dec_deg = _parse_astrometry_frame(lc_file)
-            if base_ra_deg is None:
-                base_ra_deg = float(true_ra_deg[0])
-            if base_dec_deg is None:
-                base_dec_deg = float(true_dec_deg[0])
+            # Keep placeholders for the render signature; this mode plots RA/Dec plus event frame.
+            true_N_mas = np.zeros_like(meas_dec_deg)
+            meas_N_mas = np.zeros_like(meas_dec_deg)
+            true_E_mas = np.zeros_like(meas_ra_deg)
+            meas_E_mas = np.zeros_like(meas_ra_deg)
 
-            cos_dec = math.cos(math.radians(base_dec_deg))
-            if abs(cos_dec) < 1e-6:
-                cos_dec = 1e-6 if cos_dec >= 0 else -1e-6
-
-            deg_to_mas = 3600.0 * 1000.0
-            meas_E_mas = (meas_ra_deg - base_ra_deg) * cos_dec * deg_to_mas
-            meas_N_mas = (meas_dec_deg - base_dec_deg) * deg_to_mas
-            true_E_mas = (true_ra_deg - base_ra_deg) * cos_dec * deg_to_mas
-            true_N_mas = (true_dec_deg - base_dec_deg) * deg_to_mas
-
-            if meas_x_err_mas is None or meas_y_err_mas is None:
-                meas_E_err_mas = np.zeros_like(meas_E_mas)
-                meas_N_err_mas = np.zeros_like(meas_N_mas)
+            if ra_err_col is not None and dec_err_col is not None:
+                meas_ra_err_deg = _require_column(ra_err_col)
+                meas_dec_err_deg = _require_column(dec_err_col)
+                radec_obs_ra_err_col = ra_err_col
+                radec_obs_dec_err_col = dec_err_col
             else:
-                meas_E_err_mas = meas_x_err_mas
-                meas_N_err_mas = meas_y_err_mas
+                sigma_ast_series = _optional_column("sigma_ast_mas")
+                if sigma_ast_series is not None:
+                    mas_to_deg = 1.0 / (3600.0 * 1000.0)
+                    meas_ra_err_deg = sigma_ast_series * mas_to_deg
+                    meas_dec_err_deg = sigma_ast_series * mas_to_deg
+                    radec_obs_ra_err_col = "sigma_ast_mas (symmetric)"
+                    radec_obs_dec_err_col = "sigma_ast_mas (symmetric)"
+                elif meas_x_err_mas is None or meas_y_err_mas is None:
+                    meas_ra_err_deg = np.zeros_like(meas_ra_deg)
+                    meas_dec_err_deg = np.zeros_like(meas_dec_deg)
+                    radec_obs_ra_err_col = "none"
+                    radec_obs_dec_err_col = "none"
+                else:
+                    base_dec_for_err = float(true_dec_deg[0])
+                    cos_dec = math.cos(math.radians(base_dec_for_err))
+                    if abs(cos_dec) < 1e-6:
+                        cos_dec = 1e-6 if cos_dec >= 0 else -1e-6
+                    mas_to_deg = 1.0 / (3600.0 * 1000.0)
+                    meas_ra_err_deg = meas_x_err_mas * mas_to_deg / cos_dec
+                    meas_dec_err_deg = meas_y_err_mas * mas_to_deg
+                    radec_obs_ra_err_col = "x/y event errors"
+                    radec_obs_dec_err_col = "x/y event errors"
 
-            mas_to_deg = 1.0 / deg_to_mas
-            meas_ra_err_deg = meas_E_err_mas * mas_to_deg / cos_dec
-            meas_dec_err_deg = meas_N_err_mas * mas_to_deg
+            meas_E_err_mas = np.zeros_like(meas_ra_deg)
+            meas_N_err_mas = np.zeros_like(meas_dec_deg)
 
         pm_ref_alpha_float = None
         pm_ref_delta_float = None
-        pm_ref_alpha_val = summary.get("pm_ref_alpha")
-        pm_ref_delta_val = summary.get("pm_ref_delta")
+        pm_ref_alpha_val = summary.get("pm_ref_alpha") if summary else None
+        pm_ref_delta_val = summary.get("pm_ref_delta") if summary else None
         if pm_ref_alpha_val is not None and pm_ref_delta_val is not None:
             pm_ref_alpha_float = float(pm_ref_alpha_val)
             pm_ref_delta_float = float(pm_ref_delta_val)
@@ -1444,7 +1601,7 @@ def plot_lightcurves(
             if pm_ref_alpha_float is not None and pm_ref_delta_float is not None:
                 vector_specs.append(
                     {
-                        "label": "Relative proper motion (geocentric)",
+                        "label": "Relative PM geocentric (pm_ra*cosDec, pm_dec)",
                         "color": "black",
                         "pm_ra": pm_ref_alpha_float,
                         "pm_dec": pm_ref_delta_float,
@@ -1453,7 +1610,7 @@ def plot_lightcurves(
             if source_pm_icrs:
                 vector_specs.append(
                     {
-                        "label": "Source proper motion (heliocentric)",
+                        "label": "Source PM heliocentric (pm_ra*cosDec, pm_dec)",
                         "color": "tab:blue",
                         "pm_ra": source_pm_icrs[0],
                         "pm_dec": source_pm_icrs[1],
@@ -1462,12 +1619,64 @@ def plot_lightcurves(
             if lens_pm_icrs:
                 vector_specs.append(
                     {
-                        "label": "Lens proper motion (heliocentric)",
+                        "label": "Lens PM heliocentric (pm_ra*cosDec, pm_dec)",
                         "color": "tab:red",
                         "pm_ra": lens_pm_icrs[0],
                         "pm_dec": lens_pm_icrs[1],
                     }
                 )
+
+        if astrom_mode == "sky":
+            radec_obs_ra_col = "measured_centroid_ra_deg"
+            radec_obs_dec_col = "measured_centroid_dec_deg"
+            radec_true_ra_col = "true_centroid_ra_deg"
+            radec_true_dec_col = "true_centroid_dec_deg"
+            radec_obs_ra_err_col = "measured_centroid_ra_error_deg"
+            radec_obs_dec_err_col = "measured_centroid_dec_error_deg"
+        else:
+            radec_obs_ra_col = ra_obs_col or "RA_measured_deg"
+            radec_obs_dec_col = dec_obs_col or "Dec_measured_deg"
+            radec_true_ra_col = ra_true_col or "RA_noiseless_deg"
+            radec_true_dec_col = dec_true_col or "Dec_noiseless_deg"
+
+        panel_labels: Dict[str, str] = {
+            "light_x_col": "Simulation_time",
+            "light_y_col": "measured_relative_flux",
+            "light_yerr_col": "measured_relative_flux_error",
+            "light_true_col": "true_relative_flux",
+            "radec_obs_ra_col": radec_obs_ra_col,
+            "radec_obs_dec_col": radec_obs_dec_col,
+            "radec_obs_ra_err_col": radec_obs_ra_err_col,
+            "radec_obs_dec_err_col": radec_obs_dec_err_col,
+            "radec_true_ra_col": radec_true_ra_col,
+            "radec_true_dec_col": radec_true_dec_col,
+            "event_x_col": event_frame_centroid_x_col or "true_x_centroid",
+            "event_y_col": event_frame_centroid_y_col or "true_y_centroid",
+        }
+        for key in ("source0_x", "source0_y", "source0_mu", "lens0_x", "lens0_y", "lens1_x", "lens1_y"):
+            if key in event_frame_data:
+                panel_labels[f"{key}_col"] = key
+
+        mode_display = "sky_columns" if astrom_mode == "sky" else "radec_columns_only"
+        event_track_cols = [key for key in ("source0_x", "source0_y", "source0_mu", "lens0_x", "lens0_y", "lens1_x", "lens1_y") if key in event_frame_data]
+        event_info_rows: List[Tuple[str, str]] = [
+            ("Astrometry mode", mode_display),
+            ("VBM function", vbm_function_name),
+            ("Time column", "Simulation_time"),
+            ("Flux cols", "measured_relative_flux, true_relative_flux"),
+            ("RA/Dec measured cols", f"{panel_labels['radec_obs_ra_col']}, {panel_labels['radec_obs_dec_col']}"),
+            ("RA/Dec error cols", f"{panel_labels['radec_obs_ra_err_col']}, {panel_labels['radec_obs_dec_err_col']}"),
+            ("RA/Dec noiseless cols", f"{panel_labels['radec_true_ra_col']}, {panel_labels['radec_true_dec_col']}"),
+            ("Event centroid cols", f"{panel_labels['event_x_col']}, {panel_labels['event_y_col']}"),
+            ("Event track cols", ", ".join(event_track_cols) if event_track_cols else "none"),
+            ("PM vector convention", "(pm_ra*cosDec, pm_dec) mas/yr in ICRS"),
+        ]
+        if span_years is not None:
+            event_info_rows.append(("Vector span", f"{span_years:.4f} yr"))
+        if theta_e_float is not None:
+            event_info_rows.append(("theta_E", f"{theta_e_float:.6f} mas"))
+        if summary and summary.get("tE_ref") is not None:
+            event_info_rows.append(("tE_ref", _format_metric(summary.get("tE_ref"))))
 
         vbm_model = None
         vbm_reason = None
@@ -1520,8 +1729,11 @@ def plot_lightcurves(
             true_y_vals,
             meas_x,
             meas_y,
+            event_frame_data,
             src1_flux,
             src2_flux,
+            panel_labels,
+            event_info_rows,
         )
 
         if vbm_required:
@@ -1532,5 +1744,13 @@ def plot_lightcurves(
         print(f"  Generated plot: {plot_file.name}")
         if lensframe_path is not None:
             print(f"  Generated plot: {lensframe_path.name}")
+
+    if plot_failures:
+        rendered = "\n".join(f" - {msg}" for msg in plot_failures)
+        raise SmokeTestError(
+            "Smoke test plotting encountered failures:\n"
+            f"{rendered}\n"
+            "Plots for files with complete inputs were still generated."
+        )
 
 __all__ = ["plot_lightcurves"]

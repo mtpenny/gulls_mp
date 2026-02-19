@@ -259,11 +259,28 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
   Event->yl1.resize(Event->nepochs);
   Event->xl2.resize(Event->nepochs);
   Event->yl2.resize(Event->nepochs);
-  Event->musrc1.resize(Event->nepochs);
-  Event->musrc2.resize(Event->nepochs);
   Event->vbm_rootaccuracy.resize(Event->nepochs);
   Event->vbm_squarecheck.resize(Event->nepochs);
   Event->vbm_therr.resize(Event->nepochs);
+  Event->xc_src_only.resize(Event->nepochs);
+  Event->yc_src_only.resize(Event->nepochs);
+  Event->xc_src_lens.resize(Event->nepochs);
+  Event->yc_src_lens.resize(Event->nepochs);
+  Event->astrox1_raw.clear();
+  Event->astrox2_raw.clear();
+  Event->lambda_noiseless_deg.resize(Event->nepochs);
+  Event->beta_noiseless_deg.resize(Event->nepochs);
+  Event->ra_noiseless_deg.resize(Event->nepochs);
+  Event->dec_noiseless_deg.resize(Event->nepochs);
+  Event->ra_measured_deg.resize(Event->nepochs);
+  Event->dec_measured_deg.resize(Event->nepochs);
+  Event->sigma_ast_mas.resize(Event->nepochs);
+  Event->ra_err_deg.resize(Event->nepochs);
+  Event->dec_err_deg.resize(Event->nepochs);
+  Event->ra_src_only_deg.resize(Event->nepochs);
+  Event->dec_src_only_deg.resize(Event->nepochs);
+  Event->ra_src_lens_deg.resize(Event->nepochs);
+  Event->dec_src_lens_deg.resize(Event->nepochs);
 
 }
 

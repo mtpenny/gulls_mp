@@ -194,7 +194,8 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_sources)
     {
       
-      ofile << "Source2_rho Source2_s Source2_alpha Source2_inc Source2_phase ";
+      ofile << "Source2_rho Source2_s Source2_alpha Source2_phase ";
+      ofile << "Source2_a Source2_e Source2_I Source2_L0 Source2_w Source2_O Source2_dL "; //orbital elements
       for(int i=0;i<Paramfile->numobservatories;i++)
 	ofile << "Obs_" << i << "_fs2ofs1" << " ";
     }
@@ -443,8 +444,8 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->scomp_rs[0] << " ";
 	  ofile << Event->scomp_s[0] << " ";
 	  ofile << Event->scomp_alpha[0] << " ";
-	  ofile << Event->scomp_I[0] << " ";
 	  ofile << Event->scomp_phase[0] << " ";
+	  ofile << Event->scomp_a[0] << " " <<  Event->scomp_e[0] << " " <<  Event->scomp_I[0] << " " <<  Event->scomp_L0[0] << " " <<  Event->scomp_w[0] << " " <<  Event->scomp_O[0] << " " <<  Event->scomp_dL[0] << " "; //orbital elements
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {
 	      int filt = World[obsidx].filter;
@@ -453,7 +454,11 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
       else
 	{
-	  ofile << "NaN NaN NaN NaN NaN ";
+    // No detected source companion: keep column count aligned with header.
+    // Placeholder values for:
+    // Source2_rho, Source2_s, Source2_alpha, Source2_phase,
+    // Source2_a, Source2_e, Source2_I, Source2_L0, Source2_w, Source2_O, Source2_dL
+    ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {
 	      ofile << "0 ";

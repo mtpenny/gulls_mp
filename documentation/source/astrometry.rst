@@ -61,10 +61,11 @@ All centroid columns are in **mas** (milliarcseconds) unless noted otherwise.
 Raw VBM Output (for debugging)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-These columns store the raw VBMicrolensing library output without transformation:
+These columns store the raw VBMicrolensing library output without transformation,
+per source and per epoch:
 
-- ``vbm_astrox1_raw_thE`` (θ_E): Raw VBM x1 centroid output.
-- ``vbm_astrox2_raw_thE`` (θ_E): Raw VBM x2 centroid output.
+- ``source{i}_vbm_astrox1_raw_thE`` (θ_E): Raw VBM x1 centroid output for source ``i``.
+- ``source{i}_vbm_astrox2_raw_thE`` (θ_E): Raw VBM x2 centroid output for source ``i``.
 
 **Use case**: Debugging coordinate transforms between VBM internal coordinates and lens-centered coordinates.
 

@@ -12,6 +12,7 @@
 #include<fstream>
 #include<sstream>
 #include<iomanip>
+#include<limits>
 #include<numeric>
 #include<sys/stat.h>
 #define DEBUGVAR 1
@@ -55,8 +56,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //else Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
   Event->vbm->SetMethod(VBMicrolensing::Method::Nopoly);
   Event->vbm->a1 = Event->gamma;
-  
-  // Enable astrometry calculation in VBM only if requested (significantly slows computation)
   Event->vbm->astrometry = (Paramfile->astrometry_on != 0);
 
   Event->xsrc.clear();
@@ -73,24 +72,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->mu_src[i].resize(Event->nepochs);
     }
   
-  // Resize astrometry diagnostic vectors (units: theta_E)
-  Event->astrox1_raw.clear();
-  Event->astrox2_raw.clear();
-  Event->xc_src_only.clear();
-  Event->yc_src_only.clear();
-  Event->xc_src_lens.clear();
-  Event->yc_src_lens.clear();
-  Event->xc_src_lens_amb.clear();
-  Event->yc_src_lens_amb.clear();
-  Event->astrox1_raw.resize(Event->nepochs, 0.0);
-  Event->astrox2_raw.resize(Event->nepochs, 0.0);
-  Event->xc_src_only.resize(Event->nepochs, 0.0);
-  Event->yc_src_only.resize(Event->nepochs, 0.0);
-  Event->xc_src_lens.resize(Event->nepochs, 0.0);
-  Event->yc_src_lens.resize(Event->nepochs, 0.0);
-  Event->xc_src_lens_amb.resize(Event->nepochs, 0.0);
-  Event->yc_src_lens_amb.resize(Event->nepochs, 0.0);
-  
   Event->xlens.resize(Event->nlens);
   Event->ylens.resize(Event->nlens);
   for(int i=0; i<Event->nlens; i++)
@@ -98,6 +79,23 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->xlens[i].resize(Event->nepochs);
       Event->ylens[i].resize(Event->nepochs);
     }
+
+	Event->astrox1_raw.resize(Event->nsrc);
+	Event->astrox2_raw.resize(Event->nsrc);
+  // astro*_raw in event frame with per epoch and per source values for debugging and testing. These are the raw outputs of the VBM, before any rotation or translation to event frame coordinates, so they are in the VBM frame and centered on the center of mass of the lens system. We store these for debugging and testing, and then we will apply the appropriate rotations and translations to get the final astrometric centroid in event frame coordinates, which will be stored in Event->astrox1/2. This way we can test the VBM astrometry logic path independently of the coordinate transformations to get to event frame coordinates, and we can also test the coordinate transformations independently by comparing the raw VBM output to the final event frame astrometry.
+  Event->astrox_raw.resize(Event->nsrc);
+  Event->astroy_raw.resize(Event->nsrc);
+  for(int i=0; i<Event->nsrc; i++)
+	{
+	  Event->astrox1_raw[i].assign(Event->nepochs,0.0);
+	  Event->astrox2_raw[i].assign(Event->nepochs,0.0);
+	  Event->astrox_raw[i].assign(Event->nepochs,0.0);
+	  Event->astroy_raw[i].assign(Event->nepochs,0.0);
+	}
+  Event->xc_src_only.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids
+  Event->yc_src_only.assign(Event->nepochs,0.0);
+  Event->xc_src_lens.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids and luminous lens centroids, for astrometry path only. This is the relevant blended centroid for astrometry, since ambient light does not contribute to astrometric blending by contract.
+  Event->yc_src_lens.assign(Event->nepochs,0.0);
   
   //Conventions:
   //Track the apparent motion of the centers of mass of the source and lens, then compute offsets from them
@@ -114,7 +112,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   double rEsrc = Event->rE * Sources->data[sn][Sources->DIST]/Lenses->data[ln][Lenses->DIST];
 
-  // Event->alpha is stored in degrees in event metadata.
   const double alpha_rad = Event->alpha * TO_RAD;
   double cosa = cos(alpha_rad);
   double sina = sin(alpha_rad);
@@ -185,6 +182,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   int nlens = Event->nlens; //1 + Event->lcompanions.size() + Event->p_a.size();
   l_elements.clear();
   l_elements.resize(nlens);
+  Event->VBM_function = "none";
 
   if(nlens==2)
     {
@@ -220,6 +218,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  //    s_elements[0][j].viewfrom(Event->tref,antipode_ra,antipode_dec,&xp);
 	  //    s_delta[0] += xp[0]; s_delta[1] += xp[1]; s_delta[2] += xp[2];
 	  //  }
+
+	  // I don't know, Matt. Is it? -A
 	}
       else 
 	{
@@ -526,6 +526,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     }
 
   double time_elapsed=0;
+  bool warned_single_lens_nonzero_origin = false;
 
   //Calculate the lightcurve
   double last_progress=0;
@@ -562,15 +563,21 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       //Compute the location of the reference point of the source relative to the reference point of the lens
       double xs0 = tt * cosa - uu * sina;
-      double ys0 = tt * sina + uu * cosa;
+      double ys0 = tt * sina + uu * cosa; 
+	  // okay, but why are we roating by alpha here? -A
+	  // The rotation by alpha is to go from the coordinate system, where the x-axis
+	  // is along the direction of relative motion at t0, to the event-frame coordinates (ecliptic N,E)? 
+	  // This matches BAGLE's parameter definition, but not the historic Gulls parameter definition, where 
+	  // alpha is the angle of the lens-source relative motion vector relative to the binary-lens axis. 
+	  // I'm fairly sure this is a bug, or at least a redifinition of alpha that is not clear.
 
       vector<double> xs(nsrc,0.0); //source position in the plane of the sky, ecliptic sky coordinates in AU
-      vector<double> ys(nsrc,0.0);
+      vector<double> ys(nsrc,0.0); // AU is a strange unit. Aren't these angles on the sky? -A
       vector<double> ds(nsrc,0.0); //source distance
 
       if(nsrc>1)
 	{
-	  for(int i=0;i<nsrc;i++)
+	  for(int i=0;i<nsrc;i++)  // loop through source companions
 	    {
 	      vector<double> xp;
 	      for(int j=0;j<int(s_elements[i].size());j++)
@@ -579,7 +586,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
-	      xs[i] /= rEsrc; ys[i] /= rEsrc; ds[i] /= rEsrc;
+	      xs[i] /= rEsrc; ys[i] /= rEsrc; ds[i] /= rEsrc;  // now they are angles? -A
 	      //Rotation needed here?
 	      
 	      xs[i] += xs0; ys[i] += ys0;
@@ -593,7 +600,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  xs[0] = xs0; ys[0] = ys0;
 	  Event->xsrc[0][idx] = xs0; Event->ysrc[0][idx] = ys0; 
 	}
-
 
       vector<double> xl(nlens,0.0); //lens position in the plane of the sky, ecliptic sky coordinates in AU
       vector<double> yl(nlens,0.0);
@@ -620,7 +626,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      
 	      lens_parameters[3*i+0] = xl[i];
 	      lens_parameters[3*i+1] = yl[i];
-	      Event->xlens[i][idx] = xl[i];
+	      Event->xlens[i][idx] = xl[i];  // is this lens parallax? -A
 	      Event->ylens[i][idx] = yl[i];
 	    }
 
@@ -629,101 +635,176 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       else
 	{
 	  xl[0] = 0.0; yl[0] = 0.0;
-	  Event->xlens[0][idx] = 0.0; Event->ylens[0][idx] = 0.0; 
+	  Event->xlens[0][idx] = 0.0; Event->ylens[0][idx] = 0.0; // how come this doesn't need parallax? -A
 	}
 
       
 
-      // Compute magnifications and astrometric centroids
-      // Per-source image centroid positions (units: theta_E, event frame)
-      vector<double> astro_x(nsrc, 0.0);
-      vector<double> astro_y(nsrc, 0.0);
-      
+      //Finally ready to compute magnifications
+      vector<double> astro_x(nsrc,0.0);
+      vector<double> astro_y(nsrc,0.0);
+
       if(nlens==1)
 	{
+	  if(!warned_single_lens_nonzero_origin)
+	    {
+			// weather we have COM or lens 1 at the origin of the event-frame, they would
+			// both mean the same thing for the single-lens case. 
+			// VBM's astrometry is scalar for the single lens case, so it assumes the lens 
+			// is at the origin of the event frame. 
+	      const double lens_origin_tol = 1e-12;
+	      if(fabs(xl[0]) > lens_origin_tol || fabs(yl[0]) > lens_origin_tol)
+		{
+		  cerr << "WARNING: single-lens ESPL assumes lens at origin (xl=yl=0), but got "
+		       << "xl=" << xl[0] << ", yl=" << yl[0]
+		       << " for event " << Event->id
+		       << " at epoch " << Event->epoch[idx] << endl;
+		  warned_single_lens_nonzero_origin = true;
+		}
+	    }
 	  for(int is=0;is<nsrc;is++)
 	    {
-      	      if(is==0) rho = Event->rs;	
+	      if(is==0) rho = Event->rs;	
 	      else rho = Event->scomp_rs[is-1];
-	      u = qAdd(xs[is],ys[is]);
+	      u = qAdd(xs[is],ys[is]);  //magnitude of the relative source-lens position vector (per source per epoch)
+	      bool used_vbm_astrometry = false;
 	      if(Paramfile->skip_magnification==0)
-		mu[is] = Event->vbm->ESPLMag2(u, rho);
-	      else mu[is]=1.0;
-	      
-	      // Extended source point lens (ESPL) astrometry:
-	      // VBM computes flux-weighted image centroid in frame where source is at (u, 0).
-	      // astrox1 = radial distance of centroid from lens (units: theta_E).
-	      // astrox2 = 0 by axial symmetry.
-	      // Transform to event frame by projecting along source direction.
-	      if(Paramfile->astrometry_on && u > 1e-10)
 		{
-		  double centroid_radial = Event->vbm->astrox1;
-		  astro_x[is] = centroid_radial * (xs[is] / u);
-		  astro_y[is] = centroid_radial * (ys[is] / u);
+		  mu[is] = Event->vbm->ESPLMag2(u, rho);  //calculate the single-lens magnification (per source per epoch)
+		  Event->VBM_function = "ESPLMag2";  
+		  used_vbm_astrometry = true;
+		}
+	      else mu[is]=1.0;
+		  
+	      // ESPLMag2 provides a radial centroid for single-lens geometry.
+	      // Project that radial value onto the source direction in event-frame.
+	      if(Paramfile->astrometry_on && used_vbm_astrometry && u>1e-12)
+		{
+		  astro_x[is] = Event->vbm->astrox1 * xs[is]/u;  // Project the radial centroid onto the source direction in event-frame.
+		  astro_y[is] = Event->vbm->astrox1 * ys[is]/u;  // the flux weighted source-image centroid is in the direction of the 
+		  // source from the lens, so we can use the source coordinates to get the direction of the centroid shift and apply it 
+		  // to the radial value of the centroid shift to get the astrometric centroid in ecliptic coordinates.
 		}
 	      else
 		{
-		  // Astrometry disabled or degenerate geometry: centroid at source position
+		  astro_x[is] = xs[is];  // if the lensing isn't significant, the "image" centroid is just the source position
+		  astro_y[is] = ys[is];  //pr source per epoch, where x and y are in ecliptic coordinates with the lens at the origin
+		  // this isn't yet stored in the event, but presumably it gets stored after we blend with any other sources.
+		  // check this!!
+		  // if we move on later with astrox1_raw and astrox2_raw, we will no longer be in ecliptic
+		}
+	      if(Paramfile->astrometry_on && used_vbm_astrometry)
+		{
+		  Event->astrox1_raw[is][idx] = Event->vbm->astrox1;  // x-axis in the ESPL-VBM frame is the lens-source axis, so this is
+		  // the raw centroid shift along that axis, which is the only component for a single lens. We can store it incase we
+		  // need to debug later.
+		  Event->astrox2_raw[is][idx] = 0.0; // ESPL does not have an orthogonal component to the centroid shift, so this is just
+		  // set to zero.
+		}
+	      Event->astrox_raw[is][idx] = astro_x[is];
+	      Event->astroy_raw[is][idx] = astro_y[is];
+	    } 
+		// I feel like we are missing the blending, but lets let her cook.
+	}
+      else if(nlens==2)  //binary lens
+	{
+	  double s = qAdd(xl[1]-xl[0],yl[1]-yl[0]);  // scalar angular separation of the two lenses, in units of the Einstein radius
+	  double q = Event->p_q[0];  // mass ratio of the two lenses
+	  double rot = atan2(yl[1],xl[1]);  // angle to rotate coordinates into the VBM binary lens frame, which is defined such that 
+	  // the two lenses lie on the x-axis. This rotation is needed because the VBM binary lens magnification functions assume the 
+	  // binary axis is along the x-axis, which can be at any angle on the sky, but we have the lens positions in ecliptic coordinates 
+	  // (xl, yl). 
+	  // The rotation (rot) is in the direction to rotate the event-frame lens positions into the VBM frame, which is a counterclockwise 
+	  // rotation by the angle of the binary axis. To rotate the source positions into the VBM frame, we need to rotate by -rot.
+	  double cr = cos(-rot); double sr = sin(-rot);  // event -> VBM frame coefficients
+	  double cr_inv = cos(rot); double sr_inv = sin(rot);   // VBM -> event frame coefficients
+
+	  for(int is=0;is<nsrc;is++)  // loop over sources
+	    {
+	      if(is==0) rho = Event->rs;  // get primary-source angular radius in units of the Einstein radius from rs
+	      else rho = Event->scomp_rs[is-1];  // or companion-source angular radius from scomp_rs (does not include the primary).
+	      //rotate coordintates to binary axis
+
+		  // Shift to COM
+	      //Binary mag works from the center of mass, so translate source to CoM, then rotate
+	      double xs_com_ecl = xs[is] + l_delta[0];  // is this to COM or from?
+	      double ys_com_ecl = ys[is] + l_delta[1];  // VBM is COM centered, but what was the event frame centered on?
+		  // it must have lens 1 for this to make sense.
+
+          // rotate from event -> VBM frame
+	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;
+	      double ysi = sr*xs_com_ecl + cr*ys_com_ecl;
+	      bool used_vbm_astrometry = false;  // this gets set to true if we use the VBM astrometry logic path.
+
+		      if(Paramfile->skip_magnification==0)  // if we aren't skipping the magnification calculation...
+			{
+			  mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);  //calculate the per source per epoch magnification using VBM
+			  Event->VBM_function = "BinaryMag2";  // store the function that was used, for debugging
+			  used_vbm_astrometry = true;  // mark this path as executed, for debugging
+			}
+		      else mu[is] = 1.0;  // if we are skipping the magnification calculation, set the magnification to 1, and we won't use the VBM astrometry
+	      if(Paramfile->astrometry_on && used_vbm_astrometry)
+		{
+		  // BinaryMag2 centroid is in binary-axis coordinates; inverse-rotate
+		  // back to the canonical ecliptic axes, preserving barycenter origin.
+		  double cx_bin = Event->vbm->astrox1;
+		  double cy_bin = Event->vbm->astrox2;
+		  astro_x[is] = cr_inv*cx_bin - sr_inv*cy_bin;
+		  astro_y[is] = sr_inv*cx_bin + cr_inv*cy_bin;
+		  // do we need to shift back to lens 1 as the origin?
+		}
+	      else
+		{
 		  astro_x[is] = xs[is];
 		  astro_y[is] = ys[is];
 		}
-	    }
-	  if(Paramfile->astrometry_on)
-	    {
-	      Event->astrox1_raw[idx] = Event->vbm->astrox1;
-	      Event->astrox2_raw[idx] = 0.0;
+	      if(Paramfile->astrometry_on && used_vbm_astrometry) // if we aren't calculating the magnification, we aren't 
+		  // calculating the astrometric shift, so they stay zero (I think. Provided they are initialized as such).
+		{
+		  Event->astrox1_raw[is][idx] = Event->vbm->astrox1;
+		  Event->astrox2_raw[is][idx] = Event->vbm->astrox2;
+		}
+	      Event->astrox_raw[is][idx] = astro_x[is];
+	      Event->astroy_raw[is][idx] = astro_y[is];
 	    }
 	}
       else
-	{
-	  // N-lens (N >= 2) magnification/astrometry via VBM MultiMag.
-	  // For binary lenses this keeps all outputs in the same event frame as
-	  // input source/lens coordinates and avoids ad-hoc axis rotations.
+	{	 
 	  for(int is=0;is<nsrc;is++)
 	    {
 	      if(is==0) rho = Event->rs;
 	      else rho = Event->scomp_rs[is-1];
-	      if(Paramfile->skip_magnification==0)
+	      bool used_vbm_astrometry = false;
+		      if(Paramfile->skip_magnification==0)
+			{
+			  logfile_ptr.precision(16);
+			  logfile_ptr << Event->id << " " << Event->epoch[idx] << " ";
+			  for(int ilp=0;ilp<nlens*3;ilp++)
+			    logfile_ptr << lens_parameters[ilp] << " ";
+			  logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
+			  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
+			  Event->VBM_function = "MultiMag2";
+			  used_vbm_astrometry = true;
+			  logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
+			}
+	      else mu[is] = 1.0;
+	      if(Paramfile->astrometry_on && used_vbm_astrometry)
 		{
-		  if(nlens>2)
-		    {
-		      logfile_ptr.precision(16);
-		      logfile_ptr << Event->id << " " << Event->epoch[idx] << " ";
-		      for(int ilp=0;ilp<nlens*3;ilp++)
-			logfile_ptr << lens_parameters[ilp] << " ";
-		      logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
-		    }
-		  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
-		  if(nlens>2)
-		    {
-		      logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
-		    }
-		  
-		  if(Paramfile->astrometry_on)
-		    {
-		      // MultiMag astrometry:
-		      // VBM returns centroid in same frame as input source coordinates.
-		      // No transformation required.
-		      astro_x[is] = Event->vbm->astrox1;
-		      astro_y[is] = Event->vbm->astrox2;
-		    }
-		  else
-		    {
-		      astro_x[is] = xs[is];
-		      astro_y[is] = ys[is];
-		    }
+		  astro_x[is] = Event->vbm->astrox1;
+		  astro_y[is] = Event->vbm->astrox2;
 		}
 	      else
 		{
-		  mu[is] = 1.0;
 		  astro_x[is] = xs[is];
 		  astro_y[is] = ys[is];
 		}
-	    }
-	  if(Paramfile->astrometry_on)
-	    {
-	      Event->astrox1_raw[idx] = Event->vbm->astrox1;
-	      Event->astrox2_raw[idx] = Event->vbm->astrox2;
+	      if(Paramfile->astrometry_on && used_vbm_astrometry)
+		{
+		  Event->astrox1_raw[is][idx] = Event->vbm->astrox1;
+		  Event->astrox2_raw[is][idx] = Event->vbm->astrox2;
+		}
+	      Event->astrox_raw[is][idx] = astro_x[is];
+	      Event->astroy_raw[is][idx] = astro_y[is];
 	    }
 	}
 
@@ -739,36 +820,35 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  Event->Atrue[idx] += Event->scomp_fsofs1[is-1][filt] * (mu[is]-1.0);
 	}
 
-      // Compute flux-weighted centroid for multiple sources
       if(Paramfile->astrometry_on)
 	{
-	  // Flux-weighted centroid of lensed source images (units: theta_E)
-	  // Weights: magnified flux for each source (baseline-normalized)
-	  double total_src_flux = mu[0];
-	  double cx_lensed = astro_x[0] * mu[0];
-	  double cy_lensed = astro_y[0] * mu[0];
-	  for(int is=1; is<nsrc; is++)
+	  double src_flux_tot = mu[0];
+	  double cx_src = astro_x[0] * mu[0];
+	  double cy_src = astro_y[0] * mu[0];
+	  for(int is=1;is<nsrc;is++)
 	    {
 	      double src_flux = Event->scomp_fsofs1[is-1][filt] * mu[is];
-	      total_src_flux += src_flux;
-	      cx_lensed += astro_x[is] * src_flux;
-	      cy_lensed += astro_y[is] * src_flux;
+	      src_flux_tot += src_flux;
+	      cx_src += astro_x[is] * src_flux;
+	      cy_src += astro_y[is] * src_flux;
 	    }
-	  if(total_src_flux > 0)
+	  if(src_flux_tot>0.0)
 	    {
-	      cx_lensed /= total_src_flux;
-	      cy_lensed /= total_src_flux;
+	      cx_src /= src_flux_tot;
+	      cy_src /= src_flux_tot;
 	    }
-      
-	  // Store source-only centroid (blending with lenses/ambient done in photometry.cpp)
-	  Event->xc_src_only[idx] = cx_lensed;
-	  Event->yc_src_only[idx] = cy_lensed;
-	  
-	  // Initialize xctrue/yctrue (will be modified by blending in photometry.cpp)
-	  Event->xctrue[idx] = cx_lensed;
-	  Event->yctrue[idx] = cy_lensed;
-	  Event->xc[idx] = cx_lensed;
-	  Event->yc[idx] = cy_lensed;
+	  else
+	    {
+	      cx_src = std::numeric_limits<double>::quiet_NaN();
+	      cy_src = std::numeric_limits<double>::quiet_NaN();
+	    }
+
+	  Event->xc_src_only[idx] = cx_src;
+	  Event->yc_src_only[idx] = cy_src;
+	  Event->xc_src_lens[idx] = cx_src;
+	  Event->yc_src_lens[idx] = cy_src;
+	  Event->xctrue[idx] = cx_src;
+	  Event->yctrue[idx] = cy_src;
 	}
 
 
