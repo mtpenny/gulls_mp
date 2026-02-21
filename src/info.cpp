@@ -197,7 +197,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
       ofile << "Source2_rho Source2_s Source2_alpha Source2_phase ";
       ofile << "Source2_a Source2_e Source2_I Source2_L0 Source2_w Source2_O Source2_dL "; //orbital elements
       for(int i=0;i<Paramfile->numobservatories;i++)
-	ofile << "Obs_" << i << "_fs2ofs1" << " ";
+	ofile << "Obs_" << i << "_fs2" << " ";
     }
 
   //Binary/system type
@@ -454,7 +454,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
       else
 	{
-	  ofile << "NaN NaN NaN NaN NaN ";
+	  ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {
 	      ofile << "0 ";
@@ -466,7 +466,7 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 
   
   //simulation details
-  ofile << int(Event->obsgroups.size()) << " " << Event->allsat + 2*(!Event->nepochs) << " ";
+  ofile << int(Event->obsgroups.size()) << " " << (Event->lcerror==0?Event->allsat + 2*(!Event->nepochs):Event->lcerror) << " ";
 
 
   //chi^2 results
