@@ -397,9 +397,12 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 	      if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
 
 	      //Output images if desired
-	      if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
-	      outputImages(&Event, World, &Sources, &Paramfile);
-	      if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+	      if(Paramfile.outputImages)
+		{
+		  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
+		  outputImages(&Event, World, &Sources, &Paramfile);
+		  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+		}
 	    }
         }
       else if(Paramfile.verbosity)

@@ -195,7 +195,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
     {
       
       ofile << "Source2_rho Source2_s Source2_alpha Source2_phase ";
-      ofile << "Source2_a Source2_e Source2_I Source2_L0 Source2_w Source2_O Source2_dL "; //orbital elements
+      ofile << "Source2_acomb Source2_e Source2_I Source2_L0 Source2_w Source2_O Source2_dL "; //orbital elements
       for(int i=0;i<Paramfile->numobservatories;i++)
 	ofile << "Obs_" << i << "_fs2" << " ";
     }

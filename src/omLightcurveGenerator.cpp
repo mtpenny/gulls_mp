@@ -89,6 +89,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->xlens[i].resize(Event->nepochs);
       Event->ylens[i].resize(Event->nepochs);
     }
+
+  Event->moons = 0;
+  Event->circumbinary=0;
+  Event->distantbinary=0;
+  Event->mixedbinary=0;
+
   
   //Conventions:
   //Track the apparent motion of the centers of mass of the source and lens, then compute offsets from them
@@ -283,11 +289,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  for(auto os : orbsize_order) cout << os << " " << Event->p_a[os] << endl;
 	  
 	}
-      Event->moons = 0;
+
       int barycenters = 0;
-      Event->circumbinary=0;
-      Event->distantbinary=0;
-      Event->mixedbinary=0;
       for(auto oc : Event->p_orbtype)
 	{
 	  if(oc==3) Event->moons++;
@@ -660,7 +663,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      vector<double> xp;
 	      for(int j=0;j<int(s_elements[i].size());j++)
 		{
-		  s_elements[i][j].viewfrom(Event->jdtimes[obsidx][idx],antipode_ra,antipode_dec,&xp);
+		  s_elements[i][j].viewfrom(Event->jdtimes[obsidx][shiftedidx],antipode_ra,antipode_dec,&xp);
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
@@ -692,8 +695,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      for(int j=0;j<int(l_elements[i].size());j++)
 		{
 		  if(Paramfile->verbosity>=3 || idx==0) l_elements[i][j].print_elements();
-		  l_elements[i][j].viewfrom(Event->jdtimes[obsidx][idx],antipode_ra,antipode_dec,&xp);
-		  if(Paramfile->verbosity>=3 || idx==0) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][idx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
+		  l_elements[i][j].viewfrom(Event->jdtimes[obsidx][shiftedidx],antipode_ra,antipode_dec,&xp);
+		  if(Paramfile->verbosity>=3 || idx==0) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][shiftedidx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
 		  xl[i] += xp[0]; yl[i] += xp[1]; dl[i] += xp[2];
 		}
 	      xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
