@@ -391,16 +391,16 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
           clock_gettime(CLOCK_REALTIME,&tstart);
           //Output the lightcurve if desired
           if(Event.outputthis)
-	{
-	  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
-	  outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
-	  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
+	    {
+	      if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
+	      outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
+	      if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
 
-	  //Output images if desired
-	  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
-	  outputImages(&Event, World, &Sources, &Paramfile);
-	  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
-	}
+	      //Output images if desired
+	      if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
+	      outputImages(&Event, World, &Sources, &Paramfile);
+	      if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+	    }
         }
       else if(Paramfile.verbosity)
         {
@@ -419,7 +419,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
             sprintf(str,"\nDiscarding event %d (Failed detection criteria)",
 		    idx);
 	  fmtline(str,WIDTH,"OKAY"); 
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, logfile_ptr);
+	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
 	}
       else //otherwise
 	{
