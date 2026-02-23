@@ -159,6 +159,7 @@ struct filekeywords{
 
   int multiple_sources;
   int multiple_lenses;
+  int num_lens_max;
 
   int skip_magnification;
   

@@ -154,8 +154,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       //double acomb = (1.0+Event->scomp_q[0])*Event->scomp_a[0];
       //double a1 = acomb-Event->scomp_a[0];
       double acomb = Event->scomp_a[0];
-      double a1 = 1.0/(1.0+Event->scomp_q[0])*Event->scomp_a[0];
-      double a2 = Event->scomp_q[0]/(1.0+Event->scomp_q[0])*Event->scomp_a[0];
+      double a1 = 1.0/(1.0+Event->scomp_q[0])*acomb;
+      double a2 = Event->scomp_q[0]/(1.0+Event->scomp_q[0])*acomb;
 
       //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
       s_elements[1][0] = orbitalElements(a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
@@ -531,7 +531,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   int bad_scenario=0;
 
-  if(nlens>=4)
+  if(nlens>Paramfile->num_lens_max)
     {
       bad_scenario+=iPow(2,0);
       cout << "Too many lenses, nlens=" << nlens << endl;
