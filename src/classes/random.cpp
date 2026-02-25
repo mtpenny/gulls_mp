@@ -32,6 +32,14 @@ static void cleanup_fallback_rng() {
 // Register cleanup function
 static int dummy = (atexit(cleanup_fallback_rng), 0);
 
+bool gulls_random_is_stub() {
+    return true;
+}
+
+const char* gulls_random_backend_name() {
+    return "gsl_fallback_stub";
+}
+
 double ran1(long *idum) {
     init_fallback_rng();
     // Only reseed if idum is negative (NR convention for initialization)

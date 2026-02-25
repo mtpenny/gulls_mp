@@ -63,6 +63,13 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"VBM_RELTOL","1.0e-6"},
     {"VBM_ABSTOL","1.0e-4"},
     {"LC_TIMEOUT","60.0"},
+    {"VBM_TIMEOUT_ROOT_SOLVER","0.0"},
+    {"VBM_TIMEOUT_MAGNIFICATION","0.0"},
+    {"VBM_TIMEOUT_PARALLAX","0.0"},
+    {"VBM_TIMEOUT_CRITICAL_CURVES","0.0"},
+    {"VBM_TIMEOUT_ASTROMETRY","0.0"},
+    {"VBM_TIMEOUT_CHECK_INTERVAL","0"},
+    {"ALLOW_RANDOM_STUB","0"},
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"},
     {"SKIP_MAGNIFICATION","0"},
@@ -231,6 +238,13 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->vbm_reltol = stod(pfile["VBM_RELTOL"]);
   Paramfile->vbm_tol = stod(pfile["VBM_ABSTOL"]);  
   Paramfile->lc_timeout = stod(pfile["LC_TIMEOUT"]);
+  Paramfile->vbm_timeout_root_solver = stod(pfile["VBM_TIMEOUT_ROOT_SOLVER"]);
+  Paramfile->vbm_timeout_magnification = stod(pfile["VBM_TIMEOUT_MAGNIFICATION"]);
+  Paramfile->vbm_timeout_parallax = stod(pfile["VBM_TIMEOUT_PARALLAX"]);
+  Paramfile->vbm_timeout_critical_curves = stod(pfile["VBM_TIMEOUT_CRITICAL_CURVES"]);
+  Paramfile->vbm_timeout_astrometry = stod(pfile["VBM_TIMEOUT_ASTROMETRY"]);
+  Paramfile->vbm_timeout_check_interval = stoi(pfile["VBM_TIMEOUT_CHECK_INTERVAL"]);
+  Paramfile->allow_random_stub = stoi(pfile["ALLOW_RANDOM_STUB"]);
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
   Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);

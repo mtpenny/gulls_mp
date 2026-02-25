@@ -43,6 +43,7 @@
 #include <string.h>
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <stdexcept>
 #include <vector>
 #include <random>
 class _sols_for_skiplist_curve;
@@ -63,6 +64,54 @@ public:
 	VBcomplex(double a, double b) { re = a; im = b; }
 	VBcomplex(double a) { re = a; im = 0; }
 	VBcomplex(void) { re = 0; im = 0; }
+};
+
+class VBMTimeoutError : public std::runtime_error {
+public:
+	enum class TimeoutCategory {
+		Unknown,
+		RootSolver,
+		Magnification,
+		Parallax,
+		CriticalCurves,
+		Astrometry
+	};
+
+	VBMTimeoutError(TimeoutCategory category, const std::string& where)
+		: std::runtime_error(BuildMessage(category, where)), category_(category), where_(where) {}
+
+	TimeoutCategory category() const { return category_; }
+	const std::string& where() const { return where_; }
+
+	static const char* CategoryName(TimeoutCategory category) {
+		switch (category) {
+		case TimeoutCategory::RootSolver:
+			return "RootSolver";
+		case TimeoutCategory::Magnification:
+			return "Magnification";
+		case TimeoutCategory::Parallax:
+			return "Parallax";
+		case TimeoutCategory::CriticalCurves:
+			return "CriticalCurves";
+		case TimeoutCategory::Astrometry:
+			return "Astrometry";
+		case TimeoutCategory::Unknown:
+		default:
+			return "Unknown";
+		}
+	}
+
+private:
+	static std::string BuildMessage(TimeoutCategory category, const std::string& where) {
+		std::string message = "VBMTimeoutError[" + std::string(CategoryName(category)) + "]";
+		if (!where.empty()) {
+			message += ": " + where;
+		}
+		return message;
+	}
+
+	TimeoutCategory category_ = TimeoutCategory::Unknown;
+	std::string where_;
 };
 
 
@@ -143,7 +192,21 @@ class VBMicrolensing
 	void polycritcoefficients(VBcomplex eiphi);
 
 public:
-	
+	// Timeout configuration for heavy computations.
+	// 0.0 seconds disables a timeout; check_interval controls loop check frequency.
+	// When a timeout is hit, VBMTimeoutError is thrown.
+	struct TimeoutConfig {
+		double root_solver_seconds = 0.0;
+		double magnification_seconds = 0.0;
+		double parallax_seconds = 0.0;
+		double critical_curves_seconds = 0.0;
+		double astrometry_seconds = 0.0;
+		int check_interval = 0; // 0 = default interval
+	};
+
+	void SetTimeouts(const TimeoutConfig& cfg) { timeout_config_ = cfg; }
+	TimeoutConfig GetTimeouts() const { return timeout_config_; }
+		
 	double rootaccuracy;
 	double samplingfactor;
 	bool squarecheck;
@@ -293,6 +356,7 @@ public:
 	~VBMicrolensing();
 
 private: // Must be declared here at the end
+	TimeoutConfig timeout_config_;
 	LDprofiles curLDprofile;
 	Method SelectedMethod;
 

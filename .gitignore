@@ -68,6 +68,7 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+gulls_general.code-workspace
 
 # Documentation build artifacts
 documentation/_build/
