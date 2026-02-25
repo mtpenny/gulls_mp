@@ -14,10 +14,10 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
   int idx,obsidx;
   
   int filter;
-  int sn = Event->source;
-  int ln = Event->lens;
-  int lc = -1;
-  if(Event->lcompanions.size()>0) lc = Event->lcompanions[0];
+  int sn = Event->source;  // catalog number of the source star
+  int ln = Event->lens;  // catalog number of the lens star
+  int lc = -1; 
+  if(Event->lcompanions.size()>0) lc = Event->lcompanions[0];  // catalog number of the lens companion, if it exists
 
   double baseline;
   double ampmag;
@@ -26,24 +26,25 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
   double nci, ncs, erri, errs;
   vector<double> phot;
   coords c;
+  const double thE_mas = Event->thE;  // Einstein angles in mas
   double lambda0 = 0.0;
   double beta0 = 0.0;
-  c.ad2ecl(Event->ra, Event->dec, &lambda0, &beta0);
-  const double cos_beta0 = cos(beta0);
-  const double safe_cos_beta0 = (fabs(cos_beta0) > 1.0e-12 ? cos_beta0 : (cos_beta0 >= 0 ? 1.0e-12 : -1.0e-12));
-  const double cos_dec0 = cos(Event->dec);
+  c.ad2ecl(Event->ra, Event->dec, &lambda0, &beta0);  // convert the event's ra dec to ecliptic for the astrometry calculations
+  const double cos_beta0 = cos(beta0);  // for ecliptic tangent plane to celestial sphere conversions (lambda, beta -> n, e)
+  const double safe_cos_beta0 = (fabs(cos_beta0) > 1.0e-12 ? cos_beta0 : (cos_beta0 >= 0 ? 1.0e-12 : -1.0e-12));  // avoid division by zero
+  const double cos_dec0 = cos(Event->dec); // for equatorial tangent plane to celestial sphere conversions (ra, dec -> N, E)
   const double safe_cos_dec0 = (fabs(cos_dec0) > 1.0e-12 ? cos_dec0 : (cos_dec0 >= 0 ? 1.0e-12 : -1.0e-12));
   const double mas_to_rad = TO_RAD/(3600.0*1000.0);
   const double mas_to_deg = 1.0/(3600.0*1000.0);
-  const double ln256 = log(256.0);
+  const double ln256 = log(256.0);  // used in the Gould 2014 astrometric error prescription
   const double inv_sqrt_ln256 = 1.0 / sqrt(ln256);
-  const double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);
-  double dRAc_from_eE = 0.0;
-  double dDec_from_eE = 0.0;
-  double dRAc_from_eN = 0.0;
-  double dDec_from_eN = 0.0;
-  c.muecl2ad(Event->ra, Event->dec, 1.0, 0.0, &dRAc_from_eE, &dDec_from_eE);
-  c.muecl2ad(Event->ra, Event->dec, 0.0, 1.0, &dRAc_from_eN, &dDec_from_eN);
+  const double floor_mas = max(0.0, Paramfile->astrometry_error_floor_mas);  // an additional systematric error for the astrometry
+  //double dRAc_from_eE = 0.0;
+  //double dDec_from_eE = 0.0;
+  //double dRAc_from_eN = 0.0;
+  //double dDec_from_eN = 0.0;
+  //c.muecl2ad(Event->ra, Event->dec, 1.0, 0.0, &dRAc_from_eE, &dDec_from_eE);
+  //c.muecl2ad(Event->ra, Event->dec, 0.0, 1.0, &dRAc_from_eN, &dDec_from_eN);
 
   //if the event is saturated in each band, no need to calculate the lightcurve
   if(Event->nepochs==0 || Event->allsat) 
@@ -59,7 +60,7 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
       Event->allsatobs[obsidx]=1;
     }
 
-  //Perform the photometry
+  //Perform the photometry  (epoch loop)
   for(idx=0;idx<Event->nepochs;idx++)
     {
       obsidx = Event->obsidx[idx];
@@ -67,27 +68,14 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 
       filter = World[obsidx].filter;
 
-      // Default astrometry state for per-epoch sky products.
-      // Keep centroid inputs from omLightcurveGenerator.cpp intact.
-      Event->xctrueerr[idx] = 0.0;
-      Event->yctrueerr[idx] = 0.0;
-      Event->xc[idx] = 0.0;
-      Event->yc[idx] = 0.0;
-      Event->xcerr[idx] = 0.0;
-      Event->ycerr[idx] = 0.0;
-      Event->lambda_noiseless_deg[idx] = lambda0 * TO_DEG;
-      Event->beta_noiseless_deg[idx] = beta0 * TO_DEG;
-      Event->ra_noiseless_deg[idx] = Event->ra * TO_DEG;
-      Event->dec_noiseless_deg[idx] = Event->dec * TO_DEG;
-      Event->ra_measured_deg[idx] = Event->ra * TO_DEG;
-      Event->dec_measured_deg[idx] = Event->dec * TO_DEG;
+      // Default astrometry state for per-epoch sky products
+      Event->ra_noiseless_deg[idx] =0.0;
+      Event->dec_noiseless_deg[idx] = 0.0;
+      Event->ra_measured_deg[idx] = 0.0;
+      Event->dec_measured_deg[idx] = 0.0;
       Event->sigma_ast_mas[idx] = 0.0;
       Event->ra_err_deg[idx] = 0.0;
       Event->dec_err_deg[idx] = 0.0;
-      Event->ra_src_only_deg[idx] = Event->ra * TO_DEG;
-      Event->dec_src_only_deg[idx] = Event->dec * TO_DEG;
-      Event->ra_src_lens_deg[idx] = Event->ra * TO_DEG;
-      Event->dec_src_lens_deg[idx] = Event->dec * TO_DEG;
 
       if(World[obsidx].photcode==FASTAP)
 	{
@@ -155,107 +143,93 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 
 	      if(Paramfile->astrometry_on)
 		{
-		  const double thE_mas = Event->thE;
 		  const double murel_ref = (Event->tE_r != 0.0 ? Event->thE/Event->tE_r*DAYINYR : 0.0);
-		  const double dt_year = (shiftedidx >= 0 && shiftedidx < int(Event->pllx[obsidx].epochs.size()))
-		    ? ((Event->pllx[obsidx].epochs[shiftedidx] - Event->pllx[obsidx].tref) / DAYINYR)
-		    : ((Event->epoch[idx] - Event->tref) / DAYINYR);
-		  const double pm_e_mas = murel_ref * Event->pllx[obsidx].mulam_r * dt_year;
-		  const double pm_n_mas = murel_ref * Event->pllx[obsidx].mubet_r * dt_year;
+		  const double dt_year = (shiftedidx >= 0 && shiftedidx < int(Event->pllx[obsidx].epochs.size())) // check that the shifted index is within the bounds of the pllx epochs vector for this observatory
+		    ? ((Event->pllx[obsidx].epochs[shiftedidx] - Event->pllx[obsidx].tref) / DAYINYR) // if the shifted index is out of bounds, fall back to using the unshifted epoch for this index (which may also be out of bounds, but at least won't be negative)
+		    : ((Event->epoch[idx] - Event->tref) / DAYINYR);  // convert the epoch to years relative to the pllx reference epoch (tref) for this observatory, which is used for the proper motion and parallax calculations. Use the shifted index to access the pllx epochs if it's within bounds, otherwise use the unshifted index.
+		  const double pm_lam_mas = Event->pllx[obsidx].mulam_r * dt_year; // proper motion contribution to the ecliptic eastward centroid shift in mas
+		  const double pm_beta_mas = Event->pllx[obsidx].mubet_r * dt_year; 
 
-		  double cx_src_thE = Event->xctrue[idx];
-		  double cy_src_thE = Event->yctrue[idx];
-		  if(Event->xc_src_only.size() > size_t(idx))
+		  const double cx_srcs_thE = Event->xc_srcs_only[idx];  // blended apparent source centroid (without lens light contribution)
+		  const double cy_srcs_thE = Event->yc_srcs_only[idx];  // in ecliptic coordinates, in theta E units, from omLightcurveGenerator.cpp
+		  const double fstotofs1 = Event->src_flux_total[idx];  // the is the per epoch sum of the magnified source fluxes, divided by fs1
+
+		  // Event->scomp_fsofs1[is-1][filt]
+		  // Event->baselineFlux[obsidx]
+
+		  // Calculating the realtive lens fluxes
+		  // -2.5log10(Ftot/Fs1) = mag1 - magtot
+		  // -2.5log10(Fs1/1) = mag1 - m0
+		  // => m0 = mag1 + 2.5log10(Fs1)
+		  // where mag1 is the magnitude of the primary source, and m0 is the magnitude zero point for the event,
+		  // in a source 1 flux normalized system.
+		  const double m0 = Sources->mags[sn][filter] + 2.5*log10(1.0); // zp for a system where the baseline flux of source 1 is 1.0, in the current epochs band
+		  // ml - m0 = -2.5log10(Fl/1) => Fl = 10^(-0.4*(ml-m0))
+		  const double fl1ofs1 = pow(10.0, -0.4*(Lenses->mags[ln][filter]-m0));  // lens 1 flux relative to source 1 flux in the current band
+		  double fl2ofs1 = 0.0;  // lens 2 flux relative to source 1 flux, if there's a luminous companion to the lens
+		  //check if there is a lens companion
+		  if (Paramfile->multiple_lenses && lc >= 0 && lc < int(Lenses->mags.size()))
 		    {
-		      cx_src_thE = Event->xc_src_only[idx];
-		      cy_src_thE = Event->yc_src_only[idx];
+		      fl2ofs1 = pow(10.0, -0.4*(Lenses->mags[lc][filter]-m0));  // lens 2 flux relative to source 1 flux, if there's a luminous companion to the lens
+		    }
+		  // there's never 3 luminous lenses in the current implementation
+
+		  double cx_blend_thE = cx_srcs_thE; // start with the source centroid, and then add the lens light contribution if there is any luminous lens and if the lens is within the image (i.e. has defined xlens and ylens values) for this epoch
+		  double cy_blend_thE = cy_srcs_thE;
+		  double flux_sum = fstotofs1;  // start with the total source flux, and then add the lens flux if there is a luminous lens
+
+          // flux weighted addition of the lens 1 centroid
+		  if(fl1ofs1 > 0.0 && Event->xlens.size() > 0 && Event->ylens.size() > 0
+		     && Event->xlens[0].size() > size_t(idx) && Event->ylens[0].size() > size_t(idx)) // check that the lens has defined positions for this epoch before trying to use them
+		    {
+		      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[0][idx]*fl1ofs1) / (flux_sum + fl1ofs1);
+		      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[0][idx]*fl1ofs1) / (flux_sum + fl1ofs1);
+		      flux_sum += fl1ofs1;
 		    }
 
-		  double fs_tot = Event->fs[obsidx];
-		  if(Paramfile->multiple_sources && Event->scompanions.size()>0)
+		  // flux weighted addition of the lens 2 centroid, if there's a luminous companion to the lens
+		  if(fl2ofs1 > 0.0 && Event->xlens.size() > 1 && Event->ylens.size() > 1
+		     && Event->xlens[1].size() > size_t(idx) && Event->ylens[1].size() > size_t(idx))  // check that the second lens has defined positions for this epoch before trying to use them
 		    {
-		      for(size_t cidx=0; cidx<Event->scompanions.size(); ++cidx)
-			{
-			  if(Event->scomp_fsofs1.size() > cidx && Event->scomp_fsofs1[cidx].size() > size_t(filter))
-			    {
-			      fs_tot += Event->fs[obsidx] * Event->scomp_fsofs1[cidx][filter];
-			    }
-			}
+		      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
+		      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
+		      flux_sum += fl2ofs1;
 		    }
 
-		  double fl1 = 0.0;
-		  double fl2 = 0.0;
-		  if(Paramfile->lenslight && ln >= 0 && ln < int(Lenses->mags.size()))
-		    {
-		      const double f_l1_over_s1 = pow(10.0, -0.4*(Lenses->mags[ln][filter] - Sources->mags[sn][filter]));
-		      fl1 = Event->fs[obsidx] * f_l1_over_s1;
-		      if(Paramfile->multiple_lenses && lc >= 0 && lc < int(Lenses->mags.size()))
-			{
-			  const double f_l2_over_s1 = pow(10.0, -0.4*(Lenses->mags[lc][filter] - Sources->mags[sn][filter]));
-			  fl2 = Event->fs[obsidx] * f_l2_over_s1;
-			}
-		    }
+		  Event->xc_src_lens[idx] = cx_blend_thE;  // save the blended centroid with lens contribution in theta E units, in the event structure
+		  Event->yc_src_lens[idx] = cy_blend_thE;  // so that we can output it in the lightcurve file, and also use it for diagnostics
 
-		  double cx_blend_thE = cx_src_thE;
-		  double cy_blend_thE = cy_src_thE;
-		  double flux_sum = fs_tot;
-		  if(fl1 > 0.0 && Event->xlens.size() > 0 && Event->ylens.size() > 0
-		     && Event->xlens[0].size() > size_t(idx) && Event->ylens[0].size() > size_t(idx))
-		    {
-		      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[0][idx]*fl1)/(flux_sum + fl1);
-		      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[0][idx]*fl1)/(flux_sum + fl1);
-		      flux_sum += fl1;
-		    }
-		  if(fl2 > 0.0 && Event->xlens.size() > 1 && Event->ylens.size() > 1
-		     && Event->xlens[1].size() > size_t(idx) && Event->ylens[1].size() > size_t(idx))
-		    {
-		      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[1][idx]*fl2)/(flux_sum + fl2);
-		      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[1][idx]*fl2)/(flux_sum + fl2);
-		      flux_sum += fl2;
-		    }
 
-		  Event->xc_src_only[idx] = cx_src_thE;
-		  Event->yc_src_only[idx] = cy_src_thE;
-		  Event->xc_src_lens[idx] = cx_blend_thE;
-		  Event->yc_src_lens[idx] = cy_blend_thE;
-		  Event->xctrue[idx] = cx_blend_thE;
-		  Event->yctrue[idx] = cy_blend_thE;
-		  Event->xctrueerr[idx] = 0.0;
-		  Event->yctrueerr[idx] = 0.0;
+		  // Converting into the observable frame
 
-		  const double e_src_only_mas = cx_src_thE * thE_mas + pm_e_mas;
-		  const double n_src_only_mas = cy_src_thE * thE_mas + pm_n_mas;
-		  const double e_src_lens_mas = cx_blend_thE * thE_mas + pm_e_mas;
-		  const double n_src_lens_mas = cy_blend_thE * thE_mas + pm_n_mas;
-		  const double lambda_src_only = lambda0 + (e_src_only_mas*mas_to_rad)/safe_cos_beta0;
-		  const double beta_src_only = beta0 + n_src_only_mas*mas_to_rad;
-		  const double lambda_src_lens = lambda0 + (e_src_lens_mas*mas_to_rad)/safe_cos_beta0;
-		  const double beta_src_lens = beta0 + n_src_lens_mas*mas_to_rad;
-		  double ra_src_only = Event->ra;
-		  double dec_src_only = Event->dec;
-		  double ra_src_lens = Event->ra;
-		  double dec_src_lens = Event->dec;
-		  c.ecl2ad(lambda_src_only, beta_src_only, &ra_src_only, &dec_src_only);
-		  c.ecl2ad(lambda_src_lens, beta_src_lens, &ra_src_lens, &dec_src_lens);
-		  Event->ra_src_only_deg[idx] = ra_src_only * TO_DEG;
-		  Event->dec_src_only_deg[idx] = dec_src_only * TO_DEG;
-		  Event->ra_src_lens_deg[idx] = ra_src_lens * TO_DEG;
-		  Event->dec_src_lens_deg[idx] = dec_src_lens * TO_DEG;
+		  // Convert to mas
+		  double de_mas = cx_blend_thE * thE_mas;
+		  double dn_mas = cy_blend_thE * thE_mas;
 
-		  const double e_noiseless_mas = cx_blend_thE * thE_mas + pm_e_mas;
-		  const double n_noiseless_mas = cy_blend_thE * thE_mas + pm_n_mas;
-		  Event->xc[idx] = e_noiseless_mas;
-		  Event->yc[idx] = n_noiseless_mas;
+		  // move to absolute position in rad
+		  double e0 = lambda0;
+		  double n0 = beta0;
 
-		  const double lambda_noiseless = lambda0 + (e_noiseless_mas*mas_to_rad)/safe_cos_beta0;
-		  const double beta_noiseless = beta0 + n_noiseless_mas*mas_to_rad;
-		  Event->lambda_noiseless_deg[idx] = lambda_noiseless * TO_DEG;
-		  Event->beta_noiseless_deg[idx] = beta_noiseless * TO_DEG;
-		  double ra_noiseless = Event->ra;
-		  double dec_noiseless = Event->dec;
+		  // collect shifts in mas
+		  double de_lens_pllx = 0.0;  // TODO: fill from **existing parallax code**
+		  double dn_lens_pllx = 0.0;  // mas
+		  de_mas += pm_lam_mas + de_lens_pllx;  // adding lens motion shift lens parallax shift and relative centroid shift
+		  dn_mas += pm_beta_mas + dn_lens_pllx;
+		  double de_rad = de_mas * mas_to_rad;
+		  double dn_rad = dn_mas * mas_to_rad;
+		  double dlam_rad = de_rad / safe_cos_beta0;
+		  double dbet_rad = dn_rad;
+
+		  double lambda_noiseless = e0 + dlam_rad;  // absolute blended apparent source centroid in ecliptic longitude, in radians
+		  double beta_noiseless = n0 + dbet_rad;  // absolute blended apparent
+
+		  double ra_noiseless = 0.0;
+		  double dec_noiseless = 0.0;
 		  c.ecl2ad(lambda_noiseless, beta_noiseless, &ra_noiseless, &dec_noiseless);
 		  Event->ra_noiseless_deg[idx] = ra_noiseless * TO_DEG;
 		  Event->dec_noiseless_deg[idx] = dec_noiseless * TO_DEG;
+		  Event->lambda_noiseless_deg[idx] = lambda_noiseless * TO_DEG;
+		  Event->beta_noiseless_deg[idx] = beta_noiseless * TO_DEG;
 
 		  double sigma_phot = 0.0;
 		  if(std::isfinite(Event->Aobs[idx]) && std::isfinite(Event->Aerr[idx]) && fabs(Event->Aobs[idx]) > 1.0e-12)
@@ -263,23 +237,13 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 		  const double sigma_ast_psf_mas = sigma_phot * (World[obsidx].im.fwhm * 1000.0) * inv_sqrt_ln256;
 		  const double sigma_ast_mas = sqrt(sigma_ast_psf_mas*sigma_ast_psf_mas + floor_mas*floor_mas);
 		  Event->sigma_ast_mas[idx] = sigma_ast_mas;
-		  Event->xcerr[idx] = sigma_ast_mas;
-		  Event->ycerr[idx] = sigma_ast_mas;
 
-		  const double noise_e_mas = sigma_ast_mas * gasdev(Paramfile->seed);
-		  const double noise_n_mas = sigma_ast_mas * gasdev(Paramfile->seed);
-		  const double lambda_measured = lambda0 + ((e_noiseless_mas + noise_e_mas)*mas_to_rad)/safe_cos_beta0;
-		  const double beta_measured = beta0 + (n_noiseless_mas + noise_n_mas)*mas_to_rad;
-		  double ra_measured = Event->ra;
-		  double dec_measured = Event->dec;
-		  c.ecl2ad(lambda_measured, beta_measured, &ra_measured, &dec_measured);
-		  Event->ra_measured_deg[idx] = ra_measured * TO_DEG;
-		  Event->dec_measured_deg[idx] = dec_measured * TO_DEG;
-
-		  const double var_dRAc_mas2 = sigma_ast_mas*sigma_ast_mas*(dRAc_from_eE*dRAc_from_eE + dRAc_from_eN*dRAc_from_eN);
-		  const double var_dDec_mas2 = sigma_ast_mas*sigma_ast_mas*(dDec_from_eE*dDec_from_eE + dDec_from_eN*dDec_from_eN);
-		  Event->ra_err_deg[idx] = sqrt(var_dRAc_mas2) * mas_to_deg / safe_cos_dec0;
-		  Event->dec_err_deg[idx] = sqrt(var_dDec_mas2) * mas_to_deg;
+		  const double noise_ra_mas = sigma_ast_mas * gasdev(Paramfile->seed);
+		  const double noise_dec_mas = sigma_ast_mas * gasdev(Paramfile->seed);
+		  Event->ra_measured_deg[idx] = ra_noiseless * TO_DEG + noise_ra_mas * mas_to_deg / safe_cos_dec0;
+		  Event->dec_measured_deg[idx] = dec_noiseless * TO_DEG + noise_dec_mas * mas_to_deg;
+		  Event->ra_err_deg[idx] = sigma_ast_mas * mas_to_deg / safe_cos_dec0;
+		  Event->dec_err_deg[idx] = sigma_ast_mas * mas_to_deg;
 		}
 
 	      //Test for saturation

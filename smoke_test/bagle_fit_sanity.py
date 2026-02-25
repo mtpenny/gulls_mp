@@ -990,12 +990,16 @@ def run_bagle_joint_fit_sanity(
         field_try = int(float(candidate_row["Field"]))
         lc_try = _find_lc_for_event(run_dir, evt_try, subrun_try, field_try)
         df_try = pd.read_csv(lc_try, sep=r"\s+", comment="#")
-        if "Simulation_time" not in df_try.columns:
-            raise SmokeTestError(
-                f"BAGLE sanity: {lc_try.name} missing required Simulation_time column"
-            )
+        if "Simulation_time" not in df_try.columns:  # I renamed this column in the gulls general lightcurves
+            if 'simulation_time' not in df_try.columns:   # b/c the inconsistent capitalization was annoying me
+                raise SmokeTestError(
+                    f"BAGLE sanity: {lc_try.name} missing required Simulation_time column"
+                )
+            else:
+                sim_time_try = df_try["simulation_time"].to_numpy(dtype=float, copy=False)
+        else:
+            sim_time_try = df_try["Simulation_time"].to_numpy(dtype=float, copy=False)
 
-        sim_time_try = df_try["Simulation_time"].to_numpy(dtype=float, copy=False)
         t0_try = _safe_get(candidate_row, "t0lens1")
         tE_try = abs(_safe_get(candidate_row, "tE_ref"))
         if math.isnan(t0_try) or math.isnan(tE_try) or tE_try <= 0.0:
@@ -1031,22 +1035,12 @@ def run_bagle_joint_fit_sanity(
     field = int(float(row["Field"]))
     out_chi2 = float(row["ObsGroup_0_chi2"])
     lensing_context_parts: List[str] = []
-    if "NLens" in row.index:
-        nlens_val = _safe_get(row, "NLens")
-        if math.isfinite(nlens_val) and nlens_val > 1.0:
-            lensing_context_parts.append(f"underlying event has NLens={int(round(nlens_val))}")
-    if "NPlanets" in row.index:
-        nplan_val = _safe_get(row, "NPlanets")
-        if math.isfinite(nplan_val) and nplan_val > 0.0:
-            lensing_context_parts.append(f"NPlanets={int(round(nplan_val))}")
-    if "Planet_0_q" in row.index:
-        q_val = _safe_get(row, "Planet_0_q")
-        if math.isfinite(q_val) and q_val > 0.0:
-            lensing_context_parts.append(f"Planet_0_q={q_val:.4g}")
 
+    bagle_contract = _parse_header_keyvals(lc_file, "#Astrometry_BAGLE:")
     contract = _parse_header_keyvals(lc_file, "#Astrometry_Contract:")
     contract_cols = _parse_header_keyvals(lc_file, "#Astrometry_Columns:")
     warnings: List[str] = []
+    deferred_failures: List[str] = []
     for skip_msg in mask_skips[:5]:
         warnings.append(f"BAGLE candidate skipped: {skip_msg}.")
 
@@ -1065,7 +1059,11 @@ def run_bagle_joint_fit_sanity(
                 return col
         return None
 
-    astrometry_model_frame_raw = _parse_astrometry_bagle_model_frame(lc_file)
+    astrometry_model_frame_raw = bagle_contract.get("model_frame")
+    if astrometry_model_frame_raw is not None:
+        astrometry_model_frame_raw = astrometry_model_frame_raw.strip().lower()
+    else:
+        astrometry_model_frame_raw = _parse_astrometry_bagle_model_frame(lc_file)
     if astrometry_model_frame_raw is None:
         astrometry_model_frame_raw = contract.get("model_frame")
         if astrometry_model_frame_raw is None:
@@ -1658,58 +1656,64 @@ def run_bagle_joint_fit_sanity(
     dof = max(1, int(len(mag_obs) + 2 * len(fit_t_ast) - n_param_eff))
     red_chi2 = chi2_total / dof
     if red_chi2 > fit_reduced_chi2_max:
-        raise SmokeTestError(
+        deferred_failures.append(
             f"BAGLE sanity: poor joint-fit quality for {lc_file.name} "
             f"(reduced chi2={red_chi2:.3f}, threshold={fit_reduced_chi2_max:.3f}, "
             f"chi2_phot={chi2_phot:.2f}, chi2_ast={chi2_ast:.2f}, dof={dof})."
             f"{lensing_context}"
         )
 
+    true_ast_rms_mas = float("nan")
+    true_ast_sigma_equiv = float("nan")
+    true_ast_epochs = 0
     if (
         true_idx_in_ast is None
         or x_ast_true_arcsec is None
         or y_ast_true_arcsec is None
         or len(true_idx_in_ast) == 0
     ):
-        raise SmokeTestError(
+        deferred_failures.append(
             "BAGLE sanity: noiseless astrometry was not carried through fitting; cannot perform strict model-vs-true checks."
         )
-    if len(true_idx_in_ast) < 20:
-        raise SmokeTestError(
-            f"BAGLE sanity: only {len(true_idx_in_ast)} noiseless astrometric epochs available for strict validation."
+    else:
+        true_ast_epochs = int(len(true_idx_in_ast))
+        if len(true_idx_in_ast) < 20:
+            deferred_failures.append(
+                f"BAGLE sanity: only {len(true_idx_in_ast)} noiseless astrometric epochs available for strict validation."
+            )
+        ast_model_true = _get_model_astrometry(
+            best_model,
+            t_ast_true,
+            lens_relative_astrometry=lens_relative_astrometry,
         )
+        if len(ast_model_true) != len(t_ast_true):
+            deferred_failures.append(
+                f"BAGLE sanity: unexpected astrometry length for noiseless epochs: {ast_model_true.shape}"
+            )
+        else:
+            resid_true_e_mas = (ast_model_true[:, 0] - x_ast_true_arcsec) * MAS_PER_ARCSEC
+            resid_true_n_mas = (ast_model_true[:, 1] - y_ast_true_arcsec) * MAS_PER_ARCSEC
+            true_ast_rms_mas = float(np.sqrt(np.mean(resid_true_e_mas**2 + resid_true_n_mas**2)))
 
-    ast_model_true = _get_model_astrometry(
-        best_model,
-        t_ast_true,
-        lens_relative_astrometry=lens_relative_astrometry,
-    )
-    if len(ast_model_true) != len(t_ast_true):
-        raise SmokeTestError(
-            f"BAGLE sanity: unexpected astrometry length for noiseless epochs: {ast_model_true.shape}"
-        )
-    resid_true_e_mas = (ast_model_true[:, 0] - x_ast_true_arcsec) * MAS_PER_ARCSEC
-    resid_true_n_mas = (ast_model_true[:, 1] - y_ast_true_arcsec) * MAS_PER_ARCSEC
-    true_ast_rms_mas = float(np.sqrt(np.mean(resid_true_e_mas**2 + resid_true_n_mas**2)))
-
-    pair_err_mas = np.hypot(
-        x_ast_err_arcsec[true_idx_in_ast] * MAS_PER_ARCSEC,
-        y_ast_err_arcsec[true_idx_in_ast] * MAS_PER_ARCSEC,
-    )
-    finite_pair_err = pair_err_mas[np.isfinite(pair_err_mas) & (pair_err_mas > 0.0)]
-    if finite_pair_err.size == 0:
-        raise SmokeTestError(
-            "BAGLE sanity: invalid astrometric uncertainties when evaluating model-vs-noiseless residuals."
-        )
-    true_ast_sigma_equiv = true_ast_rms_mas / float(np.median(finite_pair_err))
-    if true_ast_rms_mas > true_ast_rms_mas_max or true_ast_sigma_equiv > true_ast_sigma_max:
-        raise SmokeTestError(
-            f"BAGLE sanity: model does not track noiseless astrometry for {lc_file.name} "
-            f"(RMS_true={true_ast_rms_mas:.3f} mas, limit={true_ast_rms_mas_max:.3f} mas; "
-            f"sigma_equiv={true_ast_sigma_equiv:.2f}, limit={true_ast_sigma_max:.2f}; "
-            f"epochs={len(true_idx_in_ast)})."
-            f"{lensing_context}"
-        )
+            pair_err_mas = np.hypot(
+                x_ast_err_arcsec[true_idx_in_ast] * MAS_PER_ARCSEC,
+                y_ast_err_arcsec[true_idx_in_ast] * MAS_PER_ARCSEC,
+            )
+            finite_pair_err = pair_err_mas[np.isfinite(pair_err_mas) & (pair_err_mas > 0.0)]
+            if finite_pair_err.size == 0:
+                deferred_failures.append(
+                    "BAGLE sanity: invalid astrometric uncertainties when evaluating model-vs-noiseless residuals."
+                )
+            else:
+                true_ast_sigma_equiv = true_ast_rms_mas / float(np.median(finite_pair_err))
+                if true_ast_rms_mas > true_ast_rms_mas_max or true_ast_sigma_equiv > true_ast_sigma_max:
+                    deferred_failures.append(
+                        f"BAGLE sanity: model does not track noiseless astrometry for {lc_file.name} "
+                        f"(RMS_true={true_ast_rms_mas:.3f} mas, limit={true_ast_rms_mas_max:.3f} mas; "
+                        f"sigma_equiv={true_ast_sigma_equiv:.2f}, limit={true_ast_sigma_max:.2f}; "
+                        f"epochs={len(true_idx_in_ast)})."
+                        f"{lensing_context}"
+                    )
 
     lens_ast_rms_raw_mas: float | None = None
     lens_ast_rms_demean_mas: float | None = None
@@ -1718,12 +1722,47 @@ def run_bagle_joint_fit_sanity(
     lens_obs_y_plot_arcsec: np.ndarray | None = None
     lens_formula_x_plot_arcsec: np.ndarray | None = None
     lens_formula_y_plot_arcsec: np.ndarray | None = None
-    if "RA_lens_primary_deg" in df.columns and "Dec_lens_primary_deg" in df.columns:
-        lens_ra_all = df["RA_lens_primary_deg"].to_numpy(dtype=float, copy=False)
-        lens_dec_all = df["Dec_lens_primary_deg"].to_numpy(dtype=float, copy=False)
-        lens_dra_deg = (lens_ra_all - ra_deg + 180.0) % 360.0 - 180.0
-        lens_x_all_arcsec = lens_dra_deg * cos_dec * 3600.0
-        lens_y_all_arcsec = (lens_dec_all - dec_deg) * 3600.0
+    lens_cols_raw = bagle_contract.get("lens_columns", "").strip()
+    lens_frame = bagle_contract.get("lens_frame", "xy_thetaE").strip().lower()
+    lens_col_x = "lens0_x"
+    lens_col_y = "lens0_y"
+    if lens_cols_raw:
+        split_cols = [part.strip() for part in lens_cols_raw.split(",") if part.strip()]
+        if len(split_cols) == 2:
+            lens_col_x, lens_col_y = split_cols
+        else:
+            deferred_failures.append(
+                f"BAGLE sanity: invalid #Astrometry_BAGLE lens_columns={lens_cols_raw!r} in {lc_file.name}; expected two comma-separated columns."
+            )
+
+    if lens_col_x in df.columns and lens_col_y in df.columns:
+        if lens_frame in ("ra_dec_deg", "radec_deg", "sky_ra_dec_deg"):
+            lens_ra_all = df[lens_col_x].to_numpy(dtype=float, copy=False)
+            lens_dec_all = df[lens_col_y].to_numpy(dtype=float, copy=False)
+            lens_dra_deg = (lens_ra_all - ra_deg + 180.0) % 360.0 - 180.0
+            lens_x_all_arcsec = lens_dra_deg * cos_dec * 3600.0
+            lens_y_all_arcsec = (lens_dec_all - dec_deg) * 3600.0
+        elif lens_frame in ("xy_arcsec", "bagle_xy_arcsec"):
+            lens_x_all_arcsec = df[lens_col_x].to_numpy(dtype=float, copy=False)
+            lens_y_all_arcsec = df[lens_col_y].to_numpy(dtype=float, copy=False)
+        elif lens_frame in ("xy_thetae", "bagle_xy_thetae", "thetae"):
+            thetae_mas = abs(_safe_get(row, "thetaE"))
+            if (not math.isfinite(thetae_mas)) or thetae_mas <= 0.0:
+                deferred_failures.append(
+                    f"BAGLE sanity: lens_frame={lens_frame} requested in {lc_file.name} but thetaE is invalid in .out."
+                )
+                lens_x_all_arcsec = np.full_like(t_ast, np.nan, dtype=float)
+                lens_y_all_arcsec = np.full_like(t_ast, np.nan, dtype=float)
+            else:
+                conv = thetae_mas / MAS_PER_ARCSEC
+                lens_x_all_arcsec = df[lens_col_x].to_numpy(dtype=float, copy=False) * conv
+                lens_y_all_arcsec = df[lens_col_y].to_numpy(dtype=float, copy=False) * conv
+        else:
+            deferred_failures.append(
+                f"BAGLE sanity: unsupported #Astrometry_BAGLE lens_frame={lens_frame!r} in {lc_file.name}."
+            )
+            lens_x_all_arcsec = np.full_like(t_ast, np.nan, dtype=float)
+            lens_y_all_arcsec = np.full_like(t_ast, np.nan, dtype=float)
 
         lens_x_sel_arcsec = lens_x_all_arcsec[ast_idx]
         lens_y_sel_arcsec = lens_y_all_arcsec[ast_idx]
@@ -1776,7 +1815,7 @@ def run_bagle_joint_fit_sanity(
                 np.sqrt(np.mean(lens_resid_e_demean**2 + lens_resid_n_demean**2))
             )
             if lens_ast_rms_demean_mas > lens_ast_rms_demean_mas_max:
-                raise SmokeTestError(
+                deferred_failures.append(
                     f"BAGLE sanity: primary-lens astrometry mismatch for {lc_file.name} "
                     f"(RMS_raw={lens_ast_rms_raw_mas:.3f} mas, "
                     f"RMS_after_xy_offset={lens_ast_rms_demean_mas:.3f} mas, "
@@ -1800,10 +1839,10 @@ def run_bagle_joint_fit_sanity(
                 + (" ..." if len(available_lens_cols) > 8 else "")
                 + "."
             )
-        raise SmokeTestError(
+        deferred_failures.append(
             f"BAGLE sanity: {lc_file.name} missing required primary-lens astrometry columns "
-            "(RA_lens_primary_deg/Dec_lens_primary_deg). "
-            "Either publish these in the .lc output or update BAGLE sanity to consume the published lens-track frame."
+            f"({lens_col_x}/{lens_col_y}; lens_frame={lens_frame}). "
+            "Either publish these in the .lc output or update #Astrometry_BAGLE lens_columns/lens_frame metadata."
             + hint
         )
 
@@ -1835,7 +1874,7 @@ def run_bagle_joint_fit_sanity(
     mu_dir_ref = math.degrees(math.atan2(mu_ref[1], mu_ref[0]))
     mu_dir_diff = abs(_angle_diff_deg(mu_dir_fit, mu_dir_ref))
     if mu_amp_frac > mu_amp_frac_tol or mu_dir_diff > mu_dir_tol_deg:
-        raise SmokeTestError(
+        deferred_failures.append(
             f"BAGLE sanity: proper-motion mismatch for {lc_file.name} "
             f"(fit_mu=({mu_fit[0]:.4f},{mu_fit[1]:.4f}) mas/yr, "
             f"out_mu_bagle=({mu_ref[0]:.4f},{mu_ref[1]:.4f}) mas/yr, "
@@ -1875,7 +1914,7 @@ def run_bagle_joint_fit_sanity(
     piE_dir_ref = math.degrees(math.atan2(piE_ref[1], piE_ref[0]))
     piE_dir_diff = abs(_angle_diff_deg(piE_dir_fit, piE_dir_ref))
     if piE_amp_frac > piE_amp_frac_tol or piE_dir_diff > piE_dir_tol_deg:
-        raise SmokeTestError(
+        deferred_failures.append(
             f"BAGLE sanity: parallax mismatch for {lc_file.name} "
             f"(fit_piE=({piE_fit[0]:.4f},{piE_fit[1]:.4f}), "
             f"out_piE_bagle=({piE_ref[0]:.4f},{piE_ref[1]:.4f}), "
@@ -1973,7 +2012,7 @@ def run_bagle_joint_fit_sanity(
             "sigma_equiv": true_ast_sigma_equiv,
             "rms_limit_mas": float(true_ast_rms_mas_max),
             "sigma_limit": float(true_ast_sigma_max),
-            "n_epochs": int(len(true_idx_in_ast)),
+            "n_epochs": int(true_ast_epochs),
         },
         "proper_motion": {
             "fit": {"E": float(mu_fit[0]), "N": float(mu_fit[1]), "amp": mu_amp_fit},
@@ -1999,9 +2038,17 @@ def run_bagle_joint_fit_sanity(
             "rms_after_xy_offset_limit_mas": float(lens_ast_rms_demean_mas_max),
         },
         "lens_plot_path": (str(lens_plot_path) if lens_plot_path is not None else None),
+        "deferred_failures": deferred_failures,
         "warnings": warnings,
     }
     result_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    if deferred_failures:
+        plot_note = f" Plot: {plot_path}."
+        raise SmokeTestError(
+            "BAGLE sanity (deferred): diagnostics were generated before failing. "
+            f"{deferred_failures[0]}{plot_note}"
+        )
 
     return BagleJointFitSummary(
         run_dir=run_dir,

@@ -59,6 +59,7 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->lcomp_dL.clear();
   Event->lcomp_mass.clear();
   Event->lcomp_period.clear();
+  //Event->m0.clear();
 
   //Event->ljoint_thE.clear();
   //Event->ljoint_tE.clear();
@@ -534,7 +535,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double long_ascnode = 360.0*ran2(idum);
 	  if(Sources->datadict.count("LongitudeAscendingNode")==1)
 	    {
-	      long_perihelion = Sources->data[sn][Sources->datadict["LongitudeAscendingNode"]];
+	      long_ascnode = Sources->data[sn][Sources->datadict["LongitudeAscendingNode"]];
 	    }
 	  Event->scomp_O.push_back(long_ascnode);
 	  Event->scomp_alpha.push_back(long_ascnode);
@@ -683,7 +684,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double long_ascnode = 360.0*ran2(idum);
 	  if(Lenses->datadict.count("LongitudeAscendingNode")==1)
 	    {
-	      long_perihelion = Lenses->data[ln][Lenses->datadict["LongitudeAscendingNode"]];
+	      long_ascnode = Lenses->data[ln][Lenses->datadict["LongitudeAscendingNode"]];
 	    }
 	  Event->lcomp_O.push_back(long_ascnode);
 
@@ -691,7 +692,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
 	  if(Lenses->datadict.count("Inclination")==1)
 	    {
-	      long_perihelion = Lenses->data[ln][Lenses->datadict["Inclination"]];
+	      inc = Lenses->data[ln][Lenses->datadict["Inclination"]];
 	    }
 	  Event->lcomp_I.push_back(inc);
 
@@ -788,6 +789,20 @@ void compute_u0(struct filekeywords* Paramfile, struct obsfilekeywords World[], 
   double u0max = sqrt(2.0*sqrt(1.0+1.0/(mumin*mumin-1.0)) - 2.0);
   u0max = (u0max>umaxmax?umaxmax:u0max);
   u0max = (u0max<umaxmin?umaxmin:u0max);
+  */
+
+  /*
+  for (int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
+	{
+	  int filter = World[obsidx].filter;
+	  // calculating the photometry-system magnitude zero point (m0) for each band
+	  // m0 - m_source1 = -2.5*log10(f_source1) or 
+	  // m0 - m_lens1 = -2.5*log10(f_lens1),
+	  // wherre the flux system is relative to a baseline of 1 count/s. 
+	  // This is the same system as the photometry, zeropoint can be calculated as ...?
+	  // I'll just fill with 0.0 for now
+  	  Event->m0[obsidx] = 0.0; // Sources->mags[Event->source][filter] - 2.5*log10(Sources->data[Event->source][Sources->FLUX]/Event->baselineFlux[obsidx]);
+	}
   */
 
   Event->u0max = Paramfile->u0max;

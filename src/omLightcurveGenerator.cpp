@@ -80,8 +80,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->ylens[i].resize(Event->nepochs);
     }
 
-	Event->astrox1_raw.resize(Event->nsrc);
-	Event->astrox2_raw.resize(Event->nsrc);
+  Event->astrox1_raw.resize(Event->nsrc);
+  Event->astrox2_raw.resize(Event->nsrc);
   // astro*_raw in event frame with per epoch and per source values for debugging and testing. These are the raw outputs of the VBM, before any rotation or translation to event frame coordinates, so they are in the VBM frame and centered on the center of mass of the lens system. We store these for debugging and testing, and then we will apply the appropriate rotations and translations to get the final astrometric centroid in event frame coordinates, which will be stored in Event->astrox1/2. This way we can test the VBM astrometry logic path independently of the coordinate transformations to get to event frame coordinates, and we can also test the coordinate transformations independently by comparing the raw VBM output to the final event frame astrometry.
   Event->astrox_raw.resize(Event->nsrc);
   Event->astroy_raw.resize(Event->nsrc);
@@ -92,10 +92,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  Event->astrox_raw[i].assign(Event->nepochs,0.0);
 	  Event->astroy_raw[i].assign(Event->nepochs,0.0);
 	}
-  Event->xc_src_only.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids
-  Event->yc_src_only.assign(Event->nepochs,0.0);
+  Event->xc_srcs_only.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids
+  Event->yc_srcs_only.assign(Event->nepochs,0.0);
   Event->xc_src_lens.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids and luminous lens centroids, for astrometry path only. This is the relevant blended centroid for astrometry, since ambient light does not contribute to astrometric blending by contract.
   Event->yc_src_lens.assign(Event->nepochs,0.0);
+
+  Event->src_flux_total.assign(Event->nepochs,0.0); // total source flux (for calculating blended centroid), in units of the unmagnified source flux, for astrometry path only
   
   //Conventions:
   //Track the apparent motion of the centers of mass of the source and lens, then compute offsets from them
@@ -623,7 +625,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      xl[i] /= Event->rE; yl[i] /= Event->rE; dl[i] /= Event->rE;
 
 	      //rotations needed here?
-	      
 	      lens_parameters[3*i+0] = xl[i];
 	      lens_parameters[3*i+1] = yl[i];
 	      Event->xlens[i][idx] = xl[i];  // is this lens parallax? -A
@@ -709,7 +710,16 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       else if(nlens==2)  //binary lens
 	{
 	  double s = qAdd(xl[1]-xl[0],yl[1]-yl[0]);  // scalar angular separation of the two lenses, in units of the Einstein radius
-	  double q = Event->p_q[0];  // mass ratio of the two lenses
+	  double q = 0.0;
+	  if (Event->lcompanions.size()>0)
+	    {
+		  q = Event->lcomp_q[0];  // mass ratio of the two stellar lenses
+           
+		}
+	  else
+	    {
+		  q = Event->p_q[0];  // mass ratio of the two lenses
+	    }
 	  double rot = atan2(yl[1],xl[1]);  // angle to rotate coordinates into the VBM binary lens frame, which is defined such that 
 	  // the two lenses lie on the x-axis. This rotation is needed because the VBM binary lens magnification functions assume the 
 	  // binary axis is along the x-axis, which can be at any angle on the sky, but we have the lens positions in ecliptic coordinates 
@@ -822,40 +832,37 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       if(Paramfile->astrometry_on)
 	{
-	  double src_flux_tot = mu[0];
-	  double cx_src = astro_x[0] * mu[0];
+	  double src_flux_tot = mu[0];  // just prinary source flux at this point
+	  double cx_src = astro_x[0] * mu[0];  // weighted primary source positon
 	  double cy_src = astro_y[0] * mu[0];
 	  for(int is=1;is<nsrc;is++)
 	    {
-	      double src_flux = Event->scomp_fsofs1[is-1][filt] * mu[is];
-	      src_flux_tot += src_flux;
-	      cx_src += astro_x[is] * src_flux;
+	      double src_flux = Event->scomp_fsofs1[is-1][filt] * mu[is];  //calculate epoch-wise flux of each companion source
+	      src_flux_tot += src_flux;  // iteratively add the companion source fluxes
+	      cx_src += astro_x[is] * src_flux;  // weighted centroid addition from each companion source
 	      cy_src += astro_y[is] * src_flux;
 	    }
 	  if(src_flux_tot>0.0)
 	    {
-	      cx_src /= src_flux_tot;
+	      cx_src /= src_flux_tot;  // normalize the centroid by the total flux to get the flux-weighted centroid position
 	      cy_src /= src_flux_tot;
 	    }
 	  else
 	    {
-	      cx_src = std::numeric_limits<double>::quiet_NaN();
+	      cx_src = std::numeric_limits<double>::quiet_NaN();  // if total source flux is negative, something is wrong
 	      cy_src = std::numeric_limits<double>::quiet_NaN();
 	    }
 
-	  Event->xc_src_only[idx] = cx_src;
-	  Event->yc_src_only[idx] = cy_src;
-	  Event->xc_src_lens[idx] = cx_src;
-	  Event->yc_src_lens[idx] = cy_src;
-	  Event->xctrue[idx] = cx_src;
-	  Event->yctrue[idx] = cy_src;
+	  Event->xc_srcs_only[idx] = cx_src;  // blended apparent source centroid
+	  Event->yc_srcs_only[idx] = cy_src;
+	  Event->src_flux_total[idx] = src_flux_tot;  // so I don't have to recalculate it in photometry.cpp
 	}
 
 
       // Keep track of highest magnification
       if (Event->Atrue[idx] > Event->Amax)
 	{
-	  Event->Amax = amp;
+	  Event->Amax = Event->Atrue[idx];  // this was amp, but I think that was a bug -A
 	  Event->peakpoint = idx;
 	}
       
