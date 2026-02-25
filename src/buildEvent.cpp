@@ -538,10 +538,10 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double long_ascnode = 360.0*ran2(idum);
 	  if(Sources->datadict.count("LongitudeAscendingNode")==1)
 	    {
-	      long_perihelion = Sources->data[sn][Sources->datadict["LongitudeAscendingNode"]];
+	      long_ascnode = Sources->data[sn][Sources->datadict["LongitudeAscendingNode"]];
 	    }
 	  Event->scomp_O.push_back(long_ascnode);
-	  Event->scomp_alpha.push_back(long_ascnode);
+	  Event->scomp_alpha.push_back(long_ascnode); //This won't get used in general, included for compatability
 
 	  double rnd = ran2(idum);
 	  double inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
@@ -688,7 +688,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double long_ascnode = 360.0*ran2(idum);
 	  if(Lenses->datadict.count("LongitudeAscendingNode")==1)
 	    {
-	      long_perihelion = Lenses->data[ln][Lenses->datadict["LongitudeAscendingNode"]];
+	      long_ascnode = Lenses->data[ln][Lenses->datadict["LongitudeAscendingNode"]];
 	    }
 	  Event->lcomp_O.push_back(long_ascnode);
 
@@ -696,7 +696,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  double inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
 	  if(Lenses->datadict.count("Inclination")==1)
 	    {
-	      long_perihelion = Lenses->data[ln][Lenses->datadict["Inclination"]];
+	      inc = Lenses->data[ln][Lenses->datadict["Inclination"]];
 	    }
 	  Event->lcomp_I.push_back(inc);
 
