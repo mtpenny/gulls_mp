@@ -175,6 +175,7 @@ struct filekeywords{
   double vbm_timeout_critical_curves;
   double vbm_timeout_astrometry;
   int vbm_timeout_check_interval;
+  int exit_on_vbm_error;
   int allow_random_stub;
   
   string pathdir;

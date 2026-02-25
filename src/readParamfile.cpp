@@ -69,6 +69,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"VBM_TIMEOUT_CRITICAL_CURVES","0.0"},
     {"VBM_TIMEOUT_ASTROMETRY","0.0"},
     {"VBM_TIMEOUT_CHECK_INTERVAL","0"},
+    {"EXIT_ON_VBM_ERROR","0"},
     {"ALLOW_RANDOM_STUB","0"},
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"},
@@ -243,6 +244,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->vbm_timeout_critical_curves = stod(pfile["VBM_TIMEOUT_CRITICAL_CURVES"]);
   Paramfile->vbm_timeout_astrometry = stod(pfile["VBM_TIMEOUT_ASTROMETRY"]);
   Paramfile->vbm_timeout_check_interval = stoi(pfile["VBM_TIMEOUT_CHECK_INTERVAL"]);
+  Paramfile->exit_on_vbm_error = stoi(pfile["EXIT_ON_VBM_ERROR"]);
   Paramfile->allow_random_stub = stoi(pfile["ALLOW_RANDOM_STUB"]);
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);

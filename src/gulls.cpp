@@ -377,72 +377,111 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
       if(Paramfile.verbosity) {printf("Event built\n"); fflush(stdout);}
 
-      /* Compute the observation epochs */ 
-      if(Paramfile.verbosity) {printf("timeSequencer\n"); fflush(stdout);}
-      clock_gettime(CLOCK_REALTIME,&tstart);
-      timeSequencer(World, &Event, &Paramfile, &Sources, &Lenses);
-      if(Paramfile.verbosity) {printf("getPlanetvals\n"); fflush(stdout);}
-      getPlanetvals(&Event, World, &Paramfile, &Sources, &Lenses, &Planets); //Moved here to minimize parallax computations
-      if(Paramfile.verbosity) {printf("setupParallax\n"); fflush(stdout);}
-      setupParallax(&Paramfile, World, &Event, &Sources, &Lenses);
-      clock_gettime(CLOCK_REALTIME,&tend);
-      nsec = tend.tv_nsec - tstart.tv_nsec;
-      ttimesequencer += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
-      if(Paramfile.verbosity) {printf("time sequenced\n"); fflush(stdout);}
+      try
+        {
+          /* Compute the observation epochs */ 
+          if(Paramfile.verbosity) {printf("timeSequencer\n"); fflush(stdout);}
+          clock_gettime(CLOCK_REALTIME,&tstart);
+          timeSequencer(World, &Event, &Paramfile, &Sources, &Lenses);
+          if(Paramfile.verbosity) {printf("getPlanetvals\n"); fflush(stdout);}
+          getPlanetvals(&Event, World, &Paramfile, &Sources, &Lenses, &Planets); //Moved here to minimize parallax computations
+          if(Paramfile.verbosity) {printf("setupParallax\n"); fflush(stdout);}
+          setupParallax(&Paramfile, World, &Event, &Sources, &Lenses);
+          clock_gettime(CLOCK_REALTIME,&tend);
+          nsec = tend.tv_nsec - tstart.tv_nsec;
+          ttimesequencer += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
+			+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
+          if(Paramfile.verbosity) {printf("time sequenced\n"); fflush(stdout);}
  
-      /* Generate lightcurve */
-      if(Paramfile.verbosity) {printf("lightcurveGenerator\n"); fflush(stdout);}
-      clock_gettime(CLOCK_REALTIME,&tstart);
-      lightcurveGenerator(&Paramfile, &Event, World, &Sources, &Lenses,logfile_ptr);
-      clock_gettime(CLOCK_REALTIME,&tend);
-      nsec = tend.tv_nsec - tstart.tv_nsec;
-      tgeneration += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
-      if(Paramfile.verbosity) {printf("lightcurve generated\n"); fflush(stdout);}
-
-      bool timed_out_event = (Event.lcerror == LCGEN_TIMEOUT_ERR);
-
-      if(!timed_out_event)
-        {
-          /* Perform photometry */
-          if(Paramfile.verbosity) {printf("photometry\n"); fflush(stdout);}
+          /* Generate lightcurve */
+          if(Paramfile.verbosity) {printf("lightcurveGenerator\n"); fflush(stdout);}
           clock_gettime(CLOCK_REALTIME,&tstart);
-          photometry(&Paramfile, &Event, World, &Sources, &Lenses, logfile_ptr);
+          lightcurveGenerator(&Paramfile, &Event, World, &Sources, &Lenses,logfile_ptr);
           clock_gettime(CLOCK_REALTIME,&tend);
           nsec = tend.tv_nsec - tstart.tv_nsec;
-          phottime += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
+          tgeneration += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
+			+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
+          if(Paramfile.verbosity) {printf("lightcurve generated\n"); fflush(stdout);}
 
-          //Did we detect what we are interested in?
-          if(Paramfile.verbosity) {printf("detectionCriteria\n"); fflush(stdout);}
-          clock_gettime(CLOCK_REALTIME,&tstart);
-          detectionCuts(&Paramfile, &Event, World, &Sources, &Lenses);
-          clock_gettime(CLOCK_REALTIME,&tend);
-          nsec = tend.tv_nsec - tstart.tv_nsec;
-          tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
-          if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);}
+          bool timed_out_event = (Event.lcerror == LCGEN_TIMEOUT_ERR);
+
+          if(!timed_out_event)
+            {
+              /* Perform photometry */
+              if(Paramfile.verbosity) {printf("photometry\n"); fflush(stdout);}
+              clock_gettime(CLOCK_REALTIME,&tstart);
+              photometry(&Paramfile, &Event, World, &Sources, &Lenses, logfile_ptr);
+              clock_gettime(CLOCK_REALTIME,&tend);
+              nsec = tend.tv_nsec - tstart.tv_nsec;
+              phottime += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
+			+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
+
+              //Did we detect what we are interested in?
+              if(Paramfile.verbosity) {printf("detectionCriteria\n"); fflush(stdout);}
+              clock_gettime(CLOCK_REALTIME,&tstart);
+              detectionCuts(&Paramfile, &Event, World, &Sources, &Lenses);
+              clock_gettime(CLOCK_REALTIME,&tend);
+              nsec = tend.tv_nsec - tstart.tv_nsec;
+              tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
+			+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
+              if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);}
 
 
-          clock_gettime(CLOCK_REALTIME,&tstart);
-          //Output the lightcurve if desired
-          if(Event.outputthis)
-	{
-	  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
-	  outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
-	  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
+              clock_gettime(CLOCK_REALTIME,&tstart);
+              //Output the lightcurve if desired
+              if(Event.outputthis)
+		{
+		  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
+		  outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
+		  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
 
-	  //Output images if desired
-	  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
-	  outputImages(&Event, World, &Sources, &Paramfile);
-	  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
-	}
+		  //Output images if desired
+		  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
+		  outputImages(&Event, World, &Sources, &Paramfile);
+		  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+		}
+            }
+          else if(Paramfile.verbosity)
+            {
+              printf("lightcurve generation timed out; skipping photometry, detection, and output steps\n");
+              fflush(stdout);
+            }
         }
-      else if(Paramfile.verbosity)
+      catch (const VBMTimeoutError& err)
         {
-          printf("lightcurve generation timed out; skipping photometry, detection, and output steps\n");
-          fflush(stdout);
+          if(Paramfile.exit_on_vbm_error)
+            {
+              throw;
+            }
+
+          Event.lcerror = LCGEN_TIMEOUT_ERR;
+          Event.deterror = 0;
+          Event.detected = 0;
+          Event.outputthis = 0;
+
+          cerr << "Event " << idx << " discarded after VBM timeout: " << err.what() << endl;
+          cerr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+          if (!err.where().empty())
+            {
+              cerr << "Timeout source: " << err.where() << endl;
+            }
+
+          if (logfile_ptr.is_open())
+            {
+              logfile_ptr << "Event " << idx << " discarded after VBM timeout: " << err.what() << endl;
+              logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+              if (!err.where().empty())
+                {
+                  logfile_ptr << "Timeout source: " << err.where() << endl;
+                }
+              logfile_ptr.flush();
+            }
+
+          if(Paramfile.verbosity)
+            {
+              printf("VBM timeout caught for event %d; skipping photometry, detection, and output steps\n", idx);
+              fflush(stdout);
+            }
         }
 
       //Write out the events parameters and data to the appropriate file
