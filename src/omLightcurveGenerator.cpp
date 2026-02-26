@@ -6,22 +6,35 @@
 #include "ephem.h"
 #include "coords.h"
 #include "argsort.h"
+
+
 #include<time.h>
 #include<vector>
-
 #include<fstream>
 #include<sstream>
 #include<iomanip>
 #include<numeric>
 #include<sys/stat.h>
+#include<cmath>
+//#include<thread>
+//#include<chrono>
+
+
 #define DEBUGVAR 1
 // This assumes Event->vbm has already been initialized and configured
 
-
 //General lightcurve generator that incorporates heirarchical orbital motion for multiple lenses and sources
+
+//void sleep_thread(int n)
+//{
+//  this_thread::sleep_for(chrono::milliseconds(n));
+//}
 
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
+
+  Event->lcerror=0;
+  Event->deterror=0;
 
   if(Paramfile->verbosity>=1) cout << "lcgen Event->nlens: " << Event->nlens << endl;
   cout << "Skip magnification = " << Paramfile->skip_magnification << endl;
@@ -31,8 +44,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	 << Event->vbm->Tol 
 	 << ", RelTol=" 
 	 << Event->vbm->RelTol 
-	 << std::endl;
-
+	 << endl;
 
   //if the event is saturated in each band, no need to calculate the lightcurve
   if(Event->nepochs==0 || Event->allsat)
@@ -77,6 +89,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       Event->xlens[i].resize(Event->nepochs);
       Event->ylens[i].resize(Event->nepochs);
     }
+
+  Event->moons = 0;
+  Event->circumbinary=0;
+  Event->distantbinary=0;
+  Event->mixedbinary=0;
+
   
   //Conventions:
   //Track the apparent motion of the centers of mass of the source and lens, then compute offsets from them
@@ -89,6 +107,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   vector<double> l_delta(3,0.0); //Offset of the chosen source from its center of mass at tref
 
   int sn = Event->source;
+  int sc = -1;
   int ln = Event->lens;
 
   double rEsrc = Event->rE * Sources->data[sn][Sources->DIST]/Lenses->data[ln][Lenses->DIST];
@@ -118,7 +137,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  s_elements[i].resize(nsrc-1);
 	}
 
-      int sc = Event->scompanions[0];
+      sc = Event->scompanions[0];
 	  
       //Binary case, orbit about a barycenter
       //semimajor axis (AU), eccentricity,
@@ -135,8 +154,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       //double acomb = (1.0+Event->scomp_q[0])*Event->scomp_a[0];
       //double a1 = acomb-Event->scomp_a[0];
       double acomb = Event->scomp_a[0];
-      double a1 = 1.0/(1.0+Event->scomp_q[0])*Event->scomp_a[0];
-      double a2 = Event->scomp_q[0]/(1.0+Event->scomp_q[0])*Event->scomp_a[0];
+      double a1 = 1.0/(1.0+Event->scomp_q[0])*acomb;
+      double a2 = Event->scomp_q[0]/(1.0+Event->scomp_q[0])*acomb;
 
       //orbitalElements(double a, double e, double I, double L, double w, double O, double dL_, double epoch_=J2000)
       s_elements[1][0] = orbitalElements(a1, Event->scomp_e[0], Event->scomp_I[0], Event->scomp_L0[0], Event->scomp_w[0], Event->scomp_O[0], Event->scomp_dL[0]);
@@ -270,11 +289,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  for(auto os : orbsize_order) cout << os << " " << Event->p_a[os] << endl;
 	  
 	}
-      Event->moons = 0;
+
       int barycenters = 0;
-      Event->circumbinary=0;
-      Event->distantbinary=0;
-      Event->mixedbinary=0;
       for(auto oc : Event->p_orbtype)
 	{
 	  if(oc==3) Event->moons++;
@@ -506,8 +522,99 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   //Calculate the lightcurve
   double last_progress=0;
+
+  vector<double> msource(nsrc);
+
+
+  //Throw away some events which we know to not be realistic or to stretch the
+  //capabilities of the MultiLens generator
+
+  int bad_scenario=0;
+
+  if(nlens>Paramfile->num_lens_max)
+    {
+      bad_scenario+=iPow(2,0);
+      cout << "Too many lenses, nlens=" << nlens << endl;
+    }
+  if(Event->mixedbinary>0)
+    {
+      bad_scenario+=iPow(2,1);
+      cout << "Mixed binary, will skip" << endl;
+    }
+  else if(Event->circumbinary>0)
+    {
+      double e = Event->p_e[nlens-2];
+      double mu_hw = Event->p_q[nlens-2];
+      if(mu_hw>1) mu_hw = 1.0/mu_hw;
+      double acrit = 1.60 + 5.10*e - 2.22*sqr(e) + 4.12*mu_hw - 4.27*e*mu_hw
+	- 5.09*sqr(mu_hw) + 4.61*sqr(e*mu_hw); //Holman & Wiegert (1999)
+      //cout << "circum binary acrit = " << acrit << " " << Event->p_a[0] << " " << Event->p_a[nlens-2]*acrit << endl;
+      cout << "circum binary e=" << e << " mu_hw=" << mu_hw << " acrit=" << acrit << " a0=" << Event->p_a[0] << " ab=" << Event->p_a[nlens-2] << " a[n-1]*acrit" << Event->p_a[nlens-2]*acrit << " nlens=" << nlens << " p_e.size=" << Event->p_e.size() << endl;
+      if(Event->p_a[0]<Event->p_a[nlens-2]*acrit) bad_scenario+=iPow(2,2);
+      else
+	{
+	  double period_ratio = Event->p_period[0]/Event->p_period[nlens-2];
+	  double prround = round(period_ratio);
+	  if(prround<=9 && (fmod(period_ratio,prround)<0.02 || fmod(period_ratio,prround)>0.98))
+	    bad_scenario+=iPow(2,3);
+	}
+    }
+  else if(Event->distantbinary>0)
+    {
+      double e = Event->p_e[nlens-2];
+      double mu_hw = Event->p_q[nlens-2];
+      if(mu_hw>1) mu_hw = 1.0/mu_hw;
+      double acrit = 0.464 - 0.380*mu_hw - 0.631*e + 0.586*mu_hw*e
+	+ 0.150*sqr(e) - 0.198*mu_hw*sqrt(e); //Holman & Wiegert (1999)
+      cout << "distant binary e=" << e << " mu_hw=" << mu_hw << " acrit=" << acrit << " a0=" << Event->p_a[0] << " ab=" << Event->p_a[nlens-2] << " a[n-1]*acrit=" << Event->p_a[nlens-2]*acrit << " nlens=" << nlens << " p_e.size=" << Event->p_e.size() << endl;
+
+      if(Event->p_a[0]>Event->p_a[nlens-2]*acrit) bad_scenario+=iPow(2,4);
+    }
+  
+  if(Paramfile->verbosity>=1)
+    {
+      for(int i=0;i<nlens-1;i++)
+	{
+	  cout << "lens " << i;
+	  cout << " a=" << Event->p_a[i] << " ";
+	  cout << " e=" << Event->p_e[i] << " ";
+	  cout << " i=" << Event->p_I[i] << " ";
+	  cout << " L0=" << Event->p_L0[i] << " ";
+	  cout << " w=" << Event->p_w[i] << " ";
+	  cout << " O=" << Event->p_O[i] << " ";
+	  cout << " dL=" << Event->p_dL[i] << " ";
+	  cout << " period=" << Event->p_period[i] << " ";
+	  cout << " mass=" << Event->p_mass[i] << " ";
+	  cout << " q=" << Event->p_q[i] << " ";
+	  cout << " s0=" << Event->p_s0[i] << " ";
+	  cout << " orbtype=" << Event->p_orbtype[i] << " ";
+	  cout << endl;
+	}
+    }
+
+  
+  if(bad_scenario>0)
+    {
+      Event->lcerror = 9000 + bad_scenario;
+      Event->detected = 0;
+      Event->deterror = 0;
+      if(Paramfile->verbosity >= 1)
+	{
+	  cout << "Lightcurve generation skipped due to a bad scenario, event " << Event->id << ", code " << bad_scenario << "" << endl;
+	}
+      if(logfile_ptr.good())
+	{
+	  logfile_ptr << "Lightcurve generation skipped due to a bad scenario, event " << Event->id << ", code " << bad_scenario << "" << endl;
+	}
+      return;
+    }
+
+
+  
+  
   for(int idx=0; idx<Event->nepochs; idx++)
     {
+      
       double progress = (double(idx)/double(Event->nepochs)*100.0);
       if(Paramfile->verbosity>=1 && floor(progress/10)!=floor(last_progress/10)) cout << "." << flush;
       last_progress=progress;
@@ -525,6 +632,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       shiftedidx=idx-idxshift[obsidx];
       int filt = World[obsidx].filter;
       double amp = 0.0;
+
+      msource[0] = Sources->mags[sn][filt];
+      if(Paramfile->multiple_sources && Event->scompanions.size()>0)
+	msource[1] = Sources->mags[sc][filt];
 
       //Compute parallax shift of the source barycenter
       double tt = (Event->epoch[idx] - Event->t0) / Event->tE_r;
@@ -552,7 +663,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      vector<double> xp;
 	      for(int j=0;j<int(s_elements[i].size());j++)
 		{
-		  s_elements[i][j].viewfrom(Event->jdtimes[obsidx][idx],antipode_ra,antipode_dec,&xp);
+		  s_elements[i][j].viewfrom(Event->jdtimes[obsidx][shiftedidx],antipode_ra,antipode_dec,&xp);
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
@@ -583,9 +694,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      vector<double> xp;      
 	      for(int j=0;j<int(l_elements[i].size());j++)
 		{
-		  if(Paramfile->verbosity>=3) l_elements[i][j].print_elements();
-		  l_elements[i][j].viewfrom(Event->jdtimes[obsidx][idx],antipode_ra,antipode_dec,&xp);
-		  if(Paramfile->verbosity>=3) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][idx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
+		  if(Paramfile->verbosity>=3 || idx==0) l_elements[i][j].print_elements();
+		  l_elements[i][j].viewfrom(Event->jdtimes[obsidx][shiftedidx],antipode_ra,antipode_dec,&xp);
+		  if(Paramfile->verbosity>=3 || idx==0) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][shiftedidx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
 		  xl[i] += xp[0]; yl[i] += xp[1]; dl[i] += xp[2];
 		}
 	      xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
@@ -659,13 +770,66 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      else rho = Event->scomp_rs[is-1];
 	      if(Paramfile->skip_magnification==0)
 		{
+		  int check=0;
 		  logfile_ptr.precision(16);
 		  logfile_ptr << Event->id << " " << Event->epoch[idx] << " ";
 		  for(int ilp=0;ilp<nlens*3;ilp++)
-		    logfile_ptr << lens_parameters[ilp] << " ";
+		    {
+		      logfile_ptr << lens_parameters[ilp] << " ";
+		      if(!isfinite(lens_parameters[ilp])) check++;
+		    }
 		  logfile_ptr << xs[is] << " " << ys[is] << " " << rho << endl;
-		  mu[is] = Event->vbm->MultiMag2(xs[is], ys[is], rho);
-		  logfile_ptr << mu[is] << " " << Event->vbm->therr << " " << Event->vbm->NPS << endl;
+		  if(!isfinite(xs[is])) check++;
+		  if(!isfinite(ys[is])) check++;
+		  if(!isfinite(rho)) check++;
+		      
+
+		  if(check>0)
+		    {
+		      Event->lcerror = LCGEN_INPUT_ERR;
+		      Event->detected = 0;
+		      Event->deterror = 0;
+		      if(Paramfile->verbosity >= 1)
+			{
+			  cout << "Lightcurve generation halted due to bad inputs, event " << Event->id << ", see logfile for parameters." << endl;
+			}
+		      if(logfile_ptr.good())
+			{
+			  logfile_ptr << Event->id << "Lightcurve generation halted due to bad inputs" << endl;
+			}
+		      return;
+		    }
+		  
+
+		  //thread time_thread(&sleep_thread,1000);
+
+		  //Spool up a new vbm for each calculation
+		  VBMicrolensing VBMlocal;
+
+		  VBMlocal.SetLensGeometry(nlens,lens_parameters);
+		  VBMlocal.a1 = Event->gamma;
+		  VBMlocal.Tol=Paramfile->vbm_tol;
+		  VBMlocal.RelTol=Paramfile->vbm_reltol;
+		  VBMlocal.SetMethod(VBMicrolensing::Method::Nopoly);
+
+		  double u_min=1e50;
+		  for(int i=0;i<nlens;i++)
+		    {
+		      double u_lens = qAdd(xs[is]-lens_parameters[i*3+0],ys[is]-lens_parameters[i*3+1])/sqrt(lens_parameters[i*3+2]);
+		      if(u_lens<u_min) u_min=u_lens;
+		    }
+
+		  if(u_min<10 && msource[is]<40)
+		    {
+		      mu[is] = VBMlocal.MultiMag2(xs[is], ys[is], rho);
+		      logfile_ptr << mu[is] << " " << VBMlocal.therr << " " << VBMlocal.NPS << endl;
+		    }
+		  else
+		    {
+		      //if the source is far from all lenses, just use the nearest single lens magnification
+		      mu[is] = Event->vbm->ESPLMag2(u_min, rho);
+		      logfile_ptr << mu[is] << " " << (u_min>=10?"single":"null") << " " << (msource[is]>=40?"faint":"null") << endl;
+		    }
 		}
 	      else mu[is] = 1.0;
 	      //handle astrometry

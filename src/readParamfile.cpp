@@ -73,7 +73,8 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"ALLOW_RANDOM_STUB","0"},
     {"MULTIPLE_SOURCES","0"},
     {"MULTIPLE_LENSES","0"},
-    {"SKIP_MAGNIFICATION","0"}
+    {"SKIP_MAGNIFICATION","0"},
+    {"NUM_LENS_MAX","3"}
   };
 
   //For testing which parameters are at their default values
@@ -249,6 +250,7 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->multiple_sources = stoi(pfile["MULTIPLE_SOURCES"]);
   Paramfile->multiple_lenses = stoi(pfile["MULTIPLE_LENSES"]);
   Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);
+  Paramfile->num_lens_max = stoi(pfile["NUM_LENS_MAX"]);
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];

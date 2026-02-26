@@ -370,6 +370,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       clock_gettime(CLOCK_REALTIME,&tstart);
       buildEvent(&Event, World, starfield, starfieldData,  
 				 &Paramfile, &Sources, &Lenses, idx, idum);
+    
       //getPlanetvals(&Event, World, &Paramfile, &Sources, &Lenses, &Planets);
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;
@@ -414,7 +415,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
               clock_gettime(CLOCK_REALTIME,&tend);
               nsec = tend.tv_nsec - tstart.tv_nsec;
               phottime += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-			+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
+			      + double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
 
               //Did we detect what we are interested in?
               if(Paramfile.verbosity) {printf("detectionCriteria\n"); fflush(stdout);}
@@ -423,30 +424,34 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
               clock_gettime(CLOCK_REALTIME,&tend);
               nsec = tend.tv_nsec - tstart.tv_nsec;
               tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-			+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
+			      + double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
               if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);}
 
-
               clock_gettime(CLOCK_REALTIME,&tstart);
+            
               //Output the lightcurve if desired
               if(Event.outputthis)
-		{
-		  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
-		  outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
-		  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
+		            {
+		              if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
+		              outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
+		              if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
+                }
+                
+		          //Output images if desired
+	            if(Paramfile.outputImages)
+		            {
 
-		  //Output images if desired
-		  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
-		  outputImages(&Event, World, &Sources, &Paramfile);
-		  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
-		}
+		              if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
+		              outputImages(&Event, World, &Sources, &Paramfile);
+		              if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+		            }
             }
           else if(Paramfile.verbosity)
             {
               printf("lightcurve generation timed out; skipping photometry, detection, and output steps\n");
               fflush(stdout);
             }
-        }
+	      }
       catch (const VBMTimeoutError& err)
         {
           if(Paramfile.exit_on_vbm_error)
@@ -487,20 +492,18 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       //Write out the events parameters and data to the appropriate file
       if(idx==0) writeHeader(&Paramfile, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
       if(Event.lcerror || Event.deterror)
-	{
-	  if(Event.lcerror)
-            sprintf(str,"\nDiscarding event %d (Failed lightcurve generation)",
-		    idx);
-	  if(Event.deterror)
-            sprintf(str,"\nDiscarding event %d (Failed detection criteria)",
-		    idx);
-	  fmtline(str,WIDTH,"OKAY"); 
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, logfile_ptr);
-	}
+	      {
+	        if(Event.lcerror)
+            sprintf(str,"\nDiscarding event %d (Failed lightcurve generation)", idx);
+	        if(Event.deterror)
+            sprintf(str,"\nDiscarding event %d (Failed detection criteria)", idx);
+	        fmtline(str,WIDTH,"OKAY"); 
+	        writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
+	      }
       else //otherwise
-	{
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
-	}
+	      {
+	         writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
+	      }
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;
       tio += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
