@@ -262,7 +262,6 @@ class orbitalElements
   void ecl2eq(vector<double> ecl, vector<double>* eq);
   void pmeq2gal(vector<double> eq, vector<double> pmeq, vector<double>* pmgal);
   void pmgal2eq(vector<double> gal, vector<double> pmgal, vector<double>* pmeq);
-  void pmeq2ecl(vector<double> eq, vector<double> pmeq, vector<double>* pmgal);
   void pmecl2eq(vector<double> ecl, vector<double> pmecl, vector<double>* pmeq);
   void pmeq2ecl(vector<double> eq, vector<double> pmeq, vector<double>* pmecl);
 
