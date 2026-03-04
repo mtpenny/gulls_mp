@@ -720,8 +720,13 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   Event->t0 = double(Paramfile->NUM_SIM_DAYS)*ran2(idum);
   Event->t0range = double(Paramfile->NUM_SIM_DAYS);
   Event->weight_scale = 1.0;
-  Event->alpha = 360.0 * ran2(idum);
 
+  //For general, alpha is set by the relative proper motion in ecliptic coordinates
+  //As murel is lens minus source, but alpha describes the direction of source motion relative to the
+  //lens, it is the angle of the negative of the murel vector in ecliptic coordinates
+  //Event->alpha = 360.0 * ran2(idum);
+  Event->alpha = 180.0/pi * atan2(-Event->pllx[0].mubet_r,-Event->pllx[0].mulam_r);
+  
   //u0 will be calculated after we know the blending
 
   //calculate the fundamental microlensing properties
