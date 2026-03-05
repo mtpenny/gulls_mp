@@ -16,6 +16,40 @@
 
 //#include "singleLens.h"
 
+static bool handle_vbm_api_error(const char* api_name, struct filekeywords* Paramfile, struct event* Event, ofstream& logfile_ptr, VBMicrolensing* vbm)
+{
+  if(!vbm->HasLastError())
+    {
+      return false;
+    }
+
+  const VBMicrolensing::LastError& err = vbm->GetLastError();
+  Event->vbm_error_category = static_cast<int>(err.category);
+  Event->vbm_error_source = err.where;
+  Event->vbm_error_message = err.message;
+  Event->lcerror = (err.category == VBMTimeoutError::TimeoutCategory::Unknown) ? LCGEN_VBM_ERR : LCGEN_TIMEOUT_ERR;
+  Event->detected = 0;
+  Event->deterror = 0;
+  Event->outputthis = 0;
+
+  if(Paramfile->verbosity >= 1)
+    {
+      cout << "VBM error in " << api_name << ": " << err.message << endl;
+      cout << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+      if(!err.where.empty()) cout << "Timeout source: " << err.where << endl;
+    }
+  if(logfile_ptr.good())
+    {
+      logfile_ptr << "VBM error in " << api_name << ": " << err.message << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+      if(!err.where.empty()) logfile_ptr << "Timeout source: " << err.where << endl;
+      logfile_ptr.flush();
+    }
+
+  vbm->ClearLastError();
+  return true;
+}
+
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
   char str[512];
@@ -75,6 +109,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //xcom = a*(1-2*m1); /* Origin is the Center of mass */
 
   Event->lcerror=0;
+  Event->vbm_error_category = static_cast<int>(VBMTimeoutError::TimeoutCategory::Unknown);
+  Event->vbm_error_source.clear();
+  Event->vbm_error_message.clear();
+  Event->vbm->ClearLastError();
   errflag=0;
 
   //if the event is saturated in each band, no need to calculate the lightcurve
@@ -154,9 +192,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		 << " " << ysrot << " " << rs << setprecision(6)
 		 << endl;
 	  
-	  amp = Event->vbm->BinaryMag2(s,q,xsrot,ysrot,rs);
-          if(Paramfile->verbosity>=4)
-            {
+		  amp = Event->vbm->BinaryMag2(s,q,xsrot,ysrot,rs);
+		  if(handle_vbm_api_error("BinaryMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
+	          if(Paramfile->verbosity>=4)
+	            {
                  Event->vbm_rootaccuracy[idx] = Event->vbm->rootaccuracy;
                  Event->vbm_squarecheck[idx] = Event->vbm->squarecheck;
                  Event->vbm_therr[idx] = Event->vbm->therr;
@@ -191,4 +230,3 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     }
 
 }
-

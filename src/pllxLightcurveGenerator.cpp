@@ -13,6 +13,40 @@
 #define DEBUGVAR 1
 // This assumes Event->vbm has already been initialized and configured
 
+static bool handle_vbm_api_error(const char* api_name, struct filekeywords* Paramfile, struct event* Event, ofstream& logfile_ptr, VBMicrolensing* vbm)
+{
+  if(!vbm->HasLastError())
+    {
+      return false;
+    }
+
+  const VBMicrolensing::LastError& err = vbm->GetLastError();
+  Event->vbm_error_category = static_cast<int>(err.category);
+  Event->vbm_error_source = err.where;
+  Event->vbm_error_message = err.message;
+  Event->lcerror = (err.category == VBMTimeoutError::TimeoutCategory::Unknown) ? LCGEN_VBM_ERR : LCGEN_TIMEOUT_ERR;
+  Event->detected = 0;
+  Event->deterror = 0;
+  Event->outputthis = 0;
+
+  if(Paramfile->verbosity >= 1)
+    {
+      cout << "VBM error in " << api_name << ": " << err.message << endl;
+      cout << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+      if(!err.where.empty()) cout << "Timeout source: " << err.where << endl;
+    }
+  if(logfile_ptr.good())
+    {
+      logfile_ptr << "VBM error in " << api_name << ": " << err.message << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+      if(!err.where.empty()) logfile_ptr << "Timeout source: " << err.where << endl;
+      logfile_ptr.flush();
+    }
+
+  vbm->ClearLastError();
+  return true;
+}
+
 void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses, ofstream& logfile_ptr)
 {
     double rs = Event->rs;
@@ -25,10 +59,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     double sina = sin(alpha);
     double VBM_origin = (1.0 - m1) * (-a);
     vector<int> obsoffset(Paramfile->numobservatories,0);
-    Event->Amax=-1;
-    Event->umin=1e50;
-    Event->lcerror=0;
-    int errflag=0;
+	    Event->Amax=-1;
+	    Event->umin=1e50;
+	    Event->lcerror=0;
+	    Event->vbm_error_category = static_cast<int>(VBMTimeoutError::TimeoutCategory::Unknown);
+	    Event->vbm_error_source.clear();
+	    Event->vbm_error_message.clear();
+	    Event->vbm->ClearLastError();
+	    int errflag=0;
     int obsidx;
     double lim_gamma=Event->gamma;
     if(Paramfile->verbosity>=3)
@@ -129,6 +167,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
             Event->yl2[idx] = Event->ylens[1][idx] = 0.0;
 	    Event->vbm->a1 = lim_gamma;
 	    amp = Event->vbm->BinaryMag2(a, q, xsCoM, ysCenter, rs);
+	    if(handle_vbm_api_error("BinaryMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
 	    Event->mu_src[0][idx] = amp;
 
 	    cout << 0 << " " << Event->epoch[idx] << " " << amp << endl;
@@ -150,6 +189,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		ys2Center = ysCenter + x2off * sina + y2off * cosa;
 		cout << "ys2Center" << ys2Center << endl;
 		double amp2 = Event->vbm->BinaryMag2(a, q, xs2CoM, ys2Center, Event->scomp_rs[0]);
+		if(handle_vbm_api_error("BinaryMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
 		cout << 1 << " " << Event->epoch[idx] << " " << amp2 << endl;
 		Event->xs2[idx] = xs2CoM;
 		Event->ys2[idx] = ys2Center;
@@ -202,15 +242,18 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     //if there has been an error - try the backup generator
     if(Event->lcerror)
       {
-	if(Event->lcerror == LCGEN_TIMEOUT_ERR)
+	const bool vbm_failure = (!Event->vbm_error_message.empty()) ||
+	  (Event->lcerror == LCGEN_TIMEOUT_ERR) ||
+	  (Event->lcerror == LCGEN_VBM_ERR);
+	if(vbm_failure)
 	  {
 	    if(Paramfile->verbosity >= 1)
 	      {
-		cout << "Skipping backup generator due to lightcurve timeout" << endl;
+		cout << "Skipping backup generator due to VBM/lightcurve timeout failure" << endl;
 	      }
 	    if(logfile_ptr.good())
 	      {
-		logfile_ptr << "Skipping backup generator due to lightcurve timeout" << std::endl;
+		logfile_ptr << "Skipping backup generator due to VBM/lightcurve timeout failure" << std::endl;
 	      }
 	    return;
 	  }

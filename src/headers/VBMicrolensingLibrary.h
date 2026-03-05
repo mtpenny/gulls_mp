@@ -206,7 +206,34 @@ public:
 
 	void SetTimeouts(const TimeoutConfig& cfg) { timeout_config_ = cfg; }
 	TimeoutConfig GetTimeouts() const { return timeout_config_; }
-		
+
+	// Error handling policy at the VBM API boundary.
+	// Throw: preserve legacy behavior (exceptions propagate to caller).
+	// ReturnNaN: swallow VBMTimeoutError, store details in LastError, and return NaN/null.
+	enum class ErrorPolicy {
+		Throw,
+		ReturnNaN
+	};
+
+	struct LastError {
+		bool active = false;
+		VBMTimeoutError::TimeoutCategory category = VBMTimeoutError::TimeoutCategory::Unknown;
+		std::string api;
+		std::string where;
+		std::string message;
+	};
+
+	void SetErrorPolicy(ErrorPolicy policy) { error_policy_ = policy; }
+	ErrorPolicy GetErrorPolicy() const { return error_policy_; }
+
+	bool HasLastError() const { return last_error_.active; }
+	const LastError& GetLastError() const { return last_error_; }
+	void ClearLastError() { last_error_ = LastError(); }
+	// Python wrapper guidance:
+	// - In ReturnNaN mode, call HasLastError() after each VBM call.
+	// - If true, convert GetLastError() to a Python exception (category/where/message).
+	// - Then call ClearLastError() after handling.
+			
 	double rootaccuracy;
 	double samplingfactor;
 	bool squarecheck;
@@ -356,7 +383,10 @@ public:
 	~VBMicrolensing();
 
 private: // Must be declared here at the end
+	void RecordTimeoutError(const VBMTimeoutError& err, const char* api_name);
 	TimeoutConfig timeout_config_;
+	ErrorPolicy error_policy_ = ErrorPolicy::Throw;
+	LastError last_error_;
 	LDprofiles curLDprofile;
 	Method SelectedMethod;
 

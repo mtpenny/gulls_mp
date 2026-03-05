@@ -38,6 +38,7 @@ char systemslash = '/';
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <limits>
 
 //#define _PRINT_ERRORS2
 //#define _PRINT_ERRORS
@@ -588,101 +589,131 @@ void VBMicrolensing::LoadESPLTable(const char* filename) {
 }
 
 double VBMicrolensing::PSPLMag(double u) {
-	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
-	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	ClearLastError();
+	try {
+		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
 
-	static double u2, u22;
-	u2 = u * u;
-	u22 = u2 + 2;
-	if (astrometry) {
-		astrox1 = u + u / u22;
+		static double u2, u22;
+		u2 = u * u;
+		u22 = u2 + 2;
+		if (astrometry) {
+			astrox1 = u + u / u22;
+		}
+		return  u22 / sqrt(u2 * (u2 + 4));
 	}
-	return  u22 / sqrt(u2 * (u2 + 4));
+	catch (const VBMTimeoutError& err) {
+		RecordTimeoutError(err, "PSPLMag");
+		if (error_policy_ == ErrorPolicy::Throw) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
+	}
 }
 
 double VBMicrolensing::ESPLMag(double u, double RSv) {
-	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
-	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	ClearLastError();
+	try {
+		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
 
-	double mag, z, fr, cz, cr, u2;
-	int iz, ir;
+		double mag, z, fr, cz, cr, u2;
+		int iz, ir;
 
-	if (ESPLoff) {
-		//printf("\nLoad ESPL table first!");
-		//return 0;
-		LoadESPLTable(ESPLtablefile);
-	}
-
-	fr = -10.857362047581296 * log(0.01 * RSv);
-	if (fr > __rsize_ESPL - 1) fr = __rsize_ESPL - 1.000001;
-	if (fr < 0) printf("Source too large!");
-	ir = (int)floor(fr);
-	fr -= ir;
-	cr = 1 - fr;
-
-	z = u / RSv;
-
-	if (z < 1) {
-		z *= __zsize_ESPL - 1;
-		iz = (int)floor(z);
-		z -= iz;
-		cz = 1 - z;
-		mag = sqrt(1 + 4. / (RSv * RSv));
-		mag *= ESPLin[ir][iz] * cr * cz + ESPLin[ir + 1][iz] * fr * cz + ESPLin[ir][iz + 1] * cr * z + ESPLin[ir + 1][iz + 1] * fr * z;
-		if (astrometry) {
-			astrox1 = (1 - 1. / (4 + RSv * RSv)) * u;
-			astrox1 *= ESPLinastro[ir][iz] * cr * cz + ESPLinastro[ir + 1][iz] * fr * cz + ESPLinastro[ir][iz + 1] * cr * z + ESPLinastro[ir + 1][iz + 1] * fr * z;
+		if (ESPLoff) {
+			//printf("\nLoad ESPL table first!");
+			//return 0;
+			LoadESPLTable(ESPLtablefile);
 		}
-	}
-	else {
-		z = 0.99999999999999 / z;
-		z *= __zsize_ESPL - 1;
-		iz = (int)floor(z);
-		z -= iz;
-		cz = 1 - z;
 
-		u2 = u * u;
-		mag = (u2 + 2) / sqrt(u2 * (u2 + 4));
-		mag *= ESPLout[ir][iz] * cr * cz + ESPLout[ir + 1][iz] * fr * cz + ESPLout[ir][iz + 1] * cr * z + ESPLout[ir + 1][iz + 1] * fr * z;
-		if (astrometry) {
-			astrox1 = u * (u2 + 3) / (u2 + 2);
-			astrox1 *= ESPLoutastro[ir][iz] * cr * cz + ESPLoutastro[ir + 1][iz] * fr * cz + ESPLoutastro[ir][iz + 1] * cr * z + ESPLoutastro[ir + 1][iz + 1] * fr * z;
+		fr = -10.857362047581296 * log(0.01 * RSv);
+		if (fr > __rsize_ESPL - 1) fr = __rsize_ESPL - 1.000001;
+		if (fr < 0) printf("Source too large!");
+		ir = (int)floor(fr);
+		fr -= ir;
+		cr = 1 - fr;
+
+		z = u / RSv;
+
+		if (z < 1) {
+			z *= __zsize_ESPL - 1;
+			iz = (int)floor(z);
+			z -= iz;
+			cz = 1 - z;
+			mag = sqrt(1 + 4. / (RSv * RSv));
+			mag *= ESPLin[ir][iz] * cr * cz + ESPLin[ir + 1][iz] * fr * cz + ESPLin[ir][iz + 1] * cr * z + ESPLin[ir + 1][iz + 1] * fr * z;
+			if (astrometry) {
+				astrox1 = (1 - 1. / (4 + RSv * RSv)) * u;
+				astrox1 *= ESPLinastro[ir][iz] * cr * cz + ESPLinastro[ir + 1][iz] * fr * cz + ESPLinastro[ir][iz + 1] * cr * z + ESPLinastro[ir + 1][iz + 1] * fr * z;
+			}
 		}
-	}
+		else {
+			z = 0.99999999999999 / z;
+			z *= __zsize_ESPL - 1;
+			iz = (int)floor(z);
+			z -= iz;
+			cz = 1 - z;
 
-	return mag;
+			u2 = u * u;
+			mag = (u2 + 2) / sqrt(u2 * (u2 + 4));
+			mag *= ESPLout[ir][iz] * cr * cz + ESPLout[ir + 1][iz] * fr * cz + ESPLout[ir][iz + 1] * cr * z + ESPLout[ir + 1][iz + 1] * fr * z;
+			if (astrometry) {
+				astrox1 = u * (u2 + 3) / (u2 + 2);
+				astrox1 *= ESPLoutastro[ir][iz] * cr * cz + ESPLoutastro[ir + 1][iz] * fr * cz + ESPLoutastro[ir][iz + 1] * cr * z + ESPLoutastro[ir + 1][iz + 1] * fr * z;
+			}
+		}
+
+		return mag;
+	}
+	catch (const VBMTimeoutError& err) {
+		RecordTimeoutError(err, "ESPLMag");
+		if (error_policy_ == ErrorPolicy::Throw) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
+	}
 }
 
 double VBMicrolensing::ESPLMag2(double u, double rho) {
-	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
-	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	ClearLastError();
+	try {
+		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
 
-	static double Mag, u2, u2_1, u2_2, u2_4, s_u2_4, u6, rho2, quad;
-	int c = 0;
+		static double Mag, u2, u2_1, u2_2, u2_4, s_u2_4, u6, rho2, quad;
+		int c = 0;
 
 
-	u2 = u * u;
-	u2_1 = u2 + 1;
-	u2_4 = u2 + 4;
-	s_u2_4 = sqrt(u2_4);
+		u2 = u * u;
+		u2_1 = u2 + 1;
+		u2_4 = u2 + 4;
+		s_u2_4 = sqrt(u2_4);
 
-	rho2 = rho * rho;
+		rho2 = rho * rho;
 
-	quad = 4 * u2_1 * rho2 / (u2 * u * u2_4 * u2_4 * s_u2_4); //quadrupole correction
+		quad = 4 * u2_1 * rho2 / (u2 * u * u2_4 * u2_4 * s_u2_4); //quadrupole correction
 
-	//	if (u6 * (1 + 0.003 * rho2Tol) > 0.027680640625 * rho2Tol * rho2Tol) {
-	if (quad * 10 < Tol) {
-		u2_2 = u2 + 2;
-		Mag = u2_2 / (u * s_u2_4) + quad;
-		if (astrometry) {
-			astrox1 = u * (1 + 1 / u2_2) - 2 * (u2_1 + u2_2) * rho2 / (u * u2_2 * u2_2 * u2_4); // quadrupole correction for astrometry
+		//	if (u6 * (1 + 0.003 * rho2Tol) > 0.027680640625 * rho2Tol * rho2Tol) {
+		if (quad * 10 < Tol) {
+			u2_2 = u2 + 2;
+			Mag = u2_2 / (u * s_u2_4) + quad;
+			if (astrometry) {
+				astrox1 = u * (1 + 1 / u2_2) - 2 * (u2_1 + u2_2) * rho2 / (u * u2_2 * u2_2 * u2_4); // quadrupole correction for astrometry
+			}
 		}
+		else {
+			Mag = ESPLMagDark(u, rho);
+		}
+		Mag0 = 0;
+		return Mag;
 	}
-	else {
-		Mag = ESPLMagDark(u, rho);
+	catch (const VBMTimeoutError& err) {
+		RecordTimeoutError(err, "ESPLMag2");
+		if (error_policy_ == ErrorPolicy::Throw) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
 	}
-	Mag0 = 0;
-	return Mag;
 }
 
 double VBMicrolensing::ESPLMagDark(double u, double RSv) {
@@ -1316,35 +1347,45 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 }
 
 double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, double rho) {
-	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
-	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	ClearLastError();
+	try {
+		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
 
-	static double Mag, rho2, y2a;//, sms , dy1, dy2;
-	static int c;
-	static _sols_for_skiplist_curve* Images;
+		static double Mag, rho2, y2a;//, sms , dy1, dy2;
+		static int c;
+		static _sols_for_skiplist_curve* Images;
 
-	c = 0;
+		c = 0;
 
-	y2a = fabs(y2v);
+		y2a = fabs(y2v);
 
-	Mag0 = BinaryMag0(s, q, y1v, y2a, &Images);
-	delete Images;
-	rho2 = rho * rho;
-	corrquad *= 6 * (rho2 + 1.e-4 * Tol);
-	corrquad2 *= 256 * (rho2 + 1.e-9);
-	if (corrquad < Tol && corrquad2 < 1 && (/*rho2 * s * s<q || */ safedist > 4 * rho2)) {
-		Mag = Mag0;
+		Mag0 = BinaryMag0(s, q, y1v, y2a, &Images);
+		delete Images;
+		rho2 = rho * rho;
+		corrquad *= 6 * (rho2 + 1.e-4 * Tol);
+		corrquad2 *= 256 * (rho2 + 1.e-9);
+		if (corrquad < Tol && corrquad2 < 1 && (/*rho2 * s * s<q || */ safedist > 4 * rho2)) {
+			Mag = Mag0;
+		}
+		else {
+			Mag = BinaryMagDark(s, q, y1v, y2a, rho, Tol);
+		}
+		Mag0 = 0;
+
+		if (y2v < 0) {
+			y_2 = y2v;
+			astrox2 = -astrox2;
+		}
+		return Mag;
 	}
-	else {
-		Mag = BinaryMagDark(s, q, y1v, y2a, rho, Tol);
+	catch (const VBMTimeoutError& err) {
+		RecordTimeoutError(err, "BinaryMag2");
+		if (error_policy_ == ErrorPolicy::Throw) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
 	}
-	Mag0 = 0;
-
-	if (y2v < 0) {
-		y_2 = y2v;
-		astrox2 = -astrox2;
-	}
-	return Mag;
 }
 
 double VBDefaultCumulativeFunction(double cb, double* a1) {
@@ -3409,33 +3450,43 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 
 
 double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
-	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
-	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	ClearLastError();
+	try {
+		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
 
-	static double Mag, rho2, y2a, y1v, y2v;//, sms , dy1, dy2;
-	static int c;
-	static _sols_for_skiplist_curve* Images;
+		static double Mag, rho2, y2a, y1v, y2v;//, sms , dy1, dy2;
+		static int c;
+		static _sols_for_skiplist_curve* Images;
 
-	c = 0;
+		c = 0;
 
-	Mag0 = MultiMag0(y1s, y2s, &Images);
-	delete Images;
-	rho2 = rho * rho;
-	corrquad *= 6 * (rho2 + 1.e-4 * Tol);
-	corrquad2 *= 256 * (rho2 + 1.e-9);
-	if (corrquad < Tol && corrquad2 < 1 && (/*rho2 * s * s<q || */ safedist > 4 * rho2)) {
-		Mag = Mag0;
+		Mag0 = MultiMag0(y1s, y2s, &Images);
+		delete Images;
+		rho2 = rho * rho;
+		corrquad *= 6 * (rho2 + 1.e-4 * Tol);
+		corrquad2 *= 256 * (rho2 + 1.e-9);
+		if (corrquad < Tol && corrquad2 < 1 && (/*rho2 * s * s<q || */ safedist > 4 * rho2)) {
+			Mag = Mag0;
+		}
+		else {
+			Mag = MultiMagDark(y1s, y2s, rho, Tol);
+		}
+		Mag0 = 0;
+
+		if (y2v < 0) {
+			y_2 = y2v;
+			astrox2 = -astrox2;
+		}
+		return Mag;
 	}
-	else {
-		Mag = MultiMagDark(y1s, y2s, rho, Tol);
+	catch (const VBMTimeoutError& err) {
+		RecordTimeoutError(err, "MultiMag2");
+		if (error_policy_ == ErrorPolicy::Throw) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
 	}
-	Mag0 = 0;
-
-	if (y2v < 0) {
-		y_2 = y2v;
-		astrox2 = -astrox2;
-	}
-	return Mag;
 }
 
 ///////////////////////////////////////////////
@@ -5870,6 +5921,17 @@ void VBMicrolensing::BinaryLightCurveParallax(double* pr, double* ts, double* ma
 
 	astrometry = false;
 	BinaryAstroLightCurve(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, np);
+}
+
+void VBMicrolensing::RecordTimeoutError(const VBMTimeoutError& err, const char* api_name) {
+	last_error_.active = true;
+	last_error_.category = err.category();
+	last_error_.api = api_name ? api_name : "";
+	last_error_.where = err.where();
+	if (last_error_.where.empty()) {
+		last_error_.where = last_error_.api;
+	}
+	last_error_.message = err.what();
 }
 
 

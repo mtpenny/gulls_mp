@@ -333,6 +333,9 @@ struct event{
   int lcerror;    //lightcurve generation flag
   int fisherror;  //fisher matrix calculation error
   int deterror;   //detection criteria error flag
+  int vbm_error_category; // VBMicrolensing::LastError category cast to int
+  string vbm_error_source;
+  string vbm_error_message;
   int detected;   //flag denoting whether event is detected
   VBMicrolensing* vbm;
 
