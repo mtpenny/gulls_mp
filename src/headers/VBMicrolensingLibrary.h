@@ -207,9 +207,10 @@ public:
 	void SetTimeouts(const TimeoutConfig& cfg) { timeout_config_ = cfg; }
 	TimeoutConfig GetTimeouts() const { return timeout_config_; }
 
-	// Error handling policy at the VBM API boundary.
-	// Throw: preserve legacy behavior (exceptions propagate to caller).
-	// ReturnNaN: swallow VBMTimeoutError, store details in LastError, and return NaN/null.
+	// Error handling policy for timeout-enabled public API entry points.
+	// Throw: propagate VBMTimeoutError to the caller.
+	// ReturnNaN: handle timeout internally, record details in LastError, and return
+	// a sentinel value (NaN/null/early return depending on API return type).
 	enum class ErrorPolicy {
 		Throw,
 		ReturnNaN
@@ -384,8 +385,9 @@ public:
 
 private: // Must be declared here at the end
 	void RecordTimeoutError(const VBMTimeoutError& err, const char* api_name);
+	bool HandleTimeoutError(const VBMTimeoutError& err, const char* api_name);
 	TimeoutConfig timeout_config_;
-	ErrorPolicy error_policy_ = ErrorPolicy::Throw;
+	ErrorPolicy error_policy_ = ErrorPolicy::ReturnNaN;
 	LastError last_error_;
 	LDprofiles curLDprofile;
 	Method SelectedMethod;

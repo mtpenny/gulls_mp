@@ -99,7 +99,6 @@ static bool has_vbm_event_error(const struct event& event) {
   return !event.vbm_error_message.empty();
 }
 
-
 int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   try {
 
@@ -259,7 +258,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
     timeout_cfg.astrometry_seconds = Paramfile.vbm_timeout_astrometry;
     timeout_cfg.check_interval = Paramfile.vbm_timeout_check_interval;
     VBM.SetTimeouts(timeout_cfg);
-    // Use package-level error state handling instead of caller-side timeout catches.
+    // Use VBM package-level timeout handling (no caller-side timeout catch required).
     VBM.SetErrorPolicy(VBMicrolensing::ErrorPolicy::ReturnNaN);
   }
   Event.vbm = &VBM;
@@ -452,6 +451,8 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
           return exit_code;
         }
 
+      // Any non-zero lcerror means downstream photometry/output should not run.
+      // These stages assume valid magnification vectors.
       const bool lightcurve_failed = (Event.lcerror != 0);
 
       if(!lightcurve_failed)
@@ -556,6 +557,24 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   clock2str(st,st1);
   
   return(0);
+  } catch (const VBMTimeoutError& err) {
+    const int exit_code = timeout_exit_code(err.category());
+    cerr << "FATAL: Unhandled VBM timeout: " << err.what() << endl;
+    cerr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+    if(!err.where().empty())
+      {
+        cerr << "Timeout source: " << err.where() << endl;
+      }
+    if (logfile_ptr.is_open()) {
+      logfile_ptr << "FATAL: Unhandled VBM timeout: " << err.what() << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+      if(!err.where().empty())
+        {
+          logfile_ptr << "Timeout source: " << err.where() << endl;
+        }
+      logfile_ptr.flush();
+    }
+    return exit_code;
   } catch (const std::exception& err) {
     cerr << "FATAL: Unhandled exception: " << err.what() << endl;
     if (logfile_ptr.is_open()) {

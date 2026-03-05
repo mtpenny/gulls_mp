@@ -17,6 +17,8 @@ extern "C"
   void magfunc_(double *m1, double *a, double *xsCenter,  double *ysCenter, double *rs, double *Gamma, double *amp, double *eps, int *errflag);
 }
 
+// Keep this helper local to each generator translation unit.
+// The call sites differ by API usage, but error flagging/logging behavior must stay identical.
 static bool handle_vbm_api_error(const char* api_name, struct filekeywords* Paramfile, struct event* Event, ofstream& logfile_ptr, VBMicrolensing* vbm)
 {
   if(!vbm->HasLastError())

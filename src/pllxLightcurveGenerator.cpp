@@ -13,6 +13,8 @@
 #define DEBUGVAR 1
 // This assumes Event->vbm has already been initialized and configured
 
+// Keep this helper local to each generator translation unit.
+// The call sites differ by API usage, but error flagging/logging behavior must stay identical.
 static bool handle_vbm_api_error(const char* api_name, struct filekeywords* Paramfile, struct event* Event, ofstream& logfile_ptr, VBMicrolensing* vbm)
 {
   if(!vbm->HasLastError())
