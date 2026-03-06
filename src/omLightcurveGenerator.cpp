@@ -100,6 +100,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //Track the apparent motion of the centers of mass of the source and lens, then compute offsets from them
   //for each component
 
+  //For general, alpha is set by the relative proper motion in ecliptic coordinates
+  //As murel is lens minus source, but alpha describes the direction of source motion relative to the
+  //lens, it is the angle of the negative of the murel vector in ecliptic coordinates
+  Event->alpha = 180.0/pi * atan2(-Event->pllx[0].mubet_r,-Event->pllx[0].mulam_r);
+
   double antipode_ra = c.fold(Event->ra + PI,0,twoPi); //Used for computing orbits
   double antipode_dec = c.fold(-Event->dec,-PI,PI);
       
