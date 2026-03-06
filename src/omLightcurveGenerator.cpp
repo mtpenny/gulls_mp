@@ -25,6 +25,42 @@
 
 //General lightcurve generator that incorporates heirarchical orbital motion for multiple lenses and sources
 
+// Keep this helper local to each generator translation unit.
+// The call sites differ by API usage, but error flagging/logging behavior must stay identical.
+static bool handle_vbm_api_error(const char* api_name, struct filekeywords* Paramfile, struct event* Event, ofstream& logfile_ptr, VBMicrolensing* vbm)
+{
+  if(!vbm->HasLastError())
+    {
+      return false;
+    }
+
+  const VBMicrolensing::LastError& err = vbm->GetLastError();
+  Event->vbm_error_category = static_cast<int>(err.category);
+  Event->vbm_error_source = err.where;
+  Event->vbm_error_message = err.message;
+  Event->lcerror = (err.category == VBMTimeoutError::TimeoutCategory::Unknown) ? LCGEN_VBM_ERR : LCGEN_TIMEOUT_ERR;
+  Event->detected = 0;
+  Event->deterror = 0;
+  Event->outputthis = 0;
+
+  if(Paramfile->verbosity >= 1)
+    {
+      cout << "VBM error in " << api_name << ": " << err.message << endl;
+      cout << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+      if(!err.where.empty()) cout << "Timeout source: " << err.where << endl;
+    }
+  if(logfile_ptr.good())
+    {
+      logfile_ptr << "VBM error in " << api_name << ": " << err.message << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+      if(!err.where.empty()) logfile_ptr << "Timeout source: " << err.where << endl;
+      logfile_ptr.flush();
+    }
+
+  vbm->ClearLastError();
+  return true;
+}
+
 //void sleep_thread(int n)
 //{
 //  this_thread::sleep_for(chrono::milliseconds(n));
@@ -35,6 +71,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   Event->lcerror=0;
   Event->deterror=0;
+  Event->vbm_error_category = static_cast<int>(VBMTimeoutError::TimeoutCategory::Unknown);
+  Event->vbm_error_source.clear();
+  Event->vbm_error_message.clear();
+  Event->vbm->ClearLastError();
 
   if(Paramfile->verbosity>=1) cout << "lcgen Event->nlens: " << Event->nlens << endl;
   cout << "Skip magnification = " << Paramfile->skip_magnification << endl;
@@ -729,19 +769,22 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       //Finally ready to compute magnifications
       
-      if(nlens==1)
-	{
-	  for(int is=0;is<nsrc;is++)
-	    {
+	      if(nlens==1)
+		{
+		  for(int is=0;is<nsrc;is++)
+		    {
       	      if(is==0) rho = Event->rs;	
 	      else rho = Event->scomp_rs[is-1];
 	      u = qAdd(xs[is],ys[is]);
-	      if(Paramfile->skip_magnification==0)
-		mu[is] = Event->vbm->ESPLMag2(u, rho);
-	      else mu[is]=1.0;
-	      //handle astrometry
-	    }
-	}
+		      if(Paramfile->skip_magnification==0)
+			{
+			  mu[is] = Event->vbm->ESPLMag2(u, rho);
+			  if(handle_vbm_api_error("ESPLMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
+			}
+		      else mu[is]=1.0;
+		      //handle astrometry
+		    }
+		}
       else if(nlens==2)
 	{
 	  double s = qAdd(xl[1]-xl[0],yl[1]-yl[0]);
@@ -760,11 +803,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;
 	      double ysi = sr*xs_com_ecl + cr*ys_com_ecl;
 
-	      if(Paramfile->skip_magnification==0)
-		mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);
-	      else mu[is] = 1.0;
-	      //handle astrometry
-	      //rotate astrometry back
+		      if(Paramfile->skip_magnification==0)
+			{
+			  mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);
+			  if(handle_vbm_api_error("BinaryMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
+			}
+		      else mu[is] = 1.0;
+		      //handle astrometry
+		      //rotate astrometry back
 	    }
 	}
       else
@@ -811,11 +857,13 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  //Spool up a new vbm for each calculation
 		  VBMicrolensing VBMlocal;
 
-		  VBMlocal.SetLensGeometry(nlens,lens_parameters);
-		  VBMlocal.a1 = Event->gamma;
-		  VBMlocal.Tol=Paramfile->vbm_tol;
-		  VBMlocal.RelTol=Paramfile->vbm_reltol;
-		  VBMlocal.SetMethod(VBMicrolensing::Method::Nopoly);
+			  VBMlocal.SetLensGeometry(nlens,lens_parameters);
+			  VBMlocal.a1 = Event->gamma;
+			  VBMlocal.Tol=Paramfile->vbm_tol;
+			  VBMlocal.RelTol=Paramfile->vbm_reltol;
+			  VBMlocal.SetMethod(VBMicrolensing::Method::Nopoly);
+			  VBMlocal.SetTimeouts(Event->vbm->GetTimeouts());
+			  VBMlocal.SetErrorPolicy(Event->vbm->GetErrorPolicy());
 
 		  double u_min=1e50;
 		  for(int i=0;i<nlens;i++)
@@ -824,18 +872,20 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      if(u_lens<u_min) u_min=u_lens;
 		    }
 
-		  if(u_min<10 && msource[is]<40)
-		    {
-		      mu[is] = VBMlocal.MultiMag2(xs[is], ys[is], rho);
-		      logfile_ptr << mu[is] << " " << VBMlocal.therr << " " << VBMlocal.NPS << endl;
-		    }
-		  else
-		    {
-		      //if the source is far from all lenses, just use the nearest single lens magnification
-		      mu[is] = Event->vbm->ESPLMag2(u_min, rho);
-		      logfile_ptr << mu[is] << " " << (u_min>=10?"single":"null") << " " << (msource[is]>=40?"faint":"null") << endl;
-		    }
-		}
+			  if(u_min<10 && msource[is]<40)
+			    {
+			      mu[is] = VBMlocal.MultiMag2(xs[is], ys[is], rho);
+			      if(handle_vbm_api_error("MultiMag2", Paramfile, Event, logfile_ptr, &VBMlocal)) return;
+			      logfile_ptr << mu[is] << " " << VBMlocal.therr << " " << VBMlocal.NPS << endl;
+			    }
+			  else
+			    {
+			      //if the source is far from all lenses, just use the nearest single lens magnification
+			      mu[is] = Event->vbm->ESPLMag2(u_min, rho);
+			      if(handle_vbm_api_error("ESPLMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
+			      logfile_ptr << mu[is] << " " << (u_min>=10?"single":"null") << " " << (msource[is]>=40?"faint":"null") << endl;
+			    }
+			}
 	      else mu[is] = 1.0;
 	      //handle astrometry
 	    }
