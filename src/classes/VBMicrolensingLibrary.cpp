@@ -39,6 +39,7 @@ char systemslash = '/';
 #include <string.h>
 #include <string>
 #include <limits>
+#include <memory>
 
 //#define _PRINT_ERRORS2
 //#define _PRINT_ERRORS
@@ -141,6 +142,18 @@ inline void CheckTimeout(const char* where) {
 	}
 	throw VBMTimeoutError(g_timeout_category, where ? where : "");
 }
+
+struct AnnulusChainDeleter {
+	void operator()(annulus* head) const {
+		while (head) {
+			annulus* next = head->next;
+			delete head;
+			head = next;
+		}
+	}
+};
+
+using AnnulusChainPtr = std::unique_ptr<annulus, AnnulusChainDeleter>;
 } // namespace
 
 #pragma region skiplist/queue
@@ -724,6 +737,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 	int c = 0, flag;
 	double currerr, maxerr;
 	annulus* first, * scan, * scan2;
+	AnnulusChainPtr annulus_chain(nullptr);
 	int nannold, totNPS = 1;
 	double LDastrox1 = 0.0;
 
@@ -733,6 +747,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 		}
 
 		first = new annulus;
+		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
 
@@ -840,11 +855,8 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 
 		}
 
-		while (first) {
-			scan = first->next;
-			delete first;
-			first = scan;
-		}
+		annulus_chain.reset();
+		first = nullptr;
 
 		Tolv /= 10;
 		c++;
@@ -872,9 +884,14 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 
 double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, _sols_for_skiplist_curve** Images) {
 	ClearLastError();
+	if (Images) {
+		*Images = nullptr;
+	}
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	std::unique_ptr<_sols_for_skiplist_curve> images_owner(new _sols_for_skiplist_curve);
+	std::unique_ptr<_theta> stheta_owner(new _theta(-1.));
 
 	static VBcomplex a, q, m1, m2, y;
 	static double av = -1.0, qv = -1.0;
@@ -887,7 +904,7 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 	static _point* scan1, * scan2;
 
 	Mag = Ai = -1.0;
-	stheta = new _theta(-1.);
+	stheta = stheta_owner.get();
 	if ((a1 != av) || (q1 != qv)) {
 		av = a1;
 		qv = q1;
@@ -915,13 +932,11 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 
 	}
 	y = VBcomplex(y1v, y2v);
-	(*Images) = new _sols_for_skiplist_curve;
 	corrquad = corrquad2 = 0;
 	safedist = 10;
 	Prov = NewImages(y, coefs, stheta);
 	if (Prov->length == 0) {
 		delete Prov;
-		delete stheta;
 		return -1;
 	}
 	if (q.re < 0.01) {
@@ -933,13 +948,14 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 	astrox1 = 0.;
 	astrox2 = 0.;
 	nim0 = 0;
-	for (scan1 = Prov->first; scan1; scan1 = scan2) {
+	while (Prov->first) {
 		if (ShouldCheck(nim0 + 1, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("BinaryMag0");
 		}
-		scan2 = scan1->next;
+		scan1 = Prov->first;
+		Prov->drop(scan1);
 		Prov2 = new _skiplist_curve(scan1, 0);						// create an object of class _curve with one member(_point class variable),
-		(*Images)->append(Prov2);
+		images_owner->append(Prov2);
 		Ai = fabs(1 / scan1->dJ);
 		Mag += Ai;
 		if (astrometry) {
@@ -948,21 +964,23 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 		}
 		nim0++;
 	}
-	Prov->length = 0;
 	delete Prov;
-	delete stheta;
 	if (astrometry) {
 		astrox1 /= (Mag);
 		astrox1 -= coefs[11].re;
 		astrox2 /= (Mag);
 	}
 	NPS = 1;
+	*Images = images_owner.release();
 	return Mag;
 
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "BinaryMag0")) {
 			throw;
+		}
+		if (Images) {
+			*Images = nullptr;
 		}
 		return std::numeric_limits<double>::quiet_NaN();
 	}
@@ -973,6 +991,7 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v) 
 	static double mag;
 	mag = BinaryMag0(a1, q1, y1v, y2v, &images);
 	delete images;
+	images = nullptr;
 	return mag;
 }
 
@@ -1072,9 +1091,14 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 
 double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
 	ClearLastError();
+	if (Images) {
+		*Images = nullptr;
+	}
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	std::unique_ptr<_sols_for_skiplist_curve> images_owner(new _sols_for_skiplist_curve);
+	std::unique_ptr<_thetas> thetas_owner(new _thetas);
 
 	static VBcomplex a, q, m1, m2, y0, y, yc, z, zc;
 	static double av = -1.0, qv = -1.0;
@@ -1158,8 +1182,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 
 	// Calculation of the images
 
-	(*Images) = new _sols_for_skiplist_curve;
-	Thetas = new _thetas;
+	Thetas = thetas_owner.get();
 	th = thoff;
 	stheta = Thetas->insert(th);
 	stheta->maxerr = 0.;
@@ -1190,7 +1213,6 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 			delete Prov;
 			stheta->th += 0.01;
 			if (stheta->th > 2.0 * M_PI) {
-				delete Thetas;
 				return -1;
 			}
 			y = y0 + VBcomplex(RSv * cos(stheta->th), RSv * sin(stheta->th));
@@ -1209,8 +1231,9 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 	stheta->astrox1 = 0.;
 	stheta->astrox2 = 0.;
 	stheta->errworst = Thetas->first->errworst;
-	for (scan1 = Prov->first; scan1; scan1 = scan2) {
-		scan2 = scan1->next;
+	while (Prov->first) {
+		scan1 = Prov->first;
+		Prov->drop(scan1);
 		Prov2 = new _skiplist_curve(scan1, new_and_append_Level_start);			// create an object of class _curve with one member(_point class variable),
 
 		Prov2->append(scan1->x1, scan1->x2, new_and_append_Level_start);			// create a new _point variable on heap, 
@@ -1218,9 +1241,8 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 		Prov2->last->d = Prov2->first->d;
 		Prov2->last->dJ = Prov2->first->dJ;
 		Prov2->last->ds = Prov2->first->ds;
-		(*Images)->append(Prov2);
+		images_owner->append(Prov2);
 	}
-	Prov->length = 0;
 	delete Prov;
 
 	th = M_PI + Thetas->first->th;
@@ -1275,7 +1297,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 				astrox1 -= stheta->prev->astrox1;
 				astrox2 -= stheta->prev->astrox2;
 			}
-			OrderImages((*Images), Prov);
+			OrderImages(images_owner.get(), Prov);
 			Mag += stheta->prev->Mag;
 			Mag += stheta->Mag;
 
@@ -1301,7 +1323,6 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 			flagbad++;
 			if (flagbad == flagbadmax) {
 				if (NPS < 16) {
-					delete Thetas;
 					return -1;
 				}
 				errbuff += stheta->prev->maxerr;
@@ -1357,14 +1378,17 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 	Mag /= (M_PI * RSv * RSv);
 	therr = (currerr + errbuff) / (M_PI * RSv * RSv);
 
-	delete Thetas;
 	//	if (NPS == NPSmax) return 1.e100*Tol; // Only for testing
+	*Images = images_owner.release();
 	return Mag;
 
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "BinaryMag")) {
 			throw;
+		}
+		if (Images) {
+			*Images = nullptr;
 		}
 		return std::numeric_limits<double>::quiet_NaN();
 	}
@@ -1376,6 +1400,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 	static double mag;
 	mag = BinaryMag(a1, q1, y1v, y2v, RSv, Tol, &images);
 	delete images;
+	images = nullptr;
 	return mag;
 }
 
@@ -1441,6 +1466,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 	static int c, flag;
 	static double currerr, maxerr;
 	static annulus* first, * scan, * scan2;
+	AnnulusChainPtr annulus_chain(nullptr);
 	static int nannold, totNPS;
 	static _sols_for_skiplist_curve* Images;
 
@@ -1460,6 +1486,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		}
 
 		first = new annulus;
+		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
 		if (Mag0 > 0.5) {
@@ -1468,8 +1495,12 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		}
 		else {
 			first->Mag = BinaryMag0(a, q, y_1, y_2, &Images);
+			if (Images == nullptr) {
+				return std::numeric_limits<double>::quiet_NaN();
+			}
 			first->nim = Images->length;
 			delete Images;
+			Images = nullptr;
 		}
 		if (astrometry) {
 			first->LDastrox1 = astrox1 * first->Mag;
@@ -1488,6 +1519,9 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		scan->bin = 1.;
 		scan->cum = 1.;
 		scan->Mag = BinaryMagSafe(a, q, y_1, y_2, RSv, &Images);
+		if (Images == nullptr) {
+			return std::numeric_limits<double>::quiet_NaN();
+		}
 		if (astrometry) {
 			scan->LDastrox1 = astrox1 * scan->Mag;
 			scan->LDastrox2 = astrox2 * scan->Mag;
@@ -1495,6 +1529,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		totNPS += NPS;
 		scan->nim = Images->length;
 		delete Images;
+		Images = nullptr;
 		scr2 = sscr2 = 1;
 		scan->f = LDprofile(0.9999999);
 		if (scan->nim == scan->prev->nim) {
@@ -1548,6 +1583,9 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			scan->prev->cum = tc;
 			scan->prev->f = LDprofile(cb);
 			scan->prev->Mag = BinaryMagSafe(a, q, y_1, y_2, RSv * cb, &Images);
+			if (Images == nullptr) {
+				return std::numeric_limits<double>::quiet_NaN();
+			}
 			if (astrometry) {
 				scan->prev->LDastrox1 = astrox1 * scan->prev->Mag;
 				scan->prev->LDastrox2 = astrox2 * scan->prev->Mag;
@@ -1573,6 +1611,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			printf("\n%d", Images->length);
 #endif
 			delete Images;
+			Images = nullptr;
 
 			Mag += (scan->bin * scan->bin * scan->Mag - cb * cb * scan->prev->Mag) * (scan->cum - scan->prev->cum) / (scan->bin * scan->bin - scan->prev->bin * scan->prev->bin);
 			Mag += (cb * cb * scan->prev->Mag - scan->prev->prev->bin * scan->prev->prev->bin * scan->prev->prev->Mag) * (scan->prev->cum - scan->prev->prev->cum) / (scan->prev->bin * scan->prev->bin - scan->prev->prev->bin * scan->prev->prev->bin);
@@ -1597,13 +1636,11 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 
 		if (multidark) {
 			annlist = first;
+			annulus_chain.release();
 		}
 		else {
-			while (first) {
-				scan = first->next;
-				delete first;
-				first = scan;
-			}
+			annulus_chain.reset();
+			first = nullptr;
 		}
 
 		Tolv /= 10;
@@ -2878,9 +2915,14 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBcomplex* s) 
 
 double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curve** Images) {
 	ClearLastError();
+	if (Images) {
+		*Images = nullptr;
+	}
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	std::unique_ptr<_sols_for_skiplist_curve> images_owner(new _sols_for_skiplist_curve);
+	std::unique_ptr<_theta> stheta_owner(new _theta(-1.));
 
 	static double Mag = -1.0, Ai;
 	VBcomplex yi;
@@ -2889,12 +2931,11 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 	static _skiplist_curve* Prov2;
 	_point* scan1, * scan2;
 
-	stheta = new _theta(-1.);
+	stheta = stheta_owner.get();
 
 	yi = VBcomplex(y1s, y2s);
 	y = yi - *s_offset; // Source position relative to first (lowest) mass
 	rho = rho2 = 0;
-	(*Images) = new _sols_for_skiplist_curve;
 	corrquad = corrquad2 = 0;
 	safedist = 10;
 
@@ -2904,15 +2945,16 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 	nim0 = 0;
 	astrox1 = 0;
 	astrox2 = 0;
-	for (scan1 = Prov->first; scan1; scan1 = scan2) {
+	while (Prov->first) {
 		if (ShouldCheck(nim0 + 1, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("MultiMag0");
 		}
-		scan2 = scan1->next;
+		scan1 = Prov->first;
+		Prov->drop(scan1);
 		Prov2 = new _skiplist_curve(scan1, 0);						// create an object of class _curve with one member(_point class variable),
 		// input is pointer(scan1) that points to the member; 
 		// pointer to that object is assigned to static local variable 'Prov2'
-		(*Images)->append(Prov2);
+		images_owner->append(Prov2);
 		Ai = fabs(1 / scan1->dJ);
 		Mag += Ai;
 		if (astrometry) {
@@ -2921,21 +2963,23 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 		}
 		nim0++;
 	}
-	Prov->length = 0;
 	delete Prov;
-	delete stheta;
 	if (astrometry) {
 		astrox1 /= (Mag);
 		//astrox1 -= coefs[11].re; 
 		astrox2 /= (Mag);
 	}
 	NPS = 1;
+	*Images = images_owner.release();
 	return Mag;
 
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "MultiMag0")) {
 			throw;
+		}
+		if (Images) {
+			*Images = nullptr;
 		}
 		return std::numeric_limits<double>::quiet_NaN();
 	}
@@ -2946,12 +2990,18 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s) {
 	static double mag;
 	mag = MultiMag0(y1s, y2s, &images);
 	delete images;
+	images = nullptr;
 	return mag;
 }
 
 double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
+	if (Images) {
+		*Images = nullptr;
+	}
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	std::unique_ptr<_sols_for_skiplist_curve> images_owner(new _sols_for_skiplist_curve);
+	std::unique_ptr<_thetas> thetas_owner(new _thetas);
 
 	static VBcomplex y0, yi;
 	static double Mag = -1.0, th, thoff = 0.01020304, thoff2 = 0.7956012033974483; //0.01020304
@@ -3005,8 +3055,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 
 		// Calculation of the images
 
-		(*Images) = new _sols_for_skiplist_curve;
-		Thetas = new _thetas;
+		Thetas = thetas_owner.get();
 		th = thoff;
 		stheta = Thetas->insert(th);
 		stheta->maxerr = 0.;
@@ -3033,8 +3082,9 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		stheta->astrox1 = 0.;
 		stheta->astrox2 = 0.;
 		stheta->errworst = Thetas->first->errworst;
-		for (scan1 = Prov->first; scan1; scan1 = scan2) {
-			scan2 = scan1->next;
+		while (Prov->first) {
+			scan1 = Prov->first;
+			Prov->drop(scan1);
 			Prov2 = new _skiplist_curve(scan1, new_and_append_Level_start);			// create an object of class _curve with one member(_point class variable),
 			// input is pointer(scan1) that points to the member; 
 			// pointer to that object is assigned to static local variable 'Prov2'
@@ -3048,9 +3098,8 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			Prov2->last->d = Prov2->first->d;
 			Prov2->last->dJ = Prov2->first->dJ;
 			Prov2->last->ds = Prov2->first->ds;
-			(*Images)->append(Prov2);
+			images_owner->append(Prov2);
 		}
-		Prov->length = 0;
 		delete Prov;
 
 		th = thoff;
@@ -3061,7 +3110,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 
 			EXECUTE_METHOD(SelectedMethod, stheta)
 
-				OrderMultipleImages((*Images), Prov);
+				OrderMultipleImages(images_owner.get(), Prov);
 		}
 		NPS = 4;
 
@@ -3134,7 +3183,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 				astrox2 -= stheta->prev->astrox2;
 			}
 			// Assign new images to correct curves
-			OrderMultipleImages((*Images), Prov);
+			OrderMultipleImages(images_owner.get(), Prov);
 			Mag += stheta->prev->Mag;
 			Mag += stheta->Mag;
 			if (astrometry) {
@@ -3193,14 +3242,16 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		Mag /= (M_PI * RSv * RSv);
 		therr = currerr / (M_PI * RSv * RSv);
 
-		delete Thetas;
-
+		*Images = images_owner.release();
 		return Mag;
 
 	}
 		catch (const VBMTimeoutError& err) {
 			if (HandleTimeoutError(err, "MultiMag")) {
 				throw;
+			}
+			if (Images) {
+				*Images = nullptr;
 			}
 			return std::numeric_limits<double>::quiet_NaN();
 		}
@@ -3227,6 +3278,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv) {
 	static double mag;
 	mag = MultiMag(y1s, y2s, RSv, Tol, &images);
 	delete images;
+	images = nullptr;
 	return mag;
 }
 
@@ -3235,6 +3287,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol) 
 	static double mag;
 	mag = MultiMag(y1s, y2s, RSv, Tol, &images);
 	delete images;
+	images = nullptr;
 	return mag;
 }
 
@@ -3343,6 +3396,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 	static int c, flag;
 	static double currerr, maxerr;
 	static annulus* first, * scan, * scan2;
+	AnnulusChainPtr annulus_chain(nullptr);
 	static int nannold, totNPS;
 	static _sols_for_skiplist_curve* Images;
 
@@ -3361,6 +3415,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		}
 
 		first = new annulus;
+		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
 		if (Mag0 > 0.5) {
@@ -3369,8 +3424,12 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		}
 		else {
 			first->Mag = MultiMag0(y1s, y2s, &Images);
+			if (Images == nullptr) {
+				return std::numeric_limits<double>::quiet_NaN();
+			}
 			first->nim = Images->length;
 			delete Images;
+			Images = nullptr;
 		}
 		if (astrometry) {
 			first->LDastrox1 = astrox1 * first->Mag;
@@ -3389,6 +3448,9 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		scan->bin = 1.;
 		scan->cum = 1.;
 		scan->Mag = MultiMagSafe(y1s, y2s, RSv, &Images);
+		if (Images == nullptr) {
+			return std::numeric_limits<double>::quiet_NaN();
+		}
 		if (astrometry) {
 			scan->LDastrox1 = astrox1 * scan->Mag;
 			scan->LDastrox2 = astrox2 * scan->Mag;
@@ -3396,6 +3458,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		totNPS += NPS;
 		scan->nim = Images->length;
 		delete Images;
+		Images = nullptr;
 		scr2 = sscr2 = 1;
 		scan->f = LDprofile(0.9999999);
 		if (scan->nim == scan->prev->nim) {
@@ -3449,6 +3512,9 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			scan->prev->cum = tc;
 			scan->prev->f = LDprofile(cb);
 			scan->prev->Mag = MultiMagSafe(y1s, y2s, RSv * cb, &Images);
+			if (Images == nullptr) {
+				return std::numeric_limits<double>::quiet_NaN();
+			}
 			if (astrometry) {
 				scan->prev->LDastrox1 = astrox1 * scan->prev->Mag;
 				scan->prev->LDastrox2 = astrox2 * scan->prev->Mag;
@@ -3474,6 +3540,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			printf("\n%d", Images->length);
 #endif
 			delete Images;
+			Images = nullptr;
 
 			Mag += (scan->bin * scan->bin * scan->Mag - cb * cb * scan->prev->Mag) * (scan->cum - scan->prev->cum) / (scan->bin * scan->bin - scan->prev->bin * scan->prev->bin);
 			Mag += (cb * cb * scan->prev->Mag - scan->prev->prev->bin * scan->prev->prev->bin * scan->prev->prev->Mag) * (scan->prev->cum - scan->prev->prev->cum) / (scan->prev->bin * scan->prev->bin - scan->prev->prev->bin * scan->prev->prev->bin);
@@ -3498,13 +3565,11 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 
 		if (multidark) {
 			annlist = first;
+			annulus_chain.release();
 		}
 		else {
-			while (first) {
-				scan = first->next;
-				delete first;
-				first = scan;
-			}
+			annulus_chain.reset();
+			first = nullptr;
 		}
 
 		Tolv /= 10;
