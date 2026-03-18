@@ -143,8 +143,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //For general, alpha is set by the relative proper motion in ecliptic coordinates
   //As murel is lens minus source, but alpha describes the direction of source motion relative to the
   //lens, it is the angle of the negative of the murel vector in ecliptic coordinates
-  Event->alpha = 180.0/pi * atan2(-Event->pllx[0].mubet_r,-Event->pllx[0].mulam_r);
-
+  double alpharad = atan2(-Event->pllx[0].mubet_r,-Event->pllx[0].mulam_r);
+  Event->alpha = 180.0/pi * alpharad;
+    
   double antipode_ra = c.fold(Event->ra + PI,0,twoPi); //Used for computing orbits
   double antipode_dec = c.fold(-Event->dec,-PI,PI);
       
@@ -157,8 +158,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   double rEsrc = Event->rE * Sources->data[sn][Sources->DIST]/Lenses->data[ln][Lenses->DIST];
 
-  double cosa = cos(Event->alpha);
-  double sina = sin(Event->alpha);
+  double cosa = cos(alpharad);
+  double sina = sin(alpharad);
   
   //Setup orbits for the source(s)
 
