@@ -20,9 +20,9 @@ def mag(F,ms,fs):
 def magerr(F,e,ms,fs):
     return 2.5/np.log(10)*e/F
 
-data = pd.read_csv(sys.argv[1],sep='\s+',comment='#')
+data = pd.read_csv(sys.argv[1],sep=r'\s+',comment='#')
 
-header = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=50,index_col=False)
+header = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment=None,engine='python',nrows=50,index_col=False)
 fsm = header[header.iloc[:,0]=='#fs:'].squeeze(axis=0)[1:].astype(float)
 event = header[header.iloc[:,0]=='#Event:'].squeeze(axis=0)[1:].astype(float)
 planet = header[header.iloc[:,0]=='#Planet:'].squeeze(axis=0)[1:].astype(float)

@@ -4,7 +4,7 @@ import numpy as np
 import sys
 
 
-if len(sys.argv)==1:
+if len(sys.argv)!=2:
     print(f"Usage: python {sys.argv[0]} <lightcurve>")
     exit()
 
@@ -14,13 +14,17 @@ data = pd.read_csv(lightcurve,sep=r'\s+',comment='#')
 outfile = lightcurve[:lightcurve.rfind('_')] +'.out'
 idx = lightcurve[lightcurve.rfind('_')+1:lightcurve.find('.')]
 print(lightcurve,outfile,idx)
-out = pd.read_csv(outfile,sep='\s+')
+out = pd.read_csv(outfile,sep=r'\s+')
 outdata = out[out['EventID']==int(idx)].squeeze()
 print(list(outdata.index))
 print(list(outdata))
 
-print(outdata[['Lens2_combined_logP','Lens2_a','Lens2_P']])
-print(outdata[['Lens_Mass','Lens2_Mass']])
+
+#Add breaks into the lightcurve data between seasons
+#tdiff = data.loc[:-1,'Simulation_time'] - data.loc[1:,'Simulation_time']
+
+#print(outdata[['Lens2_combined_logP','Lens2_a','Lens2_P']])
+#print(outdata[['Lens_Mass','Lens2_Mass']])
 
 for i in range(5):
     for k in ['period','a','dL']:
@@ -48,15 +52,21 @@ print(f"nsrc = {nsrc}")
 
 ls = ['-','--','-.']
 
-fig,axtmp = plt.subplots(3,3,sharex=True,sharey=True,squeeze=True)
-ax = axtmp.flatten()
+#fig,axtmp = plt.subplots(3,3,sharex=True,sharey=True,squeeze=True)
+#fig,axtmp = plt.subplots(1,1,sharex=True,sharey=True,squeeze=True)
+plt.figure()
+
+#ax = axtmp.flatten()
+ax = [plt.gca()]
 
 print(ax)
 
+ms=4
+
 for i in range(nlens):
-    ax[0].plot(data[f"lens{i}_x"],data[f"lens{i}_y"],label=f'L{i}')
+    ax[0].plot(data[f"lens{i}_x"],data[f"lens{i}_y"],'o',ms=ms,label=f'L{i}')
 for i in range(nsrc):
-    ax[0].plot(data[f"source{i}_x"],data[f"source{i}_y"],label=f'S{i}')
+    ax[0].plot(data[f"source{i}_x"],data[f"source{i}_y"],'o',ms=ms,label=f'S{i}')
 
 ax[0].set_aspect('equal')
 ax[0].legend()
@@ -65,15 +75,15 @@ ax[0].set_xlabel(r'$x$ [$r_{\rm E}$]')
 ax[0].set_ylabel(r'$y$ [$r_{\rm E}$]')
 ax[0].grid()
 
-for j in range(nlens):
-    for i in range(nlens):
-        ax[j+1].plot(data[f"lens{i}_x"]-data[f"lens{j}_x"],data[f"lens{i}_y"]-data[f"lens{j}_y"],label=f'L{i}')
-        ax[j+1].set_aspect('equal')
+# for j in range(nlens):
+#     for i in range(nlens):
+#         ax[j+1].plot(data[f"lens{i}_x"]-data[f"lens{j}_x"],data[f"lens{i}_y"]-data[f"lens{j}_y"],'o',ms=ms,label=f'L{i}')
+#         ax[j+1].set_aspect('equal')
 
 
-for i in range(nsrc):
-    for j in range(nlens):
-        ax[j+1].plot(data[f"source{i}_x"]-data[f"lens{j}_x"],data[f"source{i}_y"]-data[f"lens{j}_y"],label=f'S{i}')
+# for i in range(nsrc):
+#     for j in range(nlens):
+#         ax[j+1].plot(data[f"source{i}_x"]-data[f"lens{j}_x"],data[f"source{i}_y"]-data[f"lens{j}_y"],'o',ms=ms,label=f'S{i}')
 
 plt.tight_layout()
 

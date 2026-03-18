@@ -15,4 +15,8 @@ double gammq(double a, double x);
 int randint(int min, int max, long *seed);
 double poisson(double mean, long *seed);
 
+// Random-backend metadata used to prevent accidental science runs with stubs.
+bool gulls_random_is_stub();
+const char* gulls_random_backend_name();
+
 #endif // RANDOM_H

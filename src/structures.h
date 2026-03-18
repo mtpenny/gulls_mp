@@ -159,6 +159,7 @@ struct filekeywords{
 
   int multiple_sources;
   int multiple_lenses;
+  int num_lens_max;
 
   int astrometry_on;  // Enable astrometry calculations/output
   double astrometry_error_floor_mas; // Systematic astrometric floor (mas)
@@ -172,6 +173,14 @@ struct filekeywords{
   double phottime;
 
   double lc_timeout;
+  double vbm_timeout_root_solver;
+  double vbm_timeout_magnification;
+  double vbm_timeout_parallax;
+  double vbm_timeout_critical_curves;
+  double vbm_timeout_astrometry;
+  int vbm_timeout_check_interval;
+  int exit_on_vbm_error;
+  int allow_random_stub;
   
   string pathdir;
   string pathfile;
@@ -328,6 +337,9 @@ struct event{
   int lcerror;    //lightcurve generation flag
   int fisherror;  //fisher matrix calculation error
   int deterror;   //detection criteria error flag
+  int vbm_error_category; // VBMicrolensing::LastError category cast to int
+  string vbm_error_source;
+  string vbm_error_message;
   int detected;   //flag denoting whether event is detected
   VBMicrolensing* vbm;
 

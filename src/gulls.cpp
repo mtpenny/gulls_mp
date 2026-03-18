@@ -4,6 +4,7 @@
 #include<iostream>
 #include<fstream>
 #include<ctime>
+#include<exception>
 #include<sys/timeb.h>
 #include "VBMicrolensingLibrary.h"
 
@@ -58,8 +59,48 @@ static void usage(int status) {
   exit(status);
 }
 
+static int timeout_exit_code(VBMTimeoutError::TimeoutCategory category) {
+  switch (category) {
+  case VBMTimeoutError::TimeoutCategory::RootSolver:
+    return 41;
+  case VBMTimeoutError::TimeoutCategory::Magnification:
+    return 42;
+  case VBMTimeoutError::TimeoutCategory::Parallax:
+    return 43;
+  case VBMTimeoutError::TimeoutCategory::CriticalCurves:
+    return 44;
+  case VBMTimeoutError::TimeoutCategory::Astrometry:
+    return 45;
+  case VBMTimeoutError::TimeoutCategory::Unknown:
+  default:
+    return 40;
+  }
+}
+
+static VBMTimeoutError::TimeoutCategory timeout_category_from_code(int category_code) {
+  switch (category_code) {
+  case static_cast<int>(VBMTimeoutError::TimeoutCategory::RootSolver):
+    return VBMTimeoutError::TimeoutCategory::RootSolver;
+  case static_cast<int>(VBMTimeoutError::TimeoutCategory::Magnification):
+    return VBMTimeoutError::TimeoutCategory::Magnification;
+  case static_cast<int>(VBMTimeoutError::TimeoutCategory::Parallax):
+    return VBMTimeoutError::TimeoutCategory::Parallax;
+  case static_cast<int>(VBMTimeoutError::TimeoutCategory::CriticalCurves):
+    return VBMTimeoutError::TimeoutCategory::CriticalCurves;
+  case static_cast<int>(VBMTimeoutError::TimeoutCategory::Astrometry):
+    return VBMTimeoutError::TimeoutCategory::Astrometry;
+  case static_cast<int>(VBMTimeoutError::TimeoutCategory::Unknown):
+  default:
+    return VBMTimeoutError::TimeoutCategory::Unknown;
+  }
+}
+
+static bool has_vbm_event_error(const struct event& event) {
+  return !event.vbm_error_message.empty();
+}
 
 int main(int argc, char *argv[]){                   /* BEGIN MAIN */
+  try {
 
   //set up program timers
   Paramfile.alltime=0;
@@ -142,6 +183,13 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 
   if(Paramfile.verbosity) {printf("readParamfile\n"); fflush(stdout);}
   readParamfile(input_filename, &Paramfile);
+  if(gulls_random_is_stub() && !Paramfile.allow_random_stub)
+    {
+      cerr << "FATAL: Random backend '" << gulls_random_backend_name() << "' is a CI/testing stub." << endl;
+      cerr << "Set ALLOW_RANDOM_STUB=1 in the parameter file only for intentional stub runs." << endl;
+      cerr << "Aborting to protect science runs." << endl;
+      return EXIT_FAILURE;
+    }
   if(field<0)
     {
       output_filename = Paramfile.outputdir + Paramfile.run_name + string("_") + instance + string(".out"); //Create simulation output filename
@@ -201,6 +249,18 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   }
   VBM.Tol=Paramfile.vbm_tol;
   VBM.RelTol=Paramfile.vbm_reltol;
+  {
+    VBMicrolensing::TimeoutConfig timeout_cfg;
+    timeout_cfg.root_solver_seconds = Paramfile.vbm_timeout_root_solver;
+    timeout_cfg.magnification_seconds = Paramfile.vbm_timeout_magnification;
+    timeout_cfg.parallax_seconds = Paramfile.vbm_timeout_parallax;
+    timeout_cfg.critical_curves_seconds = Paramfile.vbm_timeout_critical_curves;
+    timeout_cfg.astrometry_seconds = Paramfile.vbm_timeout_astrometry;
+    timeout_cfg.check_interval = Paramfile.vbm_timeout_check_interval;
+    VBM.SetTimeouts(timeout_cfg);
+    // Use VBM package-level timeout handling (no caller-side timeout catch required).
+    VBM.SetErrorPolicy(VBMicrolensing::ErrorPolicy::ReturnNaN);
+  }
   Event.vbm = &VBM;
   /* Initialise and warmup random number generator */
   idum = &var;        
@@ -333,6 +393,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       clock_gettime(CLOCK_REALTIME,&tstart);
       buildEvent(&Event, World, starfield, starfieldData,  
 				 &Paramfile, &Sources, &Lenses, idx, idum);
+    
       //getPlanetvals(&Event, World, &Paramfile, &Sources, &Lenses, &Planets);
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;
@@ -351,7 +412,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;
       ttimesequencer += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
+        + double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
       if(Paramfile.verbosity) {printf("time sequenced\n"); fflush(stdout);}
  
       /* Generate lightcurve */
@@ -361,12 +422,40 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;
       tgeneration += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
+        + double(nsec<0?nsec+1000000000:nsec)*1.0e-9;  
       if(Paramfile.verbosity) {printf("lightcurve generated\n"); fflush(stdout);}
 
-      bool timed_out_event = (Event.lcerror == LCGEN_TIMEOUT_ERR);
+      if(Paramfile.exit_on_vbm_error && has_vbm_event_error(Event))
+        {
+          const VBMTimeoutError::TimeoutCategory timeout_category =
+            timeout_category_from_code(Event.vbm_error_category);
+          const int exit_code = timeout_exit_code(timeout_category);
+          cerr << "FATAL: Event " << idx << " encountered VBM error and EXIT_ON_VBM_ERROR=1" << endl;
+          cerr << "VBM error message: " << Event.vbm_error_message << endl;
+          cerr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category) << endl;
+          if(!Event.vbm_error_source.empty())
+            {
+              cerr << "Timeout source: " << Event.vbm_error_source << endl;
+            }
+          if(logfile_ptr.is_open())
+            {
+              logfile_ptr << "FATAL: Event " << idx << " encountered VBM error and EXIT_ON_VBM_ERROR=1" << endl;
+              logfile_ptr << "VBM error message: " << Event.vbm_error_message << endl;
+              logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category) << endl;
+              if(!Event.vbm_error_source.empty())
+                {
+                  logfile_ptr << "Timeout source: " << Event.vbm_error_source << endl;
+                }
+              logfile_ptr.flush();
+            }
+          return exit_code;
+        }
 
-      if(!timed_out_event)
+      // Any non-zero lcerror means downstream photometry/output should not run.
+      // These stages assume valid magnification vectors.
+      const bool lightcurve_failed = (Event.lcerror != 0);
+
+      if(!lightcurve_failed)
         {
           /* Perform photometry */
           if(Paramfile.verbosity) {printf("photometry\n"); fflush(stdout);}
@@ -375,7 +464,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
           clock_gettime(CLOCK_REALTIME,&tend);
           nsec = tend.tv_nsec - tstart.tv_nsec;
           phottime += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
+            + double(nsec<0?nsec+1000000000:nsec)*1.0e-9;
 
           //Did we detect what we are interested in?
           if(Paramfile.verbosity) {printf("detectionCriteria\n"); fflush(stdout);}
@@ -384,47 +473,48 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
           clock_gettime(CLOCK_REALTIME,&tend);
           nsec = tend.tv_nsec - tstart.tv_nsec;
           tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
-		+ double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
+            + double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
           if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);}
 
-
           clock_gettime(CLOCK_REALTIME,&tstart);
+        
           //Output the lightcurve if desired
           if(Event.outputthis)
-	{
-	  if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
-	  outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
-	  if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
+            {
+              if(Paramfile.verbosity){printf("outputLightcurve\n"); fflush(stdout);}
+              outputLightcurve(&Event,World,&Paramfile,&Sources,&Lenses);
+              if(Paramfile.verbosity){printf("lightcurve ouput\n"); fflush(stdout);}
 
-	  //Output images if desired
-	  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
-	  outputImages(&Event, World, &Sources, &Paramfile);
-	  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
-	}
+              //Output images if desired
+              if(Paramfile.outputImages)
+                {
+                  if(Paramfile.verbosity){printf("output images\n"); fflush(stdout);}
+                  outputImages(&Event, World, &Sources, &Paramfile);
+                  if(Paramfile.verbosity){printf("images outputted\n"); fflush(stdout);}
+                }
+            }
         }
       else if(Paramfile.verbosity)
         {
-          printf("lightcurve generation timed out; skipping photometry, detection, and output steps\n");
+          printf("lightcurve generation failed (lcerror=%d); skipping photometry, detection, and output steps\n", Event.lcerror);
           fflush(stdout);
         }
 
       //Write out the events parameters and data to the appropriate file
       if(idx==0) writeHeader(&Paramfile, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
       if(Event.lcerror || Event.deterror)
-	{
-	  if(Event.lcerror)
-            sprintf(str,"\nDiscarding event %d (Failed lightcurve generation)",
-		    idx);
-	  if(Event.deterror)
-            sprintf(str,"\nDiscarding event %d (Failed detection criteria)",
-		    idx);
-	  fmtline(str,WIDTH,"OKAY"); 
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, logfile_ptr);
-	}
+	      {
+	        if(Event.lcerror)
+            sprintf(str,"\nDiscarding event %d (Failed lightcurve generation)", idx);
+	        if(Event.deterror)
+            sprintf(str,"\nDiscarding event %d (Failed detection criteria)", idx);
+	        fmtline(str,WIDTH,"OKAY"); 
+		        writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, logfile_ptr);
+	      }
       else //otherwise
-	{
-	  writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
-	}
+	      {
+	         writeEventParams(&Paramfile, World, &Event, &Sources, &Lenses, &Planets, outfile_ptr);
+	      }
       clock_gettime(CLOCK_REALTIME,&tend);
       nsec = tend.tv_nsec - tstart.tv_nsec;
       tio += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
@@ -467,5 +557,31 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   clock2str(st,st1);
   
   return(0);
+  } catch (const VBMTimeoutError& err) {
+    const int exit_code = timeout_exit_code(err.category());
+    cerr << "FATAL: Unhandled VBM timeout: " << err.what() << endl;
+    cerr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+    if(!err.where().empty())
+      {
+        cerr << "Timeout source: " << err.where() << endl;
+      }
+    if (logfile_ptr.is_open()) {
+      logfile_ptr << "FATAL: Unhandled VBM timeout: " << err.what() << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(err.category()) << endl;
+      if(!err.where().empty())
+        {
+          logfile_ptr << "Timeout source: " << err.where() << endl;
+        }
+      logfile_ptr.flush();
+    }
+    return exit_code;
+  } catch (const std::exception& err) {
+    cerr << "FATAL: Unhandled exception: " << err.what() << endl;
+    if (logfile_ptr.is_open()) {
+      logfile_ptr << "FATAL: Unhandled exception: " << err.what() << endl;
+      logfile_ptr.flush();
+    }
+    return 1;
+  }
   
 }

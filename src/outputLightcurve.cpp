@@ -657,7 +657,7 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
     }
   else
     {
-      tmp1 = "%s%s_%d_%d_%d",Paramfile->outputdir + Paramfile->run_name + "_"
+      tmp1 = Paramfile->outputdir + Paramfile->run_name + "_"
 	+ to_string(Paramfile->instance) + "_" + to_string(Paramfile->choosefield) + "_"
 	+  to_string(Event->id);
     }
@@ -667,13 +667,13 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
   for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
     {
       if(Event->nepochsvec[obsidx+1]-Event->nepochsvec[obsidx]<=0) continue;
-      tmp1 += "." + to_string(obsidx) + "_";
+      const string obs_prefix = basefname + "." + to_string(obsidx) + "_";
 
       filter = World[obsidx].filter;
 
       //first the baseline image
       imtype="base";
-      oname = basefname + tmp1 + imtype + extension + ".fits";
+      oname = obs_prefix + imtype + extension + ".fits";
 
       mag = Sources->mags[Event->source][filter];
 
@@ -693,7 +693,7 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
 
       //last the peak image
       imtype=string("peak");
-      oname = basefname + tmp1 + imtype + extension + string(".fits");
+      oname = obs_prefix + imtype + extension + string(".fits");
  
       //initialize to constant background specified in the detector file
 
