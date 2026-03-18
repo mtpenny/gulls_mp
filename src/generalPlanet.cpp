@@ -78,6 +78,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   int orbtype;
   int skipped_planets=0;
   double first_inc=0;
+  double first_long=0;
 
   for(int i=0;i<nplanets;i++)
     {
@@ -97,30 +98,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	      if(Planets->header[col].rfind("Eccentricity",0)==0)
 		Event->p_e.push_back(pd[col]);
 	      if(Planets->header[col].rfind("Inclination",0)==0)
-		{
-		  double inc=pd[col];
-		  if(inc>900) //If inclination is relative to the binary orbit, then it should have 1000 degrees added to it
-		    {
-		      if(Event->lcompanions.size()>0)
-			{
-			  inc = Event->lcomp_I[0] + (inc-1000.0);
-			}
-		      else
-			{
-			  if(i==0)
-			    {
-			      double rnd = ran2(Paramfile->seed);
-			      inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
-			      first_inc = inc;
-			    }
-			  else
-			    {
-			      inc=first_inc;
-			    }
-			}
-		    }
-		  Event->p_I.push_back(inc);
-		}
+		Event->p_I.push_back(pd[col]);
 	      if(Planets->header[col].rfind("LongitudePerihelion",0)==0)
 		Event->p_w.push_back(pd[col]);
 	      if(Planets->header[col].rfind("LongitudeAscNode",0)==0)
@@ -133,6 +111,39 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	    }
 	   
 	}
+
+      double inc=Event->p_I.back();
+      double long_ascnode=Event->p_O.back();
+      if(inc>900)
+      {
+	//If inclination is relative to the binary orbit, then it should have 1000 degrees added to it
+	if(Event->lcompanions.size()>0)
+	  {
+	    inc = Event->lcomp_I[0] + (inc-1000.0);
+	    long_ascnode = Event->lcomp_O[0];
+	  }
+	else
+	  {
+	    if(i==0) //Coplanar, but the first planet is random
+	      {
+		double rnd = ran2(Paramfile->seed);
+		
+		inc = (180*(rnd<0.5?acos(2*rnd):-acos(2-2*rnd))/PI);
+		long_ascnode=360*ran2(Paramfile->seed);
+		first_inc = inc;
+		first_long = long_ascnode;
+	      }
+	    else
+	      {
+		inc=first_inc;
+		long_ascnode = first_long;
+	      }
+	  }
+	Event->p_I.push_back(inc);
+	Event->p_O.push_back(long_ascnode);
+      }
+
+      
       if(mass>0.0)
 	{
 	  Event->p_L0.push_back(360.0*ran2(Paramfile->seed));

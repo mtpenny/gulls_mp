@@ -577,6 +577,53 @@ void orbitalElements::pmgal2eq(vector<double> gal, vector<double> pmgal, vector<
   (*pmeq)[1] = -sinp*pmgal[0] + cosp*pmgal[1];
 }
 
+void orbitalElements::pmeq2ecl(vector<double> eq, vector<double> pmeq, vector<double>* pmecl)
+{
+  double sinp, cosp;
+  double cosbeta, sinbeta;
+  double sind, cosd;
+
+  vector<double> ecl(2);
+
+  eq2ecl(eq, &ecl);
+  sind = sin(eq[1]);
+  cosd = cos(eq[1]);
+  cosbeta = cos(ecl[1]);
+  sinbeta = sin(ecl[1]);
+
+  cosp = (sindnep - sind*sinbeta)/(cosd*cosbeta);
+  sinp = sin(eq[0] - ranep);
+
+  pmecl->resize(2);
+  (*pmecl)[0] =  cosp*pmeq[0] + sinp*pmeq[1];
+  (*pmecl)[1] = -sinp*pmeq[0] + cosp*pmeq[1];
+
+}
+
+void orbitalElements::pmecl2eq(vector<double> ecl, vector<double> pmecl, vector<double>* pmeq)
+{
+  double sinp, cosp;
+  double cosbeta, sinbeta;
+  double sind, cosd;
+
+  vector<double> eq(2);
+
+  ecl2eq(ecl, &eq);
+  cosbeta = cos(ecl[1]);
+  sinbeta = sin(ecl[1]);
+  sind = sin(eq[1]);
+  cosd = cos(eq[1]);
+
+  cosp = (sindnep-sind*sinbeta)/(cosd*cosbeta);
+  sinp = sin(eq[0]-ranep)*cosdnep/cosbeta;
+
+  pmeq->resize(2);
+  (*pmeq)[0] = cosp*pmecl[0] + sinp*pmecl[1];
+  (*pmeq)[1] = -sinp*pmecl[0] + cosp*pmecl[1];
+}
+
+
+
 void orbitalElements::eq2gal(vector<double> eq, vector<double>* gal)
 {
   double sinb, cosb, sinlml0, coslml0;

@@ -720,8 +720,10 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   Event->t0 = double(Paramfile->NUM_SIM_DAYS)*ran2(idum);
   Event->t0range = double(Paramfile->NUM_SIM_DAYS);
   Event->weight_scale = 1.0;
-  Event->alpha = 360.0 * ran2(idum);
 
+  Event->alpha = 360.0 * ran2(idum);
+  //Will be set later once parallax has been initialized
+  
   //u0 will be calculated after we know the blending
 
   //calculate the fundamental microlensing properties
