@@ -143,14 +143,14 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 
 	      if(Paramfile->astrometry_on)
 		{
-		  const double murel_ref = (Event->tE_r != 0.0 ? Event->thE/Event->tE_r*DAYINYR : 0.0);
 		  const double dt_year = (shiftedidx >= 0 && shiftedidx < int(Event->pllx[obsidx].epochs.size())) // check that the shifted index is within the bounds of the pllx epochs vector for this observatory
 		    ? ((Event->pllx[obsidx].epochs[shiftedidx] - Event->pllx[obsidx].tref) / DAYINYR) // if the shifted index is out of bounds, fall back to using the unshifted epoch for this index (which may also be out of bounds, but at least won't be negative)
 		    : ((Event->epoch[idx] - Event->tref) / DAYINYR);  // convert the epoch to years relative to the pllx reference epoch (tref) for this observatory, which is used for the proper motion and parallax calculations. Use the shifted index to access the pllx epochs if it's within bounds, otherwise use the unshifted index.
-		  // mulam_r and mubet_r are unit-vector components of the reference-frame proper motion
-		  // in ecliptic coordinates, so multiply by the scalar magnitude murel_ref to get mas/yr.
-		  const double pm_lam_mas = murel_ref * Event->pllx[obsidx].mulam_r * dt_year; // proper motion contribution to the ecliptic eastward centroid shift in mas
-		  const double pm_beta_mas = murel_ref * Event->pllx[obsidx].mubet_r * dt_year;
+		  // The event-frame centroid is already relative to the lens, so the absolute
+		  // sky-frame anchoring needs the lens's own reference-frame proper motion, not
+		  // the relative source-lens proper motion.
+		  const double pm_lam_mas = Event->pm_lens.mulam_r * dt_year;
+		  const double pm_beta_mas = Event->pm_lens.mubet_r * dt_year;
 
 		  const double cx_srcs_thE = Event->xc_srcs_only[idx];  // blended apparent source centroid (without lens light contribution)
 		  const double cy_srcs_thE = Event->yc_srcs_only[idx];  // in ecliptic coordinates, in theta E units, from omLightcurveGenerator.cpp
@@ -213,9 +213,21 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 		  double n0 = beta0;
 
 		  // collect shifts in mas
-		  double de_lens_pllx = 0.0;  // TODO: fill from **existing parallax code**
-		  double dn_lens_pllx = 0.0;  // mas
-		  de_mas += pm_lam_mas + de_lens_pllx;  // adding lens motion shift lens parallax shift and relative centroid shift
+		  double de_lens_pllx = 0.0;  // ecliptic-east lens parallax shift in mas
+		  double dn_lens_pllx = 0.0;  // ecliptic-north lens parallax shift in mas
+		  const double lens_dist_kpc = Lenses->data[ln][Lenses->DIST];
+		  if(shiftedidx >= 0
+		     && shiftedidx < int(Event->pllx[obsidx].Eshift.size())
+		     && shiftedidx < int(Event->pllx[obsidx].Nshift.size()))
+		    {
+		      // Eshift/Nshift are the observer baseline components in the event line-of-sight
+		      // north/east basis, in AU, relative to the reference frame. With D_L in kpc,
+		      // 1 AU / 1 kpc = 1 mas, so dividing by D_L gives the lens parallax shift in mas.
+		      // The apparent lens motion is opposite to the observer's transverse displacement.
+		      de_lens_pllx = -Event->pllx[obsidx].Eshift[shiftedidx] / lens_dist_kpc;
+		      dn_lens_pllx = -Event->pllx[obsidx].Nshift[shiftedidx] / lens_dist_kpc;
+		    }
+		  de_mas += pm_lam_mas + de_lens_pllx;
 		  dn_mas += pm_beta_mas + dn_lens_pllx;
 		  double de_rad = de_mas * mas_to_rad;
 		  double dn_rad = dn_mas * mas_to_rad;

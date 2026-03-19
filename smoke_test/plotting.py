@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -46,12 +47,14 @@ def _derive_event_key(lc_file: Path) -> Tuple[int, int, int] | None:
 
 
 def _format_metric(value: float | None, precision: int = 3) -> str:
+    """Format an optional scalar for plot titles and metadata tables."""
     if value is None or math.isnan(value):
         return "n/a"
     return f"{value:.{precision}f}"
 
 
 def _galactic_pm_to_icrs(l_deg: float, b_deg: float, mu_l: float, mu_b: float) -> Tuple[float, float]:
+    """Convert Galactic proper motion into ICRS ``(pm_ra*cosdec, pm_dec)``."""
     coord = SkyCoord(
         l=l_deg * u.deg,
         b=b_deg * u.deg,
@@ -67,6 +70,7 @@ def _galactic_pm_to_icrs(l_deg: float, b_deg: float, mu_l: float, mu_b: float) -
 
 
 def _parse_header(lc_file: Path) -> Tuple[List[float] | None, List[float] | None]:
+    """Extract legacy ``#Planet`` and ``#Event`` numeric header rows."""
     planet_vals: List[float] | None = None
     event_vals: List[float] | None = None
     with lc_file.open(encoding="utf-8") as header_reader:
@@ -124,6 +128,23 @@ def _parse_header_keyvals(lc_file: Path, prefix: str) -> Dict[str, str]:
                 parsed[key.strip()] = value.strip()
             return parsed
     return {}
+
+
+def _parse_header_float_values(lc_file: Path, prefix: str) -> List[float]:
+    """Collect all numeric tokens from header lines beginning with ``prefix``."""
+    values: List[float] = []
+    with lc_file.open(encoding="utf-8") as header_reader:
+        for raw in header_reader:
+            if not raw.startswith("#"):
+                break
+            if not raw.startswith(prefix):
+                continue
+            for token in raw.strip().split()[1:]:
+                try:
+                    values.append(float(token))
+                except ValueError:
+                    continue
+    return values
 
 
 def _resolve_lensframe_columns(
@@ -248,6 +269,7 @@ def _plot_minimal_astrometry(
     tE: float,
     unit_label: str = "Einstein radii",
 ) -> Path:
+    """Render the compact fallback astrometry figure for lens-frame columns."""
     fig, ax = plt.subplots(2, 1, figsize=(8, 8))
     fig.suptitle(title, fontsize=14)
 
@@ -360,6 +382,7 @@ def _plot_photometry_only(
     src1_flux: np.ndarray | None = None,
     src2_flux: np.ndarray | None = None,
 ) -> Path:
+    """Render the photometry-only smoke plot when no astrometry is available."""
     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
     fig.suptitle(title, fontsize=14)
     ax.errorbar(
@@ -436,6 +459,7 @@ def _compute_vbm_model(
     true_x_vals: np.ndarray | None,
     true_y_vals: np.ndarray | None,
 ) -> Tuple[Dict[str, np.ndarray | str] | None, str | None]:
+    """Reconstruct a comparable VBM model curve from headers and summary metadata."""
     if summary is None:
         return None, "summary metrics missing for this lightcurve"
     if not (
@@ -581,6 +605,7 @@ def _render_lensframe(
     meas_x: np.ndarray | None,
     meas_y: np.ndarray | None,
 ) -> Path:
+    """Render the separate lens-frame diagnostic panel used for VBM comparison."""
     vbm_x = np.asarray(vbm_model["lens_x"])  # type: ignore[index]
     vbm_y = np.asarray(vbm_model["lens_y"])  # type: ignore[index]
     vbm_label = str(vbm_model["lens_label"])
@@ -709,11 +734,25 @@ def _render_astrometric_figure(
     meas_x: np.ndarray | None,
     meas_y: np.ndarray | None,
     event_frame_data: Dict[str, np.ndarray] | None = None,
+    component_flux_tracks: Dict[str, np.ndarray] | None = None,
     src1_flux: np.ndarray | None = None,
     src2_flux: np.ndarray | None = None,
     panel_labels: Dict[str, str] | None = None,
     event_info_rows: List[Tuple[str, str]] | None = None,
 ) -> Tuple[Path, Path | None]:
+    """Render the combined smoke-test diagnostic figure.
+
+    The four-panel figure is intended to let us cross-check the full
+    astrometric pipeline in one place:
+    - photometric lightcurve behaviour,
+    - event-frame source/lens/centroid geometry,
+    - absolute RA/Dec centroid outputs,
+    - key metadata used to interpret the plot.
+
+    The event-frame panel is deliberately fed from the lightcurve columns
+    rather than reconstructed from summary metadata so that plotting failures
+    expose output-column wiring bugs directly.
+    """
     fig, axes = plt.subplots(2, 2, figsize=(13.5, 10))
     fig.suptitle(title, fontsize=14)
     ax_light = axes[0, 0]
@@ -939,60 +978,157 @@ def _render_astrometric_figure(
     cbar.set_label("Time (days)")
 
     evt = event_frame_data or {}
-    centroid_x = evt.get("centroid_x")
-    centroid_y = evt.get("centroid_y")
-    if centroid_x is not None and centroid_y is not None:
-        mask_cent = np.isfinite(centroid_x) & np.isfinite(centroid_y) & np.isfinite(time)
-        if np.any(mask_cent):
-            ax_event.plot(
-                centroid_x[mask_cent],
-                centroid_y[mask_cent],
-                color="black",
-                linewidth=1.2,
-                alpha=0.8,
-                label="Centroid track",
-                zorder=4,
-            )
-            ax_event.scatter(
-                centroid_x[mask_cent],
-                centroid_y[mask_cent],
-                c=time[mask_cent],
-                cmap=cmap,
-                norm=norm,
-                s=18,
-                marker="x",
-                linewidths=0.8,
-                alpha=1.0,
-                label="Centroid samples",
-                zorder=5,
-            )
+    flux_tracks = component_flux_tracks or {}
 
-    def _plot_track(x: np.ndarray | None, y: np.ndarray | None, color: str, label: str, z: int) -> None:
-        if x is None or y is None:
-            return
-        mask = np.isfinite(x) & np.isfinite(y)
-        if not np.any(mask):
-            return
-        ax_event.plot(x[mask], y[mask], color=color, linewidth=1.1, alpha=0.9, label=label, zorder=z)
+    component_marker_min = 0.2
+    component_marker_max = 50.0
+    global_flux_min = math.inf
+    global_flux_max = -math.inf
+    for name, track in flux_tracks.items():
+        flux_arr = np.asarray(track, dtype=float)
+        if len(flux_arr) != len(time):
+            raise SmokeTestError(f"Flux track length mismatch for {name}")
+        if not np.all(np.isfinite(flux_arr)):
+            raise SmokeTestError(f"Non-finite flux values found in track {name}")
+        if np.any(flux_arr < 0.0):
+            raise SmokeTestError(f"Negative flux values found in track {name}")
+        global_flux_min = min(global_flux_min, float(np.min(flux_arr)))
+        global_flux_max = max(global_flux_max, float(np.max(flux_arr)))
 
-    _plot_track(evt.get("source0_x"), evt.get("source0_y"), "tab:blue", "Source 0", 2)
-    _plot_track(evt.get("lens0_x"), evt.get("lens0_y"), "tab:red", "Lens 0", 2)
-    _plot_track(evt.get("lens1_x"), evt.get("lens1_y"), "tab:orange", "Lens 1", 2)
+    def _flux_to_marker_sizes(
+        rel_flux: np.ndarray,
+    ) -> np.ndarray:
+        """Scale component flux into a bounded global marker-size range."""
+        flux = np.asarray(rel_flux, dtype=float)
+        if global_flux_max <= global_flux_min + 1e-12:
+            return np.full(flux.shape, 0.5 * (component_marker_min + component_marker_max))
+        scaled = (flux - global_flux_min) / (global_flux_max - global_flux_min)
+        scaled = np.clip(scaled, 0.0, 1.0)
+        return component_marker_min + scaled * (component_marker_max - component_marker_min)
+
+    def _plot_component_points(
+        x: np.ndarray,
+        y: np.ndarray,
+        z: int,
+        *,
+        label_text: str,
+        size_values: np.ndarray | None = None,
+        marker: str = "o",
+    ) -> None:
+        """Plot per-epoch component points in the event frame.
+
+        Required event-frame columns must already be finite. If they are not,
+        the smoke test should fail rather than quietly dropping bad epochs.
+        """
+        if size_values is None:
+            raise SmokeTestError(f"Missing flux track for {label_text}")
+        if len(x) != len(time) or len(y) != len(time) or len(size_values) != len(time):
+            raise SmokeTestError(f"Length mismatch in event-frame track {label_text}")
+        if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
+            raise SmokeTestError(f"Non-finite event-frame coordinates found for {label_text}")
+        if not np.all(np.isfinite(size_values)):
+            raise SmokeTestError(f"Non-finite flux values found for {label_text}")
+        if np.any(np.asarray(size_values, dtype=float) < 0.0):
+            raise SmokeTestError(f"Negative flux values found for {label_text}")
+        ax_event.scatter(
+            x,
+            y,
+            c=time,
+            cmap=cmap,
+            norm=norm,
+            s=_flux_to_marker_sizes(np.asarray(size_values, dtype=float)),
+            marker=marker,
+            linewidths=0.0,
+            edgecolors="none",
+            alpha=0.55,
+            zorder=z,
+        )
+        first_x = float(x[0])
+        first_y = float(y[0])
+        ax_event.text(
+            first_x,
+            first_y,
+            label_text,
+            color="black",
+            fontsize=5,
+            ha="left",
+            va="bottom",
+            zorder=100,
+        )
+
+    centroid_x = np.asarray(evt["centroid_x"], dtype=float)
+    centroid_y = np.asarray(evt["centroid_y"], dtype=float)
+    if len(centroid_x) != len(time) or len(centroid_y) != len(time):
+        raise SmokeTestError("Blended centroid track length does not match time axis")
+    if not np.all(np.isfinite(centroid_x)) or not np.all(np.isfinite(centroid_y)):
+        raise SmokeTestError("Non-finite blended centroid samples found in event-frame output")
+    ax_event.plot(
+        centroid_x,
+        centroid_y,
+        color="black",
+        linewidth=1.0,
+        linestyle="--",
+        label="Blended centroid",
+        zorder=20,
+    )
+
+    source_track_keys = sorted(
+        key[:-2]
+        for key in evt
+        if key.startswith("source") and key.endswith("_x") and f"{key[:-2]}_y" in evt
+    )
+    lens_track_keys = sorted(
+        key[:-2]
+        for key in evt
+        if key.startswith("lens") and key.endswith("_x") and f"{key[:-2]}_y" in evt
+    )
+
+    for idx, base_key in enumerate(source_track_keys):
+        label = base_key.replace("source", "Source ")
+        _plot_component_points(
+            np.asarray(evt[f"{base_key}_x"], dtype=float),
+            np.asarray(evt[f"{base_key}_y"], dtype=float),
+            4,
+            label_text=label,
+            size_values=flux_tracks.get(base_key),
+            marker="o",
+        )
+
+    for idx, base_key in enumerate(lens_track_keys):
+        label = base_key.replace("lens", "Lens ")
+        _plot_component_points(
+            np.asarray(evt[f"{base_key}_x"], dtype=float),
+            np.asarray(evt[f"{base_key}_y"], dtype=float),
+            12 + idx,
+            label_text=label,
+            size_values=flux_tracks.get(base_key),
+            marker="s",
+        )
 
     event_x_col = labels.get("event_x_col", "true_x_centroid")
     event_y_col = labels.get("event_y_col", "true_y_centroid")
-    cols_note_parts = [event_x_col, event_y_col]
-    for key in ("source0_x_col", "source0_y_col", "source0_mu_col", "lens0_x_col", "lens0_y_col", "lens1_x_col", "lens1_y_col"):
-        val = labels.get(key)
-        if val:
-            cols_note_parts.append(val)
+    source_cols = sorted(
+        val
+        for key, val in labels.items()
+        if key.endswith("_col") and re.match(r"source\d+_[xy]$", key[:-4])
+    )
+    lens_cols = sorted(
+        val
+        for key, val in labels.items()
+        if key.endswith("_col") and re.match(r"lens\d+_[xy]$", key[:-4])
+    )
+    cols_note_parts = [f"centroid: {event_x_col}, {event_y_col}"]
+    if source_cols:
+        cols_note_parts.append("sources: " + ", ".join(source_cols))
+    if lens_cols:
+        cols_note_parts.append("lenses: " + ", ".join(lens_cols))
     ax_event.set_xlabel("Event-frame x (theta_E)")
     ax_event.set_ylabel("Event-frame y (theta_E)")
     ax_event.set_title("Event-Frame Tracks")
     ax_event.text(
         0.01,
         0.98,
-        "cols: " + ", ".join(cols_note_parts),
+        "cols: " + "; ".join(cols_note_parts),
         transform=ax_event.transAxes,
         va="top",
         ha="left",
@@ -1001,6 +1137,8 @@ def _render_astrometric_figure(
     ax_event.grid(True, alpha=0.3)
     ax_event.axis("equal")
     handles, labels_ = ax_event.get_legend_handles_labels()
+    handles = [h for h, lbl in zip(handles, labels_) if lbl]
+    labels_ = [lbl for lbl in labels_ if lbl]
     if handles:
         ax_event.legend(fontsize=8)
 
@@ -1027,10 +1165,7 @@ def _render_astrometric_figure(
 
 
 def _extract_gulls_version(build_bin: Path) -> str:
-    """Extract the gulls version by running the executable.
-    
-    Returns version string like "2.1.0" or "unknown" if unable to determine.
-    """
+    """Extract the gulls version string from a built executable if possible."""
     import subprocess
     import re
     
@@ -1070,6 +1205,11 @@ def plot_lightcurves(
     params: Dict[str, str] | None = None,
     build_bin: Path | None = None,
 ) -> None:
+    """Generate smoke-test plots for every lightcurve emitted into ``output_dir``.
+
+    Required diagnostic columns are treated strictly: missing columns or broken
+    values should raise ``SmokeTestError`` rather than being silently dropped.
+    """
     lc_files = sorted(output_dir.rglob("*.lc"))
     if not lc_files:
         return
@@ -1143,12 +1283,12 @@ def plot_lightcurves(
             lens_dist = _format_metric(summary.get("lens_dist"))
             source_dist = _format_metric(summary.get("source_dist"))
             theta_e = _format_metric(summary.get("theta_e"))
-            pm_alpha = _format_metric(summary.get("pm_helio_alpha"))
-            pm_delta = _format_metric(summary.get("pm_helio_delta"))
+            pm_alpha = _format_metric(summary.get("pm_ref_alpha"))
+            pm_delta = _format_metric(summary.get("pm_ref_delta"))
             subtitle = (
                 f"Lens M={lens_mass} Msun, Lens D={lens_dist} pc, "
                 f"Source D={source_dist} pc, theta_E={theta_e}, "
-                f"mu_rel=({pm_alpha}, {pm_delta}) mas/yr"
+                f"mu_rel,r=({pm_alpha}, {pm_delta}) mas/yr"
             )
             title = f"{title}\n{subtitle}"
             val = summary.get("theta_e")
@@ -1358,6 +1498,7 @@ def plot_lightcurves(
         plot_y_err: np.ndarray | None = None
         plot_unit_label = "Einstein radii"
         event_frame_data: Dict[str, np.ndarray] = {}
+        component_flux_tracks: Dict[str, np.ndarray] = {}
 
         if lensframe_cols:
             lensframe_data = {
@@ -1424,17 +1565,85 @@ def plot_lightcurves(
                 plot_x_err = meas_x_err
                 plot_y_err = meas_y_err
 
-        if true_x_vals is None and event_frame_centroid_x_col is not None and event_frame_centroid_y_col is not None:
-            true_x_vals = _require_column(event_frame_centroid_x_col)
-            true_y_vals = _require_column(event_frame_centroid_y_col)
+        if event_frame_centroid_x_col is None or event_frame_centroid_y_col is None:
+            raise SmokeTestError(
+                f"Smoke test failed: event-frame centroid columns are not configured for {lc_file.name}"
+            )
+        event_frame_data["centroid_x"] = _require_column(event_frame_centroid_x_col)
+        event_frame_data["centroid_y"] = _require_column(event_frame_centroid_y_col)
+        if true_x_vals is None:
+            true_x_vals = event_frame_data["centroid_x"]
+            true_y_vals = event_frame_data["centroid_y"]
+        for col_name in column_names:
+            normalized_key = None
+            if re.fullmatch(r"source\d+_x_thE", col_name):
+                normalized_key = col_name[:-4]
+            elif re.fullmatch(r"source\d+_y_thE", col_name):
+                normalized_key = col_name[:-4]
+            elif re.fullmatch(r"source\d+_mu", col_name):
+                normalized_key = col_name
+            elif re.fullmatch(r"lens\d+_x_thE", col_name):
+                normalized_key = col_name[:-4]
+            elif re.fullmatch(r"lens\d+_y_thE", col_name):
+                normalized_key = col_name[:-4]
+            if normalized_key is None:
+                continue
+            event_frame_data[normalized_key] = _require_column(col_name)
 
-        if true_x_vals is not None and true_y_vals is not None:
-            event_frame_data["centroid_x"] = true_x_vals
-            event_frame_data["centroid_y"] = true_y_vals
-        for key in ("source0_x", "source0_y", "source0_mu", "lens0_x", "lens0_y", "lens1_x", "lens1_y"):
-            arr = _optional_column(key)
-            if arr is not None:
-                event_frame_data[key] = arr
+        fs_vals = _parse_header_float_values(lc_file, "#fs:")
+        fs2_vals = _parse_header_float_values(lc_file, "#fs2:")
+        obssrc_vals = _parse_header_float_values(lc_file, "#Obssrcmag:")
+        obslens_vals = _parse_header_float_values(lc_file, "#Obslensmag:")
+
+        # Marker size should track component flux contribution, not raw
+        # magnification. The sourceN_mu columns are magnifications, so we scale
+        # them by the corresponding baseline source-flux fractions when those
+        # header values are available.
+        if "source0_mu" in event_frame_data:
+            source0_scale = fs_vals[0] if fs_vals else 1.0
+            component_flux_tracks["source0"] = source0_scale * np.asarray(
+                event_frame_data["source0_mu"], dtype=float
+            )
+
+        if "source1_mu" in event_frame_data:
+            source1_scale = math.nan
+            if fs2_vals:
+                source1_scale = fs2_vals[0]
+            elif obssrc_vals:
+                obssrc2_vals = _parse_header_float_values(lc_file, "#Obssrc2mag:")
+                if obssrc2_vals:
+                    source1_scale = math.pow(10.0, -0.4 * (obssrc2_vals[0] - obssrc_vals[0]))
+                    if fs_vals:
+                        source1_scale *= fs_vals[0]
+            if math.isfinite(source1_scale) and source1_scale >= 0.0:
+                component_flux_tracks["source1"] = source1_scale * np.asarray(
+                    event_frame_data["source1_mu"], dtype=float
+                )
+
+        if obssrc_vals:
+            src_mag_ref = obssrc_vals[0]
+            source0_scale = fs_vals[0] if fs_vals else 1.0
+            for lens_idx, lens_mag in enumerate(obslens_vals):
+                if not math.isfinite(lens_mag) or lens_mag >= 90.0:
+                    continue
+                lens_flux_ratio = source0_scale * math.pow(10.0, -0.4 * (lens_mag - src_mag_ref))
+                lens_key = f"lens{lens_idx}"
+                if lens_key in event_frame_data:
+                    component_flux_tracks[lens_key] = np.full_like(
+                        time,
+                        lens_flux_ratio,
+                        dtype=float,
+                    )
+
+        # Dark lenses or lenses without a usable observed magnitude still need
+        # a deterministic plotted size. Give them an explicit zero-flux track
+        # so they render at the minimum marker size instead of disappearing or
+        # forcing the smoke plot to fail for a known "dark lens" case.
+        for event_key in event_frame_data:
+            if not re.fullmatch(r"lens\d+_x", event_key):
+                continue
+            lens_key = event_key[:-2]
+            component_flux_tracks.setdefault(lens_key, np.zeros_like(time, dtype=float))
 
         if not has_astrom:
             _plot_photometry_only(
@@ -1560,36 +1769,6 @@ def plot_lightcurves(
                 pm_ref_alpha_float = None
                 pm_ref_delta_float = None
 
-        source_pm_icrs: Tuple[float, float] | None = None
-        lens_pm_icrs: Tuple[float, float] | None = None
-        if summary:
-            src_vals = (
-                summary.get("source_mul"),
-                summary.get("source_mub"),
-                summary.get("source_l"),
-                summary.get("source_b"),
-            )
-            if all(v is not None and not math.isnan(v) for v in src_vals):
-                source_pm_icrs = _galactic_pm_to_icrs(
-                    float(src_vals[2]),
-                    float(src_vals[3]),
-                    float(src_vals[0]),
-                    float(src_vals[1]),
-                )
-            lens_vals = (
-                summary.get("lens_mul"),
-                summary.get("lens_mub"),
-                summary.get("lens_l"),
-                summary.get("lens_b"),
-            )
-            if all(v is not None and not math.isnan(v) for v in lens_vals):
-                lens_pm_icrs = _galactic_pm_to_icrs(
-                    float(lens_vals[2]),
-                    float(lens_vals[3]),
-                    float(lens_vals[0]),
-                    float(lens_vals[1]),
-                )
-
         span_years = None
         if len(time):
             span_days = float(time.max() - time.min())
@@ -1601,28 +1780,10 @@ def plot_lightcurves(
             if pm_ref_alpha_float is not None and pm_ref_delta_float is not None:
                 vector_specs.append(
                     {
-                        "label": "Relative PM geocentric (pm_ra*cosDec, pm_dec)",
+                        "label": "Relative PM reference frame (pm_ra*cosDec, pm_dec)",
                         "color": "black",
                         "pm_ra": pm_ref_alpha_float,
                         "pm_dec": pm_ref_delta_float,
-                    }
-                )
-            if source_pm_icrs:
-                vector_specs.append(
-                    {
-                        "label": "Source PM heliocentric (pm_ra*cosDec, pm_dec)",
-                        "color": "tab:blue",
-                        "pm_ra": source_pm_icrs[0],
-                        "pm_dec": source_pm_icrs[1],
-                    }
-                )
-            if lens_pm_icrs:
-                vector_specs.append(
-                    {
-                        "label": "Lens PM heliocentric (pm_ra*cosDec, pm_dec)",
-                        "color": "tab:red",
-                        "pm_ra": lens_pm_icrs[0],
-                        "pm_dec": lens_pm_icrs[1],
                     }
                 )
 
@@ -1653,12 +1814,22 @@ def plot_lightcurves(
             "event_x_col": event_frame_centroid_x_col or "true_x_centroid",
             "event_y_col": event_frame_centroid_y_col or "true_y_centroid",
         }
-        for key in ("source0_x", "source0_y", "source0_mu", "lens0_x", "lens0_y", "lens1_x", "lens1_y"):
-            if key in event_frame_data:
-                panel_labels[f"{key}_col"] = key
+        for col_name in column_names:
+            if re.fullmatch(r"source\d+_(x_thE|y_thE|mu)", col_name):
+                normalized_key = col_name[:-4] if col_name.endswith("_thE") else col_name
+                if normalized_key in event_frame_data:
+                    panel_labels[f"{normalized_key}_col"] = col_name
+            elif re.fullmatch(r"lens\d+_(x_thE|y_thE)", col_name):
+                normalized_key = col_name[:-4]
+                if normalized_key in event_frame_data:
+                    panel_labels[f"{normalized_key}_col"] = col_name
 
         mode_display = "sky_columns" if astrom_mode == "sky" else "radec_columns_only"
-        event_track_cols = [key for key in ("source0_x", "source0_y", "source0_mu", "lens0_x", "lens0_y", "lens1_x", "lens1_y") if key in event_frame_data]
+        event_track_cols = [
+            panel_labels[f"{key}_col"]
+            for key in sorted(event_frame_data)
+            if f"{key}_col" in panel_labels and (key.startswith("source") or key.startswith("lens"))
+        ]
         event_info_rows: List[Tuple[str, str]] = [
             ("Astrometry mode", mode_display),
             ("VBM function", vbm_function_name),
@@ -1669,7 +1840,7 @@ def plot_lightcurves(
             ("RA/Dec noiseless cols", f"{panel_labels['radec_true_ra_col']}, {panel_labels['radec_true_dec_col']}"),
             ("Event centroid cols", f"{panel_labels['event_x_col']}, {panel_labels['event_y_col']}"),
             ("Event track cols", ", ".join(event_track_cols) if event_track_cols else "none"),
-            ("PM vector convention", "(pm_ra*cosDec, pm_dec) mas/yr in ICRS"),
+            ("PM vector convention", "(pm_ra*cosDec, pm_dec) mas/yr in reference-frame ICRS"),
         ]
         if span_years is not None:
             event_info_rows.append(("Vector span", f"{span_years:.4f} yr"))
@@ -1685,8 +1856,8 @@ def plot_lightcurves(
                 summary,
                 planet_vals,
                 event_vals,
-                source_pm_icrs,
-                lens_pm_icrs,
+                None,
+                None,
                 theta_e_float,
                 source_dist_float,
                 event_ra_float,
@@ -1730,6 +1901,7 @@ def plot_lightcurves(
             meas_x,
             meas_y,
             event_frame_data,
+            component_flux_tracks,
             src1_flux,
             src2_flux,
             panel_labels,

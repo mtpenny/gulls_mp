@@ -317,6 +317,8 @@ struct event{
   //microlensing paramters
   double tref; //Reference time for parallax
   double u0, alpha, t0, tcroin, ucroin, rcroin, tE_h, tE_r, rE, thE, piE, piEN, piEE, rs, murel, murel_l, murel_b, vt, gamma;
+  propermotionframe pm_lens;
+  propermotionframe pm_source;
   //weights
   //double t0croin, rcroin, u0croin;
   double u0max, t0range, weight_scale, raww, w;

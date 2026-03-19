@@ -316,6 +316,47 @@ int parallax::provide_murel_h_lb(double mul_h_, double mub_h_, double piE_, doub
   return status;
 }
 
+int parallax::provide_pm_h_ad(double mua_h_, double mud_h_, double pi_mas_, propermotionframe* pm)
+{
+  if(debug) cout << __FUNCTION__ << endl;
+  if(pm == nullptr)
+    {
+      cerr << __FILE__ << ": " << string(__FUNCTION__) << ": null propermotionframe pointer" << endl;
+      exit(1);
+    }
+  if((status & (POSITION + REFFRAME)) != (POSITION + REFFRAME))
+    {
+      cerr << __FILE__ << ": " << string(__FUNCTION__)
+           << ": must set position and reference frame before converting absolute proper motion" << endl;
+      print_uninit();
+      exit(1);
+    }
+
+  pm->mua_h = mua_h_;
+  pm->mud_h = mud_h_;
+  pm->mu_h = qAdd(mua_h_, mud_h_);
+  c.muad2lb(a, d, pm->mua_h, pm->mud_h, &pm->mul_h, &pm->mub_h);
+  c.muad2ecl(a, d, pm->mua_h, pm->mud_h, &pm->mulam_h, &pm->mubet_h);
+
+  // Fold the linear-in-time piece of the observer parallax into the
+  // reference-frame proper motion. The remaining epoch-dependent parallax is
+  // carried by Nshift/Eshift.
+  pm->mulam_r = pm->mulam_h - pi_mas_ * vref[1] * daysinyr;
+  pm->mubet_r = pm->mubet_h - pi_mas_ * vref[0] * daysinyr;
+  c.muecl2ad(a, d, pm->mulam_r, pm->mubet_r, &pm->mua_r, &pm->mud_r);
+  c.muad2lb(a, d, pm->mua_r, pm->mud_r, &pm->mul_r, &pm->mub_r);
+  pm->mu_r = qAdd(pm->mua_r, pm->mud_r);
+  return status;
+}
+
+int parallax::provide_pm_h_lb(double mul_h_, double mub_h_, double pi_mas_, propermotionframe* pm)
+{
+  if(debug) cout << __FUNCTION__ << endl;
+  double mua_h_, mud_h_;
+  c.mulb2ad(l, b, mul_h_, mub_h_, &mua_h_, &mud_h_);
+  return provide_pm_h_ad(mua_h_, mud_h_, pi_mas_, pm);
+}
+
 int parallax::provide_observables_NE(double piEN_, double piEE_, double tE_r_, double thetaE_)
 {
   if(debug) cout << __FUNCTION__ << endl;

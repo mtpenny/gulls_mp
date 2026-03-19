@@ -347,6 +347,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "Astrometry residual z-score stats: "
                     f"mean={summary.zscore_mean:.4f}, std={summary.zscore_std:.4f}"
                 )
+            for report in summary.pm_conversion_reports:
+                print(report)
             max_warn = 10
             for warning in summary.warnings[:max_warn]:
                 print(f"Astrometry warning: {warning}")

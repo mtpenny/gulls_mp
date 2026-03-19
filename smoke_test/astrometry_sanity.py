@@ -29,6 +29,8 @@ except Exception:  # pragma: no cover - optional dependency guard
 
 MAS_PER_DEG = 3600.0 * 1000.0
 DEG_TO_RAD = math.pi / 180.0
+AUDAY_TO_KMS = 1731.456837
+DAYS_IN_YR = 365.25
 
 
 @dataclass
@@ -39,6 +41,7 @@ class AstrometrySanitySummary:
     checked_lightcurves: int = 0
     checked_epochs: int = 0
     warnings: List[str] = field(default_factory=list)
+    pm_conversion_reports: List[str] = field(default_factory=list)
     zscore_mean: float | None = None
     zscore_std: float | None = None
 
@@ -119,6 +122,91 @@ def _fit_linear_motion(
         "sigma_theta_deg": sigma_theta_deg,
         "rms": rms,
     }
+
+
+def _astropy_pm_from_galactic(
+    l_deg: float,
+    b_deg: float,
+    mul_masyr: float,
+    mub_masyr: float,
+) -> Dict[str, float]:
+    """Convert Galactic PM components into ICRS and ecliptic components with Astropy."""
+    if not _HAS_ASTROPY:
+        raise RuntimeError("Astropy is unavailable")
+
+    gal = SkyCoord(
+        l=l_deg * u.deg,
+        b=b_deg * u.deg,
+        pm_l_cosb=mul_masyr * u.mas / u.yr,
+        pm_b=mub_masyr * u.mas / u.yr,
+        frame="galactic",
+    )
+    icrs = gal.icrs
+    ecl = gal.barycentrictrueecliptic
+    return {
+        "alpha": float(icrs.pm_ra_cosdec.to_value(u.mas / u.yr)),
+        "delta": float(icrs.pm_dec.to_value(u.mas / u.yr)),
+        "l": mul_masyr,
+        "b": mub_masyr,
+        "lambda": float(ecl.pm_lon_coslat.to_value(u.mas / u.yr)),
+        "beta": float(ecl.pm_lat.to_value(u.mas / u.yr)),
+        "amp": float(math.hypot(mul_masyr, mub_masyr)),
+    }
+
+
+def _astropy_pm_from_ecliptic(
+    event_ra_deg: float,
+    event_dec_deg: float,
+    mulam_masyr: float,
+    mubet_masyr: float,
+) -> Dict[str, float]:
+    """Convert ecliptic PM components at the event LOS into ICRS and Galactic values."""
+    if not _HAS_ASTROPY:
+        raise RuntimeError("Astropy is unavailable")
+
+    event_icrs = SkyCoord(ra=event_ra_deg * u.deg, dec=event_dec_deg * u.deg, frame="icrs")
+    event_ecl = event_icrs.barycentrictrueecliptic
+    ecl = SkyCoord(
+        lon=event_ecl.lon,
+        lat=event_ecl.lat,
+        pm_lon_coslat=mulam_masyr * u.mas / u.yr,
+        pm_lat=mubet_masyr * u.mas / u.yr,
+        frame="barycentrictrueecliptic",
+    )
+    icrs = ecl.icrs
+    gal = ecl.galactic
+    return {
+        "alpha": float(icrs.pm_ra_cosdec.to_value(u.mas / u.yr)),
+        "delta": float(icrs.pm_dec.to_value(u.mas / u.yr)),
+        "l": float(gal.pm_l_cosb.to_value(u.mas / u.yr)),
+        "b": float(gal.pm_b.to_value(u.mas / u.yr)),
+        "lambda": mulam_masyr,
+        "beta": mubet_masyr,
+        "amp": float(math.hypot(mulam_masyr, mubet_masyr)),
+    }
+
+
+def _out_pm_bundle(row: Mapping[str, float], prefix: str) -> Dict[str, float]:
+    """Read one PM bundle from the `.out` row using the agreed column prefix."""
+    return {
+        "alpha": float(row[f"{prefix}_alpha"]),
+        "delta": float(row[f"{prefix}_delta"]),
+        "l": float(row[f"{prefix}_l"]),
+        "b": float(row[f"{prefix}_b"]),
+        "lambda": float(row[f"{prefix}_lambda"]),
+        "beta": float(row[f"{prefix}_beta"]),
+        "amp": float(row[prefix]),
+    }
+
+
+def _format_pm_bundle(bundle: Mapping[str, float]) -> str:
+    """Format a PM vector bundle compactly for smoke-test printouts."""
+    return (
+        f"a={bundle['alpha']:.6f}, d={bundle['delta']:.6f}, "
+        f"l={bundle['l']:.6f}, b={bundle['b']:.6f}, "
+        f"lam={bundle['lambda']:.6f}, bet={bundle['beta']:.6f}, "
+        f"|mu|={bundle['amp']:.6f}"
+    )
 
 
 def _parse_astrometry_frame(lc_file: Path) -> Tuple[float | None, float | None]:
@@ -357,6 +445,133 @@ def verify_astrometry_sanity(
         if len(errors) < max_errors:
             errors.append(message)
 
+    def append_pm_conversion_report(lc_file: Path, row: Mapping[str, float]) -> None:
+        """Print-only Astropy cross-check for heliocentric -> reference PM conversion."""
+        if not _HAS_ASTROPY:
+            summary.warnings.append(
+                f"{lc_file.name}: Astropy unavailable; skipped source/lens/relative PM conversion report"
+            )
+            return
+
+        required_cols = [
+            "galactic_l",
+            "galactic_b",
+            "ra_deg",
+            "dec_deg",
+            "Source_mul",
+            "Source_mub",
+            "Lens_mul",
+            "Lens_mub",
+            "Source_Dist",
+            "Lens_Dist",
+            "v_ref_N",
+            "v_ref_E",
+            "mu_source_helio_alpha",
+            "mu_source_ref_alpha",
+            "mu_lens_helio_alpha",
+            "mu_lens_ref_alpha",
+            "murel_helio_alpha",
+            "murel_ref_alpha",
+        ]
+        missing = [name for name in required_cols if name not in row]
+        if missing:
+            summary.warnings.append(
+                f"{lc_file.name}: missing PM summary columns for Astropy conversion report: {', '.join(missing)}"
+            )
+            return
+
+        event_l = float(row["galactic_l"])
+        event_b = float(row["galactic_b"])
+        event_ra = float(row["ra_deg"])
+        event_dec = float(row["dec_deg"])
+        source_mul = float(row["Source_mul"])
+        source_mub = float(row["Source_mub"])
+        lens_mul = float(row["Lens_mul"])
+        lens_mub = float(row["Lens_mub"])
+        source_dist = float(row["Source_Dist"])
+        lens_dist = float(row["Lens_Dist"])
+        v_ref_n = float(row["v_ref_N"]) / AUDAY_TO_KMS
+        v_ref_e = float(row["v_ref_E"]) / AUDAY_TO_KMS
+
+        finite_inputs = [
+            event_l,
+            event_b,
+            event_ra,
+            event_dec,
+            source_mul,
+            source_mub,
+            lens_mul,
+            lens_mub,
+            source_dist,
+            lens_dist,
+            v_ref_n,
+            v_ref_e,
+        ]
+        if not all(math.isfinite(val) for val in finite_inputs) or source_dist <= 0.0 or lens_dist <= 0.0:
+            summary.warnings.append(
+                f"{lc_file.name}: skipped PM conversion report because required metadata are non-finite"
+            )
+            return
+
+        pi_source_mas = 1.0 / source_dist
+        pi_lens_mas = 1.0 / lens_dist
+        pi_rel_mas = pi_lens_mas - pi_source_mas
+
+        source_helio = _astropy_pm_from_galactic(event_l, event_b, source_mul, source_mub)
+        lens_helio = _astropy_pm_from_galactic(event_l, event_b, lens_mul, lens_mub)
+        rel_helio = _astropy_pm_from_galactic(
+            event_l,
+            event_b,
+            lens_mul - source_mul,
+            lens_mub - source_mub,
+        )
+
+        source_ref = _astropy_pm_from_ecliptic(
+            event_ra,
+            event_dec,
+            source_helio["lambda"] - pi_source_mas * v_ref_e * DAYS_IN_YR,
+            source_helio["beta"] - pi_source_mas * v_ref_n * DAYS_IN_YR,
+        )
+        lens_ref = _astropy_pm_from_ecliptic(
+            event_ra,
+            event_dec,
+            lens_helio["lambda"] - pi_lens_mas * v_ref_e * DAYS_IN_YR,
+            lens_helio["beta"] - pi_lens_mas * v_ref_n * DAYS_IN_YR,
+        )
+        rel_ref = _astropy_pm_from_ecliptic(
+            event_ra,
+            event_dec,
+            rel_helio["lambda"] - pi_rel_mas * v_ref_e * DAYS_IN_YR,
+            rel_helio["beta"] - pi_rel_mas * v_ref_n * DAYS_IN_YR,
+        )
+
+        source_out_helio = _out_pm_bundle(row, "mu_source_helio")
+        source_out_ref = _out_pm_bundle(row, "mu_source_ref")
+        lens_out_helio = _out_pm_bundle(row, "mu_lens_helio")
+        lens_out_ref = _out_pm_bundle(row, "mu_lens_ref")
+        rel_out_helio = _out_pm_bundle(row, "murel_helio")
+        rel_out_ref = _out_pm_bundle(row, "murel_ref")
+
+        summary.pm_conversion_reports.append(f"{lc_file.name}: Astropy PM conversion")
+        summary.pm_conversion_reports.append(
+            f"  source   helio astropy[{_format_pm_bundle(source_helio)}] out[{_format_pm_bundle(source_out_helio)}]"
+        )
+        summary.pm_conversion_reports.append(
+            f"  source     ref astropy[{_format_pm_bundle(source_ref)}] out[{_format_pm_bundle(source_out_ref)}]"
+        )
+        summary.pm_conversion_reports.append(
+            f"  lens     helio astropy[{_format_pm_bundle(lens_helio)}] out[{_format_pm_bundle(lens_out_helio)}]"
+        )
+        summary.pm_conversion_reports.append(
+            f"  lens       ref astropy[{_format_pm_bundle(lens_ref)}] out[{_format_pm_bundle(lens_out_ref)}]"
+        )
+        summary.pm_conversion_reports.append(
+            f"  relative helio astropy[{_format_pm_bundle(rel_helio)}] out[{_format_pm_bundle(rel_out_helio)}]"
+        )
+        summary.pm_conversion_reports.append(
+            f"  relative   ref astropy[{_format_pm_bundle(rel_ref)}] out[{_format_pm_bundle(rel_out_ref)}]"
+        )
+
     for lc_file in lc_files:
         summary.checked_lightcurves += 1
 
@@ -390,6 +605,7 @@ def verify_astrometry_sanity(
                     f"{lc_file.name}: unable to match this lightcurve to an EventID/SubRun/Field row in .out"
                 )
                 continue
+            append_pm_conversion_report(lc_file, row)
 
             def _resolve_col(
                 contract_keys: tuple[str, ...],
@@ -604,6 +820,7 @@ def verify_astrometry_sanity(
                 f"{lc_file.name}: unable to match this lightcurve to an EventID/SubRun/Field row in .out"
             )
             continue
+        append_pm_conversion_report(lc_file, row)
 
         frame_ra_deg, frame_dec_deg = _parse_astrometry_frame(lc_file)
         if frame_ra_deg is None or frame_dec_deg is None:
