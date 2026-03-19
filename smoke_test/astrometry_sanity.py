@@ -31,6 +31,7 @@ MAS_PER_DEG = 3600.0 * 1000.0
 DEG_TO_RAD = math.pi / 180.0
 AUDAY_TO_KMS = 1731.456837
 DAYS_IN_YR = 365.25
+PM_CONVERSION_TOL_MASYR = 1.0e-4
 
 
 @dataclass
@@ -207,6 +208,17 @@ def _format_pm_bundle(bundle: Mapping[str, float]) -> str:
         f"lam={bundle['lambda']:.6f}, bet={bundle['beta']:.6f}, "
         f"|mu|={bundle['amp']:.6f}"
     )
+
+
+def _pm_bundle_abs_diffs(
+    lhs: Mapping[str, float],
+    rhs: Mapping[str, float],
+) -> Dict[str, float]:
+    """Return absolute component-wise PM differences in mas/yr."""
+    return {
+        key: abs(float(lhs[key]) - float(rhs[key]))
+        for key in ("alpha", "delta", "l", "b", "lambda", "beta", "amp")
+    }
 
 
 def _parse_astrometry_frame(lc_file: Path) -> Tuple[float | None, float | None]:
@@ -446,7 +458,7 @@ def verify_astrometry_sanity(
             errors.append(message)
 
     def append_pm_conversion_report(lc_file: Path, row: Mapping[str, float]) -> None:
-        """Print-only Astropy cross-check for heliocentric -> reference PM conversion."""
+        """Cross-check heliocentric/reference PM conversion against Astropy."""
         if not _HAS_ASTROPY:
             summary.warnings.append(
                 f"{lc_file.name}: Astropy unavailable; skipped source/lens/relative PM conversion report"
@@ -552,25 +564,32 @@ def verify_astrometry_sanity(
         rel_out_helio = _out_pm_bundle(row, "murel_helio")
         rel_out_ref = _out_pm_bundle(row, "murel_ref")
 
-        summary.pm_conversion_reports.append(f"{lc_file.name}: Astropy PM conversion")
+        comparisons = [
+            ("source   helio", source_helio, source_out_helio),
+            ("source     ref", source_ref, source_out_ref),
+            ("lens     helio", lens_helio, lens_out_helio),
+            ("lens       ref", lens_ref, lens_out_ref),
+            ("relative helio", rel_helio, rel_out_helio),
+            ("relative   ref", rel_ref, rel_out_ref),
+        ]
         summary.pm_conversion_reports.append(
-            f"  source   helio astropy[{_format_pm_bundle(source_helio)}] out[{_format_pm_bundle(source_out_helio)}]"
+            f"{lc_file.name}: Astropy PM conversion (tol={PM_CONVERSION_TOL_MASYR:.1e} mas/yr)"
         )
-        summary.pm_conversion_reports.append(
-            f"  source     ref astropy[{_format_pm_bundle(source_ref)}] out[{_format_pm_bundle(source_out_ref)}]"
-        )
-        summary.pm_conversion_reports.append(
-            f"  lens     helio astropy[{_format_pm_bundle(lens_helio)}] out[{_format_pm_bundle(lens_out_helio)}]"
-        )
-        summary.pm_conversion_reports.append(
-            f"  lens       ref astropy[{_format_pm_bundle(lens_ref)}] out[{_format_pm_bundle(lens_out_ref)}]"
-        )
-        summary.pm_conversion_reports.append(
-            f"  relative helio astropy[{_format_pm_bundle(rel_helio)}] out[{_format_pm_bundle(rel_out_helio)}]"
-        )
-        summary.pm_conversion_reports.append(
-            f"  relative   ref astropy[{_format_pm_bundle(rel_ref)}] out[{_format_pm_bundle(rel_out_ref)}]"
-        )
+        for label, astropy_bundle, out_bundle in comparisons:
+            diffs = _pm_bundle_abs_diffs(astropy_bundle, out_bundle)
+            worst_component = max(diffs, key=diffs.get)
+            worst_diff = diffs[worst_component]
+            summary.pm_conversion_reports.append(
+                f"  {label} astropy[{_format_pm_bundle(astropy_bundle)}] "
+                f"out[{_format_pm_bundle(out_bundle)}] "
+                f"max|Δ|={worst_diff:.3e} ({worst_component})"
+            )
+            if worst_diff > PM_CONVERSION_TOL_MASYR:
+                record_error(
+                    f"{lc_file.name}: {label.strip()} PM conversion mismatch "
+                    f"max|Δ|={worst_diff:.3e} mas/yr at {worst_component} "
+                    f"(tol={PM_CONVERSION_TOL_MASYR:.1e})"
+                )
 
     for lc_file in lc_files:
         summary.checked_lightcurves += 1

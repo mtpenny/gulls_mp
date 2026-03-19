@@ -311,6 +311,7 @@ def _plot_minimal_astrometry(
     ax[0].set_ylabel(f"y_centroid ({unit_label})")
     ax[0].set_title("Astrometric Centroid in Lens Frame with Lens at Rest")
     ax[0].grid(True, alpha=0.3)
+    ax[0].set_aspect("equal")
     ax[0].legend()
     
     # plot 2: x and y centroids around event peak
@@ -692,7 +693,7 @@ def _render_lensframe(
     half_span *= 1.15
     ax2.set_xlim(x_c - half_span, x_c + half_span)
     ax2.set_ylim(y_c - half_span, y_c + half_span)
-    ax2.set_aspect("equal", adjustable="box")
+    ax2.set_aspect("equal")
     ax2.legend(loc="upper left")
 
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -727,6 +728,8 @@ def _render_astrometric_figure(
     meas_dec_deg: np.ndarray,
     meas_ra_err_deg: np.ndarray,
     meas_dec_err_deg: np.ndarray,
+    ref_ra_deg: float | None,
+    ref_dec_deg: float | None,
     vector_specs: List[Dict[str, float | str]],
     vbm_model: Dict[str, np.ndarray | str] | None,
     true_x_vals: np.ndarray | None,
@@ -735,6 +738,8 @@ def _render_astrometric_figure(
     meas_y: np.ndarray | None,
     event_frame_data: Dict[str, np.ndarray] | None = None,
     component_flux_tracks: Dict[str, np.ndarray] | None = None,
+    source_total_rel_flux: float | None = None,
+    lens_total_rel_flux: float | None = None,
     src1_flux: np.ndarray | None = None,
     src2_flux: np.ndarray | None = None,
     panel_labels: Dict[str, str] | None = None,
@@ -886,6 +891,21 @@ def _render_astrometric_figure(
         label="True samples",
         zorder=3,
     )
+    if (
+        ref_ra_deg is not None
+        and ref_dec_deg is not None
+        and math.isfinite(ref_ra_deg)
+        and math.isfinite(ref_dec_deg)
+    ):
+        ax_radec.scatter(
+            [ref_ra_deg],
+            [ref_dec_deg],
+            marker="+",
+            s=110,
+            linewidths=1.5,
+            color="white",
+            zorder=6,
+        )
     if vbm_model is not None:
         deg_to_mas = 3600.0 * 1000.0
         baseline_ra = true_ra_deg[0]
@@ -931,7 +951,7 @@ def _render_astrometric_figure(
         fontsize=7,
     )
     ax_radec.grid(True, alpha=0.3)
-    ax_radec.axis("equal")
+    ax_radec.set_aspect("equal")
 
     if span_years and vector_specs:
         start_ra = true_ra_deg[0]
@@ -946,6 +966,8 @@ def _render_astrometric_figure(
             delta_dec_deg = (pm_dec * span_years) / 3600000.0
             end_ra = start_ra + delta_ra_deg
             end_dec = start_dec + delta_dec_deg
+            # Add invisible endpoint markers so autoscaling includes the full PM vectors.
+            ax_radec.plot([end_ra], [end_dec], marker="o", alpha=0.0)
             ax_radec.annotate(
                 "",
                 xy=(end_ra, end_dec),
@@ -958,7 +980,28 @@ def _render_astrometric_figure(
 
     ax_info.axis("off")
     ax_info.set_title("Event Info / Validation Inputs")
-    info_rows = event_info_rows or []
+    info_rows = list(event_info_rows or [])
+    if source_total_rel_flux is not None or lens_total_rel_flux is not None:
+        src_flux_str = "n/a"
+        lens_flux_str = "n/a"
+        ratio_str = "n/a"
+        if source_total_rel_flux is not None and math.isfinite(source_total_rel_flux):
+            src_flux_str = f"{source_total_rel_flux:.4f}"
+        if lens_total_rel_flux is not None and math.isfinite(lens_total_rel_flux):
+            lens_flux_str = f"{lens_total_rel_flux:.4f}"
+        if (
+            source_total_rel_flux is not None
+            and lens_total_rel_flux is not None
+            and math.isfinite(source_total_rel_flux)
+            and math.isfinite(lens_total_rel_flux)
+        ):
+            if lens_total_rel_flux > 0.0:
+                ratio_str = f"{source_total_rel_flux / lens_total_rel_flux:.3f}"
+            else:
+                ratio_str = "inf"
+        info_rows.append(("Baseline source flux", src_flux_str))
+        info_rows.append(("Baseline lens flux", lens_flux_str))
+        info_rows.append(("Source/lens flux", ratio_str))
     if not info_rows:
         info_rows = [("info", "n/a")]
     info_table = ax_info.table(
@@ -1135,7 +1178,7 @@ def _render_astrometric_figure(
         fontsize=7,
     )
     ax_event.grid(True, alpha=0.3)
-    ax_event.axis("equal")
+    ax_event.set_aspect("equal")
     handles, labels_ = ax_event.get_legend_handles_labels()
     handles = [h for h, lbl in zip(handles, labels_) if lbl]
     labels_ = [lbl for lbl in labels_ if lbl]
@@ -1277,6 +1320,7 @@ def plot_lightcurves(
         source_dist_float: float | None = None
         event_ra_float: float | None = None
         event_dec_float: float | None = None
+        frame_ra_deg, frame_dec_deg = _parse_astrometry_frame(lc_file)
         tE = math.nan
         if summary:
             lens_mass = _format_metric(summary.get("lens_mass"))
@@ -1285,12 +1329,17 @@ def plot_lightcurves(
             theta_e = _format_metric(summary.get("theta_e"))
             pm_alpha = _format_metric(summary.get("pm_ref_alpha"))
             pm_delta = _format_metric(summary.get("pm_ref_delta"))
+            pm_lambda = _format_metric(summary.get("pm_ref_lambda"))
+            pm_beta = _format_metric(summary.get("pm_ref_beta"))
             subtitle = (
                 f"Lens M={lens_mass} Msun, Lens D={lens_dist} pc, "
-                f"Source D={source_dist} pc, theta_E={theta_e}, "
-                f"mu_rel,r=({pm_alpha}, {pm_delta}) mas/yr"
+                f"Source D={source_dist} pc, theta_E={theta_e}"
             )
-            title = f"{title}\n{subtitle}"
+            pm_subtitle = (
+                f"mu_rel,r(eq a,d)=({pm_alpha}, {pm_delta}) mas/yr, "
+                f"mu_rel,r(ecl lam,bet)=({pm_lambda}, {pm_beta}) mas/yr"
+            )
+            title = f"{title}\n{subtitle}\n{pm_subtitle}"
             val = summary.get("theta_e")
             if val is not None and not math.isnan(val):
                 theta_e_float = float(val)
@@ -1315,6 +1364,10 @@ def plot_lightcurves(
             val = summary.get("tE_ref")
             if val is not None and not math.isnan(val):
                 tE = float(val)
+        if event_ra_float is None and frame_ra_deg is not None and math.isfinite(frame_ra_deg):
+            event_ra_float = frame_ra_deg
+        if event_dec_float is None and frame_dec_deg is not None and math.isfinite(frame_dec_deg):
+            event_dec_float = frame_dec_deg
         if alpha_deg_float is None and event_vals and len(event_vals) >= 2:
             alpha_deg_float = float(event_vals[1])
         if alpha_deg_float is None:
@@ -1499,6 +1552,8 @@ def plot_lightcurves(
         plot_unit_label = "Einstein radii"
         event_frame_data: Dict[str, np.ndarray] = {}
         component_flux_tracks: Dict[str, np.ndarray] = {}
+        source_total_rel_flux: float | None = None
+        lens_total_rel_flux: float | None = None
 
         if lensframe_cols:
             lensframe_data = {
@@ -1619,14 +1674,23 @@ def plot_lightcurves(
                 component_flux_tracks["source1"] = source1_scale * np.asarray(
                     event_frame_data["source1_mu"], dtype=float
                 )
+        source_total_rel_flux = 0.0
+        if fs_vals:
+            source_total_rel_flux += fs_vals[0]
+        if fs2_vals:
+            source_total_rel_flux += fs2_vals[0]
+        if source_total_rel_flux == 0.0 and not fs_vals and not fs2_vals:
+            source_total_rel_flux = None
 
         if obssrc_vals:
             src_mag_ref = obssrc_vals[0]
             source0_scale = fs_vals[0] if fs_vals else 1.0
+            lens_total_rel_flux = 0.0
             for lens_idx, lens_mag in enumerate(obslens_vals):
                 if not math.isfinite(lens_mag) or lens_mag >= 90.0:
                     continue
                 lens_flux_ratio = source0_scale * math.pow(10.0, -0.4 * (lens_mag - src_mag_ref))
+                lens_total_rel_flux += lens_flux_ratio
                 lens_key = f"lens{lens_idx}"
                 if lens_key in event_frame_data:
                     component_flux_tracks[lens_key] = np.full_like(
@@ -1758,16 +1822,21 @@ def plot_lightcurves(
             meas_E_err_mas = np.zeros_like(meas_ra_deg)
             meas_N_err_mas = np.zeros_like(meas_dec_deg)
 
-        pm_ref_alpha_float = None
-        pm_ref_delta_float = None
-        pm_ref_alpha_val = summary.get("pm_ref_alpha") if summary else None
-        pm_ref_delta_val = summary.get("pm_ref_delta") if summary else None
-        if pm_ref_alpha_val is not None and pm_ref_delta_val is not None:
-            pm_ref_alpha_float = float(pm_ref_alpha_val)
-            pm_ref_delta_float = float(pm_ref_delta_val)
-            if math.isnan(pm_ref_alpha_float) or math.isnan(pm_ref_delta_float):
-                pm_ref_alpha_float = None
-                pm_ref_delta_float = None
+        def _summary_pm_pair(prefix: str) -> tuple[float | None, float | None]:
+            """Read one equatorial PM pair from the summary if both values are finite."""
+            pm_ra_val = summary.get(f"{prefix}_alpha") if summary else None
+            pm_dec_val = summary.get(f"{prefix}_delta") if summary else None
+            if pm_ra_val is None or pm_dec_val is None:
+                return None, None
+            pm_ra = float(pm_ra_val)
+            pm_dec = float(pm_dec_val)
+            if math.isnan(pm_ra) or math.isnan(pm_dec):
+                return None, None
+            return pm_ra, pm_dec
+
+        pm_ref_alpha_float, pm_ref_delta_float = _summary_pm_pair("pm_ref")
+        pm_source_ref_alpha_float, pm_source_ref_delta_float = _summary_pm_pair("pm_source_ref")
+        pm_lens_ref_alpha_float, pm_lens_ref_delta_float = _summary_pm_pair("pm_lens_ref")
 
         span_years = None
         if len(time):
@@ -1777,6 +1846,24 @@ def plot_lightcurves(
 
         vector_specs: List[Dict[str, float | str]] = []
         if span_years:
+            if pm_source_ref_alpha_float is not None and pm_source_ref_delta_float is not None:
+                vector_specs.append(
+                    {
+                        "label": "Source PM reference frame (pm_ra*cosDec, pm_dec)",
+                        "color": "tab:blue",
+                        "pm_ra": pm_source_ref_alpha_float,
+                        "pm_dec": pm_source_ref_delta_float,
+                    }
+                )
+            if pm_lens_ref_alpha_float is not None and pm_lens_ref_delta_float is not None:
+                vector_specs.append(
+                    {
+                        "label": "Lens PM reference frame (pm_ra*cosDec, pm_dec)",
+                        "color": "tab:red",
+                        "pm_ra": pm_lens_ref_alpha_float,
+                        "pm_dec": pm_lens_ref_delta_float,
+                    }
+                )
             if pm_ref_alpha_float is not None and pm_ref_delta_float is not None:
                 vector_specs.append(
                     {
@@ -1894,6 +1981,8 @@ def plot_lightcurves(
             meas_dec_deg,
             meas_ra_err_deg,
             meas_dec_err_deg,
+            event_ra_float,
+            event_dec_float,
             vector_specs,
             vbm_model,
             true_x_vals,
@@ -1902,6 +1991,8 @@ def plot_lightcurves(
             meas_y,
             event_frame_data,
             component_flux_tracks,
+            source_total_rel_flux,
+            lens_total_rel_flux,
             src1_flux,
             src2_flux,
             panel_labels,

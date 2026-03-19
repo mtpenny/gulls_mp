@@ -367,18 +367,36 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	 << " thE_mas=" << Event->thE << " tref=" << Event->tref
 	 << " frame=ecliptic_EN_barycenter";
   lcfile << endl;
-  lcfile << "#Astrometry_PM: units=mas_per_yr";
-  for(int i=0;i<Paramfile->numobservatories;i++)
-    {
-      double pm_e = 0.0;
-      double pm_n = 0.0;
-      if(i < int(Event->pllx.size()))
-	{
-	  pm_e = murel_ref * Event->pllx[i].mulam_r;
-	  pm_n = murel_ref * Event->pllx[i].mubet_r;
-	}
-      lcfile << " obs" << i << "_pmE=" << pm_e << " obs" << i << "_pmN=" << pm_n;
-    }
+  const double nan_pm = std::numeric_limits<double>::quiet_NaN();
+  const bool have_rel_pm = !Event->pllx.empty();
+  lcfile << "#Astrometry_PM: units=mas_per_yr"
+	 << " relative_convention=lens_minus_source"
+	 << " eq_components=pm_raCosDec_pmDec"
+	 << " ecl_components=pm_lambda_pm_beta"
+	 << " source_h_eq_raCosDec=" << Event->pm_source.mua_h
+	 << " source_h_eq_dec=" << Event->pm_source.mud_h
+	 << " source_h_ecl_lambda=" << Event->pm_source.mulam_h
+	 << " source_h_ecl_beta=" << Event->pm_source.mubet_h
+	 << " source_r_eq_raCosDec=" << Event->pm_source.mua_r
+	 << " source_r_eq_dec=" << Event->pm_source.mud_r
+	 << " source_r_ecl_lambda=" << Event->pm_source.mulam_r
+	 << " source_r_ecl_beta=" << Event->pm_source.mubet_r
+	 << " lens_h_eq_raCosDec=" << Event->pm_lens.mua_h
+	 << " lens_h_eq_dec=" << Event->pm_lens.mud_h
+	 << " lens_h_ecl_lambda=" << Event->pm_lens.mulam_h
+	 << " lens_h_ecl_beta=" << Event->pm_lens.mubet_h
+	 << " lens_r_eq_raCosDec=" << Event->pm_lens.mua_r
+	 << " lens_r_eq_dec=" << Event->pm_lens.mud_r
+	 << " lens_r_ecl_lambda=" << Event->pm_lens.mulam_r
+	 << " lens_r_ecl_beta=" << Event->pm_lens.mubet_r
+	 << " rel_h_eq_raCosDec=" << (have_rel_pm ? Event->pllx[0].mua_h : nan_pm)
+	 << " rel_h_eq_dec=" << (have_rel_pm ? Event->pllx[0].mud_h : nan_pm)
+	 << " rel_h_ecl_lambda=" << (have_rel_pm ? Event->pllx[0].mulam_h : nan_pm)
+	 << " rel_h_ecl_beta=" << (have_rel_pm ? Event->pllx[0].mubet_h : nan_pm)
+	 << " rel_r_eq_raCosDec=" << (have_rel_pm ? Event->pllx[0].mua_r : nan_pm)
+	 << " rel_r_eq_dec=" << (have_rel_pm ? Event->pllx[0].mud_r : nan_pm)
+	 << " rel_r_ecl_lambda=" << (have_rel_pm ? Event->pllx[0].mulam_r : nan_pm)
+	 << " rel_r_ecl_beta=" << (have_rel_pm ? Event->pllx[0].mubet_r : nan_pm);
   lcfile << endl;
   lcfile << "#Astrometry_Contract: version=v2 model_frame=absolute event_true_unit=thetaE noise_frame=ecliptic_tangent" << endl;
   lcfile << "#Astrometry_Columns:"
@@ -395,7 +413,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
    << " sky_dec_err_deg=measured_Dec_error_deg"
    << " source_blend_total_flux=fractional_total_flux";
   lcfile << endl;
-  lcfile << "#Astrometry_BAGLE: model_frame=absolute blendless_columns=none lens_columns=lens0_x,lens0_y lens_frame=xy_thetaE" << endl;
+  lcfile << "#Astrometry_BAGLE: model_frame=absolute blendless_columns=none lens_columns=lens0_x_thE,lens0_y_thE lens_frame=event_xy_thetaE" << endl;
 
   //Observatory groups
   for(int obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)

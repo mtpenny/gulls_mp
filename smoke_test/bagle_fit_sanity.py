@@ -723,7 +723,7 @@ def _plot_lens_track_diagnostics(
         ms=2.2,
         alpha=0.50,
         color="tab:blue",
-        label="E GULLS",
+        label="E Gulls",
         zorder=1,
     )
     axes[0].plot(
@@ -733,7 +733,7 @@ def _plot_lens_track_diagnostics(
         ms=2.2,
         alpha=0.50,
         color="tab:green",
-        label="N GULLS",
+        label="N Gulls",
         zorder=1,
     )
     if lens_formula_ok:
@@ -778,7 +778,7 @@ def _plot_lens_track_diagnostics(
         ms=2.0,
         alpha=0.45,
         color="tab:blue",
-        label="GULLS lens columns",
+        label="Gulls lens columns",
         zorder=1,
     )
     if lens_formula_ok:
@@ -788,7 +788,7 @@ def _plot_lens_track_diagnostics(
             "--",
             lw=1.6,
             color="0.35",
-            label="GULLS lens pm+pllx",
+            label="Gulls lens pm+pllx",
             zorder=4,
         )
     axes[1].set_xlabel("E (mas)")
@@ -836,7 +836,7 @@ def run_bagle_joint_fit_sanity(
     obs_location: str = "jwst",
     obs_location_fallback: str = "earth",
     lens_ast_rms_demean_mas_max: float = 0.05,
-    microlensing_mask_te: float = 5.0,
+    microlensing_mask_te: float = 0.0,
 ) -> BagleJointFitSummary:
     """Fit one single-source, single-lens-like event with BAGLE and validate vectors."""
     run_dir = run_dir.resolve()
@@ -1722,6 +1722,7 @@ def run_bagle_joint_fit_sanity(
     lens_obs_y_plot_arcsec: np.ndarray | None = None
     lens_formula_x_plot_arcsec: np.ndarray | None = None
     lens_formula_y_plot_arcsec: np.ndarray | None = None
+    lens_track_comparable = True
     lens_cols_raw = bagle_contract.get("lens_columns", "").strip()
     lens_frame = bagle_contract.get("lens_frame", "xy_thetaE").strip().lower()
     lens_col_x = "lens0_x"
@@ -1757,6 +1758,14 @@ def run_bagle_joint_fit_sanity(
                 conv = thetae_mas / MAS_PER_ARCSEC
                 lens_x_all_arcsec = df[lens_col_x].to_numpy(dtype=float, copy=False) * conv
                 lens_y_all_arcsec = df[lens_col_y].to_numpy(dtype=float, copy=False) * conv
+        elif lens_frame in ("event_xy_thetae", "event_thetae", "event_frame_thetae"):
+            lens_track_comparable = False
+            warnings.append(
+                f"{lc_file.name}: BAGLE lens_columns are event-frame thetaE diagnostics "
+                f"({lens_col_x}/{lens_col_y}); skipped absolute BAGLE lens-track comparison."
+            )
+            lens_x_all_arcsec = np.full_like(t_ast, np.nan, dtype=float)
+            lens_y_all_arcsec = np.full_like(t_ast, np.nan, dtype=float)
         else:
             deferred_failures.append(
                 f"BAGLE sanity: unsupported #Astrometry_BAGLE lens_frame={lens_frame!r} in {lc_file.name}."
@@ -1768,7 +1777,9 @@ def run_bagle_joint_fit_sanity(
         lens_y_sel_arcsec = lens_y_all_arcsec[ast_idx]
         lens_finite = np.isfinite(t_ast) & np.isfinite(lens_x_sel_arcsec) & np.isfinite(lens_y_sel_arcsec)
         n_lens_finite = int(np.sum(lens_finite))
-        if n_lens_finite == 0:
+        if not lens_track_comparable:
+            pass
+        elif n_lens_finite == 0:
             warnings.append(
                 f"{lc_file.name}: primary-lens astrometry comparison skipped because mask/quality cuts left zero usable epochs."
             )
@@ -1801,7 +1812,7 @@ def run_bagle_joint_fit_sanity(
             lens_model_xy = lens_model[:, :2]
             if lens_model_xy.shape[0] != lens_obs_x_arcsec.shape[0]:
                 raise SmokeTestError(
-                    "BAGLE sanity: BAGLE lens astrometry length mismatch when comparing to GULLS lens columns."
+                    "BAGLE sanity: BAGLE lens astrometry length mismatch when comparing to Gulls lens columns."
                 )
 
             lens_resid_e_mas = (lens_obs_x_arcsec - lens_model_xy[:, 0]) * MAS_PER_ARCSEC
@@ -1839,12 +1850,18 @@ def run_bagle_joint_fit_sanity(
                 + (" ..." if len(available_lens_cols) > 8 else "")
                 + "."
             )
-        deferred_failures.append(
-            f"BAGLE sanity: {lc_file.name} missing required primary-lens astrometry columns "
-            f"({lens_col_x}/{lens_col_y}; lens_frame={lens_frame}). "
-            "Either publish these in the .lc output or update #Astrometry_BAGLE lens_columns/lens_frame metadata."
-            + hint
-        )
+        if lens_frame in ("event_xy_thetae", "event_thetae", "event_frame_thetae"):
+            warnings.append(
+                f"{lc_file.name}: BAGLE lens-track comparison skipped because event-frame lens columns "
+                f"({lens_col_x}/{lens_col_y}) were not present.{hint}"
+            )
+        else:
+            deferred_failures.append(
+                f"BAGLE sanity: {lc_file.name} missing required primary-lens astrometry columns "
+                f"({lens_col_x}/{lens_col_y}; lens_frame={lens_frame}). "
+                "Either publish these in the .lc output or update #Astrometry_BAGLE lens_columns/lens_frame metadata."
+                + hint
+            )
 
     mu_fit = _vec_from_model_attr(best_model, "muRel")
     if mu_fit is None:
@@ -1948,6 +1965,9 @@ def run_bagle_joint_fit_sanity(
         show_noisy_astrometry=True,
         noisy_ast_alpha=(0.24 if fit_true_astrometry else 0.16),
     )
+    lens_plot_candidate = fit_dir / f"event_{evt:06d}_lens_track.png"
+    if lens_plot_candidate.exists():
+        lens_plot_candidate.unlink()
     lens_plot_path: Path | None = None
     if (
         lens_t_plot is not None
@@ -1969,7 +1989,7 @@ def run_bagle_joint_fit_sanity(
             subtitle_parts.append(f"mu_L(l,b)=({mu_l:.3f},{mu_b:.3f}) mas/yr")
         subtitle = " | ".join(subtitle_parts) if subtitle_parts else None
 
-        lens_plot_path = fit_dir / f"event_{evt:06d}_lens_track.png"
+        lens_plot_path = lens_plot_candidate
         _plot_lens_track_diagnostics(
             lens_plot_path,
             lens_t_plot,
@@ -1980,7 +2000,7 @@ def run_bagle_joint_fit_sanity(
             best_model,
             t0_guess,
             title=(
-                f"BAGLE vs GULLS primary-lens track: event {evt} "
+                f"BAGLE vs Gulls primary-lens track: event {evt} "
                 f"(single-lens chi2={out_chi2:.3f})"
             ),
             subtitle=subtitle,
