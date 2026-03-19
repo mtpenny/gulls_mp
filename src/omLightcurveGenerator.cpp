@@ -988,10 +988,19 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  VBMlocal.astrometry = Event->vbm->astrometry;
 
 		  double u_min=1e50;
+		  int fallback_lens_idx = -1;
+		  double fallback_lens_weight = 0.0;
 		  for(int i=0;i<nlens;i++)
 		    {
-		      double u_lens = qAdd(xs[is]-lens_parameters[i*3+0],ys[is]-lens_parameters[i*3+1])/sqrt(lens_parameters[i*3+2]);
-		      if(u_lens<u_min) u_min=u_lens;
+		      const double lens_mass_frac = lens_parameters[i*3+2];
+		      if(lens_mass_frac <= 0.0) continue;
+		      double u_lens = qAdd(xs[is]-lens_parameters[i*3+0],ys[is]-lens_parameters[i*3+1])/sqrt(lens_mass_frac);
+		      if(u_lens<u_min)
+			    {
+			      u_min=u_lens;
+			      fallback_lens_idx = i;
+			      fallback_lens_weight = lens_mass_frac;
+			  }
 		    }
 
 		  VBMicrolensing* astrometry_vbm = nullptr;
@@ -1006,8 +1015,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		    }
 		  else
 		    {
-		      // If the source is far from all lenses, just use the nearest single-lens magnification.
-		      mu[is] = Event->vbm->ESPLMag2(u_min, rho);
+		      // If the source is far from all lenses, approximate the system as the single
+		      // component lens chosen by the fallback metric (minimum source-lens separation
+		      // in component Einstein-radius units; the most influential lenser). ESPLMag2 works in 
+			  // that lens's natural Einstein-radius units, so convert both u and rho before calling VBM.
+		      const double rho_lens = (fallback_lens_weight > 0.0 ? rho/sqrt(fallback_lens_weight) : rho);
+		      mu[is] = Event->vbm->ESPLMag2(u_min, rho_lens);
 		      Event->VBM_function = "ESPLMag2";
 		      if(handle_vbm_api_error("ESPLMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
 		      used_vbm_astrometry = true;
@@ -1017,8 +1030,31 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 		  if(Paramfile->astrometry_on && used_vbm_astrometry && astrometry_vbm)
 		    {
-		      astro_x[is] = astrometry_vbm->astrox1;
-		      astro_y[is] = astrometry_vbm->astrox2;
+			      if(Event->VBM_function == "ESPLMag2" && fallback_lens_idx >= 0 && fallback_lens_weight > 0.0)
+				{
+				  const double dx = xs[is] - lens_parameters[fallback_lens_idx*3+0];
+				  const double dy = ys[is] - lens_parameters[fallback_lens_idx*3+1];
+				  const double dist = qAdd(dx,dy);
+				  if(dist > 1e-12)
+				    {
+				      // ESPLMag2 returns a scalar centroid shift along the source-lens axis in the
+				      // component-lens Einstein units. Project it back onto the 2D event frame and
+				      // rescale by sqrt(mass fraction) to recover event-thetaE units.
+				      const double ast_shift_event = astrometry_vbm->astrox1 * sqrt(fallback_lens_weight);
+				      astro_x[is] = lens_parameters[fallback_lens_idx*3+0] + ast_shift_event * dx/dist;
+				      astro_y[is] = lens_parameters[fallback_lens_idx*3+1] + ast_shift_event * dy/dist;
+				    }
+			  else
+			    {
+			      astro_x[is] = xs[is];
+			      astro_y[is] = ys[is];
+			    }
+			}
+		      else
+			{
+			  astro_x[is] = astrometry_vbm->astrox1;
+			  astro_y[is] = astrometry_vbm->astrox2;
+			}
 		    }
 		  else
 		    {
