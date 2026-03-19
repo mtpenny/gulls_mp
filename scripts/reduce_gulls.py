@@ -96,7 +96,10 @@ if not os.path.exists('logs'):
 if args.in_raw:
     os.chdir(paramfile['FINAL_DIR'] + paramfile['RUN_NAME'] + '/raw/')
 else:
-    os.chdir(paramfile['OUTPUT_DIR'] + paramfile['RUN_NAME'] + '/')
+    outfiledir = paramfile['OUTPUT_DIR'] + paramfile['RUN_NAME'] + '/'
+    if not os.path.isdir(outfiledir):
+        outfiledir = paramfile['FINAL_DIR'] + paramfile['RUN_NAME'] + '/'
+    os.chdir(outfiledir)
 
 #Files for processing
 procfiles = {}

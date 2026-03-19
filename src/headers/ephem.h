@@ -78,6 +78,13 @@ class orbitalElements
   static constexpr double rangp=3.36603292;
   static constexpr double ra0=4.936838322;
   static constexpr double ll0=0.574736922;
+
+  //Ecliptic pole: 18h 00m 00.0s 	+66° 33′ 38.84
+  static constexpr double sindnep=0.9174826174699723;
+  static constexpr double cosdnep=0.3977758748849012;
+  static constexpr double sinanep=-1.0;
+  static constexpr double cosanep=0.0;
+  static constexpr double ranep=4.71238898038469; //1.5*pi
  
   double xh, yh, zh; //heliocentric coordinates in the plane of orbit
   double xecl, yecl, zecl; //coordinates in the J2000 ecliptic plane
@@ -255,6 +262,8 @@ class orbitalElements
   void ecl2eq(vector<double> ecl, vector<double>* eq);
   void pmeq2gal(vector<double> eq, vector<double> pmeq, vector<double>* pmgal);
   void pmgal2eq(vector<double> gal, vector<double> pmgal, vector<double>* pmeq);
+  void pmecl2eq(vector<double> ecl, vector<double> pmecl, vector<double>* pmeq);
+  void pmeq2ecl(vector<double> eq, vector<double> pmeq, vector<double>* pmecl);
 
   double get_epoch()
   {
