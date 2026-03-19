@@ -421,7 +421,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   
   //static const char* baseCols[] = {
   lcfile << 
-    "simulation_time" << " " << "measured_relative_flux" << " " <<
+    "Simulation_time" << " " << "measured_relative_flux" << " " <<
     "measured_relative_flux_error" << " " << "true_relative_flux" << " " <<
     "true_relative_flux_error" << " " << "observatory_code" << " " <<
     "saturation_flag" << " " << "best_single_lens_fit" << " " <<
