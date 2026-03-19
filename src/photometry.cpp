@@ -147,8 +147,10 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 		  const double dt_year = (shiftedidx >= 0 && shiftedidx < int(Event->pllx[obsidx].epochs.size())) // check that the shifted index is within the bounds of the pllx epochs vector for this observatory
 		    ? ((Event->pllx[obsidx].epochs[shiftedidx] - Event->pllx[obsidx].tref) / DAYINYR) // if the shifted index is out of bounds, fall back to using the unshifted epoch for this index (which may also be out of bounds, but at least won't be negative)
 		    : ((Event->epoch[idx] - Event->tref) / DAYINYR);  // convert the epoch to years relative to the pllx reference epoch (tref) for this observatory, which is used for the proper motion and parallax calculations. Use the shifted index to access the pllx epochs if it's within bounds, otherwise use the unshifted index.
-		  const double pm_lam_mas = Event->pllx[obsidx].mulam_r * dt_year; // proper motion contribution to the ecliptic eastward centroid shift in mas
-		  const double pm_beta_mas = Event->pllx[obsidx].mubet_r * dt_year; 
+		  // mulam_r and mubet_r are unit-vector components of the reference-frame proper motion
+		  // in ecliptic coordinates, so multiply by the scalar magnitude murel_ref to get mas/yr.
+		  const double pm_lam_mas = murel_ref * Event->pllx[obsidx].mulam_r * dt_year; // proper motion contribution to the ecliptic eastward centroid shift in mas
+		  const double pm_beta_mas = murel_ref * Event->pllx[obsidx].mubet_r * dt_year;
 
 		  const double cx_srcs_thE = Event->xc_srcs_only[idx];  // blended apparent source centroid (without lens light contribution)
 		  const double cy_srcs_thE = Event->yc_srcs_only[idx];  // in ecliptic coordinates, in theta E units, from omLightcurveGenerator.cpp
