@@ -82,7 +82,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 
   for(int i=0;i<nplanets;i++)
     {
-      double mass;
+      double mass = 0.0;
       for(int j=0;j<7;j++)
 	{
 	  int col = 7*i+j;
@@ -110,6 +110,13 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 		}
 	    }
 	   
+	}
+
+      if(mass<=0.0)
+	{
+	  if(Paramfile->verbosity>=1) cout << "Skipping planet " << i << " with zero mass" << endl;
+	  skipped_planets++;
+	  continue;
 	}
 
       double inc=Event->p_I.back();
@@ -222,11 +229,6 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	    }
 
 	} //end if mass >0
-      else
-	{
-	  if(Paramfile->verbosity>=1) cout << "Skipping planet " << i << " with zero mass" << endl;
-	  skipped_planets++;
-	}
       
       //Event->lcomp_alpha.push_back(360.0*ran2(idum));
       //Event->lcomp_phase.push_back(360.0*ran2(idum));

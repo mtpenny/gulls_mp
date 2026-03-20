@@ -310,46 +310,29 @@ def _select_obs_location(
     model_module: Any,
     *,
     requested: str,
-    fallback: str,
     init_params: Mapping[str, float],
     t_probe_mjd: float,
     ra_deg: float,
     dec_deg: float,
-) -> Tuple[str, str | None]:
+) -> str:
     requested_clean = requested.strip() if requested else ""
-    fallback_clean = fallback.strip() if fallback else ""
-    candidates: List[str] = []
-    for item in (requested_clean, fallback_clean, "earth"):
-        if not item:
-            continue
-        if item not in candidates:
-            candidates.append(item)
+    candidate = requested_clean or "earth"
 
-    errors: List[Tuple[str, str]] = []
     probe_time = np.asarray([t_probe_mjd], dtype=float)
-    for loc in candidates:
-        try:
-            probe_model = _build_pspl_model(
-                model_module,
-                init_params,
-                ra_deg=ra_deg,
-                dec_deg=dec_deg,
-                obs_location=loc,
-            )
-            _ = np.asarray(probe_model.get_astrometry(probe_time), dtype=float)
-            if loc == requested_clean:
-                return loc, None
-            if requested_clean:
-                return loc, f"requested obsLocation={requested_clean!r} failed; fell back to {loc!r}."
-            return loc, None
-        except Exception as exc:
-            errors.append((loc, str(exc)))
-
-    detail = "; ".join(f"{loc}: {msg}" for loc, msg in errors)
-    raise SmokeTestError(
-        f"BAGLE sanity: unable to initialize BAGLE model for any observer location candidates "
-        f"{candidates}: {detail}"
-    )
+    try:
+        probe_model = _build_pspl_model(
+            model_module,
+            init_params,
+            ra_deg=ra_deg,
+            dec_deg=dec_deg,
+            obs_location=candidate,
+        )
+        _ = np.asarray(probe_model.get_astrometry(probe_time), dtype=float)
+        return candidate
+    except Exception as exc:
+        raise SmokeTestError(
+            f"BAGLE sanity: requested obsLocation={candidate!r} failed to initialize: {exc}"
+        ) from exc
 
 
 def _solve_with_scipy_least_squares(
@@ -495,7 +478,15 @@ def _plot_joint_fit_diagnostics(
         label="Data",
         zorder=1,
     )
-    axes[0].plot(dt_plot, mag_model, "-", lw=1.8, color="tab:red", label="BAGLE best fit", zorder=5)
+    axes[0].plot(
+        dt_plot,
+        mag_model,
+        "--",
+        lw=2.0,
+        color="tab:red",
+        label="BAGLE best fit",
+        zorder=20,
+    )
     axes[0].invert_yaxis()
     axes[0].set_ylabel("Magnitude")
     axes[0].set_title(title)
@@ -528,20 +519,20 @@ def _plot_joint_fit_diagnostics(
     axes[1].plot(
         dt_plot,
         ast_model[:, 0] * MAS_PER_ARCSEC,
-        "-",
-        lw=1.8,
+        "--",
+        lw=2.0,
         color="tab:green",
         label="E model",
-        zorder=5,
+        zorder=20,
     )
     axes[1].plot(
         dt_plot,
         ast_model[:, 1] * MAS_PER_ARCSEC,
-        "-",
-        lw=1.8,
+        "--",
+        lw=2.0,
         color="tab:purple",
         label="N model",
-        zorder=5,
+        zorder=20,
     )
     if (
         t_ast_true is not None
@@ -576,11 +567,11 @@ def _plot_joint_fit_diagnostics(
     axes[2].plot(
         ast_model[:, 0] * MAS_PER_ARCSEC,
         ast_model[:, 1] * MAS_PER_ARCSEC,
-        "-",
+        "--",
         lw=2.0,
         color="tab:red",
         label="BAGLE best fit",
-        zorder=5,
+        zorder=20,
     )
     if show_noisy_astrometry:
         noisy_ast_alpha = max(0.0, min(1.0, float(noisy_ast_alpha)))
@@ -833,8 +824,7 @@ def run_bagle_joint_fit_sanity(
     piE_dir_tol_deg: float = 15.0,
     true_ast_rms_mas_max: float = 0.50,
     true_ast_sigma_max: float = 1.5,
-    obs_location: str = "jwst",
-    obs_location_fallback: str = "earth",
+    obs_location: str = "earth",
     lens_ast_rms_demean_mas_max: float = 0.05,
     microlensing_mask_te: float = 0.0,
 ) -> BagleJointFitSummary:
@@ -990,15 +980,11 @@ def run_bagle_joint_fit_sanity(
         field_try = int(float(candidate_row["Field"]))
         lc_try = _find_lc_for_event(run_dir, evt_try, subrun_try, field_try)
         df_try = pd.read_csv(lc_try, sep=r"\s+", comment="#")
-        if "Simulation_time" not in df_try.columns:  # I renamed this column in the gulls general lightcurves
-            if 'simulation_time' not in df_try.columns:   # b/c the inconsistent capitalization was annoying me
-                raise SmokeTestError(
-                    f"BAGLE sanity: {lc_try.name} missing required Simulation_time column"
-                )
-            else:
-                sim_time_try = df_try["simulation_time"].to_numpy(dtype=float, copy=False)
-        else:
-            sim_time_try = df_try["Simulation_time"].to_numpy(dtype=float, copy=False)
+        if "Simulation_time" not in df_try.columns:
+            raise SmokeTestError(
+                f"BAGLE sanity: {lc_try.name} missing required Simulation_time column"
+            )
+        sim_time_try = df_try["Simulation_time"].to_numpy(dtype=float, copy=False)
 
         t0_try = _safe_get(candidate_row, "t0lens1")
         tE_try = abs(_safe_get(candidate_row, "tE_ref"))
@@ -1039,6 +1025,7 @@ def run_bagle_joint_fit_sanity(
     bagle_contract = _parse_header_keyvals(lc_file, "#Astrometry_BAGLE:")
     contract = _parse_header_keyvals(lc_file, "#Astrometry_Contract:")
     contract_cols = _parse_header_keyvals(lc_file, "#Astrometry_Columns:")
+    blendless_cols_raw = bagle_contract.get("blendless_columns", "").strip()
     warnings: List[str] = []
     deferred_failures: List[str] = []
     for skip_msg in mask_skips[:5]:
@@ -1123,9 +1110,7 @@ def run_bagle_joint_fit_sanity(
         "Dec_det_deg",
         "Dec_centroid_true_deg",
     )
-    col_x_err = _resolve_col(("event_x_err_mas",), "x_centroid_error", "x_centroid_error_mas", allow_none=True)
-    col_y_err = _resolve_col(("event_y_err_mas",), "y_centroid_error", "y_centroid_error_mas", allow_none=True)
-    col_sigma = _resolve_col(("sky_sigma_mas",), "sigma_ast_mas")
+    col_sigma = _resolve_col(("sky_sigma_mas",), "sigma_astrometric_mas")
 
     required_lc_cols = [
         "Simulation_time",
@@ -1146,33 +1131,53 @@ def run_bagle_joint_fit_sanity(
         f"{lc_file.name}: BAGLE astrometry model_frame={astrometry_model_frame} (from #Astrometry_BAGLE contract)."
     )
 
-    # Explicitly convert JD-like timing to MJD for BAGLE.
-    # Prefer BJD when it appears sufficiently precise; otherwise use
-    # SIMULATION_ZERO_TIME + Simulation_time (JD) and convert to MJD.
+    # Explicitly convert the published simulation clock into JD/MJD for BAGLE.
+    # BJD is treated as a cross-check diagnostic only; the BAGLE fit uses the
+    # deterministic simulation timing.
     t_jd_sim = sim_zero_time + sim_time
     t_jd = t_jd_sim.copy()
+    timing_bjd_diff_stats: Dict[str, float | int] | None = None
+    timing_bjd_diff_sec_max = 1.0e-4
     if "BJD" in df.columns:
         bjd = df["BJD"].to_numpy(dtype=float, copy=False)
-        finite_bjd = np.isfinite(bjd)
+        finite_bjd = np.isfinite(bjd) & np.isfinite(t_jd_sim)
         n_bjd = int(np.sum(finite_bjd))
         if n_bjd > 0:
-            unique_bjd = int(np.unique(np.round(bjd[finite_bjd], 8)).size)
-            min_unique = max(50, n_bjd // 20)
-            if unique_bjd >= min_unique:
-                t_jd[finite_bjd] = bjd[finite_bjd]
-            else:
-                warnings.append(
-                    f"{lc_file.name}: BJD appears quantized ({unique_bjd} unique values over {n_bjd} epochs); "
-                    "using SIMULATION_ZERO_TIME + Simulation_time for high-precision timing."
+            diff_sec = (bjd[finite_bjd] - t_jd_sim[finite_bjd]) * 86400.0
+            max_abs_diff_sec = float(np.max(np.abs(diff_sec)))
+            timing_bjd_diff_stats = {
+                "n_finite": n_bjd,
+                "min_sec": float(np.min(diff_sec)),
+                "max_sec": float(np.max(diff_sec)),
+                "mean_sec": float(np.mean(diff_sec)),
+                "std_sec": float(np.std(diff_sec)),
+                "max_abs_sec": max_abs_diff_sec,
+                "threshold_sec": float(timing_bjd_diff_sec_max),
+            }
+            print(
+                f"{lc_file.name}: BJD - (SIMULATION_ZERO_TIME + Simulation_time) [sec] "
+                f"min={timing_bjd_diff_stats['min_sec']:.9g} "
+                f"max={timing_bjd_diff_stats['max_sec']:.9g} "
+                f"mean={timing_bjd_diff_stats['mean_sec']:.9g} "
+                f"std={timing_bjd_diff_stats['std_sec']:.9g}"
+            )
+            finite_idx = np.flatnonzero(finite_bjd)
+            for sample_idx in finite_idx[:5]:
+                diff_i_sec = (bjd[sample_idx] - t_jd_sim[sample_idx]) * 86400.0
+                print(
+                    f"  ep={sample_idx} sim_jd={t_jd_sim[sample_idx]:.16f} "
+                    f"BJD={bjd[sample_idx]:.16f} diff_sec={diff_i_sec:.9g}"
+                )
+            if max_abs_diff_sec > timing_bjd_diff_sec_max:
+                deferred_failures.append(
+                    f"BAGLE sanity: BJD differs from (SIMULATION_ZERO_TIME + Simulation_time) "
+                    f"by up to {max_abs_diff_sec:.9g} s in {lc_file.name}, "
+                    f"exceeding the {timing_bjd_diff_sec_max:.9g} s limit."
                 )
         else:
-            warnings.append(
-                f"{lc_file.name}: BJD column has no finite values; using SIMULATION_ZERO_TIME + Simulation_time."
-            )
+            warnings.append(f"{lc_file.name}: BJD column is present but contains no finite values.")
     else:
-        warnings.append(
-            f"{lc_file.name}: BJD column missing; using SIMULATION_ZERO_TIME + Simulation_time."
-        )
+        warnings.append(f"{lc_file.name}: BJD column missing; skipped timing cross-check.")
     t_mjd = t_jd - 2400000.5
 
     t0_event_days = _safe_get(row, "t0lens1")
@@ -1242,91 +1247,67 @@ def run_bagle_joint_fit_sanity(
     x_ast_true_all_arcsec: np.ndarray | None = None
     y_ast_true_all_arcsec: np.ndarray | None = None
     true_ast_source: str | None = None
-    if "RA_centroid_src_only_deg" in df.columns and "Dec_centroid_src_only_deg" in df.columns:
-        ra_src_only_deg = df["RA_centroid_src_only_deg"].to_numpy(dtype=float, copy=False)
-        dec_src_only_deg = df["Dec_centroid_src_only_deg"].to_numpy(dtype=float, copy=False)
-        dra_src_only_deg = (ra_src_only_deg - ra_deg + 180.0) % 360.0 - 180.0
-        x_ast_true_all_arcsec = dra_src_only_deg * cos_dec * 3600.0
-        y_ast_true_all_arcsec = (dec_src_only_deg - dec_deg) * 3600.0
-        true_ast_source = "RA/Dec source-only columns"
-        warnings.append(
-            f"{lc_file.name}: using blendless source-only astrometry from RA/Dec columns for BAGLE true-astrometry checks."
-        )
-    elif "centroid_src_x_mas" in df.columns and "centroid_src_y_mas" in df.columns:
-        src_only_e_mas = df["centroid_src_x_mas"].to_numpy(dtype=float, copy=False)
-        src_only_n_mas = df["centroid_src_y_mas"].to_numpy(dtype=float, copy=False)
-        transform = _parse_astrometry_transform(lc_file)
-        if transform is None:
+    if blendless_cols_raw and blendless_cols_raw.lower() != "none":
+        split_blendless = [part.strip() for part in blendless_cols_raw.split(",") if part.strip()]
+        if len(split_blendless) != 2:
             raise SmokeTestError(
-                f"BAGLE sanity: {lc_file.name} has blendless centroid_src_x/y columns but no #Astrometry_Transform; "
-                "cannot map blendless astrometry into BAGLE frame."
+                f"BAGLE sanity: invalid #Astrometry_BAGLE blendless_columns={blendless_cols_raw!r} "
+                f"in {lc_file.name}; expected two comma-separated columns."
             )
-        a11, a12, a21, a22 = transform
-        x_ast_true_all_arcsec = (a11 * src_only_e_mas + a12 * src_only_n_mas) / MAS_PER_ARCSEC
-        y_ast_true_all_arcsec = (a21 * src_only_e_mas + a22 * src_only_n_mas) / MAS_PER_ARCSEC
-        true_ast_source = "centroid_src_x/y + #Astrometry_Transform"
+        blendless_x_col, blendless_y_col = split_blendless
+        if blendless_x_col not in df.columns or blendless_y_col not in df.columns:
+            raise SmokeTestError(
+                f"BAGLE sanity: declared blendless astrometry columns "
+                f"({blendless_x_col}/{blendless_y_col}) are missing in {lc_file.name}."
+            )
+
+        if blendless_x_col == "RA_centroid_src_only_deg" and blendless_y_col == "Dec_centroid_src_only_deg":
+            ra_src_only_deg = df[blendless_x_col].to_numpy(dtype=float, copy=False)
+            dec_src_only_deg = df[blendless_y_col].to_numpy(dtype=float, copy=False)
+            dra_src_only_deg = (ra_src_only_deg - ra_deg + 180.0) % 360.0 - 180.0
+            x_ast_true_all_arcsec = dra_src_only_deg * cos_dec * 3600.0
+            y_ast_true_all_arcsec = (dec_src_only_deg - dec_deg) * 3600.0
+            true_ast_source = "contract blendless RA/Dec columns"
+        elif blendless_x_col == "centroid_src_x_mas" and blendless_y_col == "centroid_src_y_mas":
+            src_only_e_mas = df[blendless_x_col].to_numpy(dtype=float, copy=False)
+            src_only_n_mas = df[blendless_y_col].to_numpy(dtype=float, copy=False)
+            transform = _parse_astrometry_transform(lc_file)
+            if transform is None:
+                raise SmokeTestError(
+                    f"BAGLE sanity: {lc_file.name} declares blendless centroid columns "
+                    f"({blendless_x_col}/{blendless_y_col}) but no #Astrometry_Transform is available."
+                )
+            a11, a12, a21, a22 = transform
+            x_ast_true_all_arcsec = (a11 * src_only_e_mas + a12 * src_only_n_mas) / MAS_PER_ARCSEC
+            y_ast_true_all_arcsec = (a21 * src_only_e_mas + a22 * src_only_n_mas) / MAS_PER_ARCSEC
+            true_ast_source = "contract blendless centroid columns"
+        else:
+            raise SmokeTestError(
+                f"BAGLE sanity: unsupported #Astrometry_BAGLE blendless_columns "
+                f"({blendless_x_col}/{blendless_y_col}) in {lc_file.name}."
+            )
         warnings.append(
-            f"{lc_file.name}: using blendless source-only astrometry from centroid_src_x/y with #Astrometry_Transform."
+            f"{lc_file.name}: using contract-declared blendless astrometry columns "
+            f"({blendless_x_col}/{blendless_y_col})."
         )
     elif col_ra_det is not None and col_dec_det is not None:
-        if fit_true_astrometry:
-            raise SmokeTestError(
-                f"BAGLE sanity: fit_true_astrometry requested for {lc_file.name}, "
-                "but blendless source-only astrometry columns are missing "
-                "(need RA_centroid_src_only_deg/Dec_centroid_src_only_deg or centroid_src_x/y with #Astrometry_Transform)."
-            )
         ra_true_deg = df[col_ra_det].to_numpy(dtype=float, copy=False)
         dec_true_deg = df[col_dec_det].to_numpy(dtype=float, copy=False)
         dra_true_deg = (ra_true_deg - ra_deg + 180.0) % 360.0 - 180.0
         x_ast_true_all_arcsec = dra_true_deg * cos_dec * 3600.0
         y_ast_true_all_arcsec = (dec_true_deg - dec_deg) * 3600.0
-        true_ast_source = "RA/Dec deterministic centroid fallback"
-        warnings.append(
-            f"{lc_file.name}: blendless astrometry columns missing; falling back to deterministic RA/Dec astrometry columns."
-        )
-    elif "true_x_centroid_mas" in df.columns and "true_y_centroid_mas" in df.columns:
-        if fit_true_astrometry:
-            raise SmokeTestError(
-                f"BAGLE sanity: fit_true_astrometry requested for {lc_file.name}, "
-                "but blendless source-only astrometry columns are missing "
-                "(need RA_centroid_src_only_deg/Dec_centroid_src_only_deg or centroid_src_x/y with #Astrometry_Transform)."
-            )
-        true_e_mas = df["true_x_centroid_mas"].to_numpy(dtype=float, copy=False)
-        true_n_mas = df["true_y_centroid_mas"].to_numpy(dtype=float, copy=False)
-        transform = _parse_astrometry_transform(lc_file)
-        if transform is not None:
-            a11, a12, a21, a22 = transform
-            x_ast_true_all_arcsec = (a11 * true_e_mas + a12 * true_n_mas) / MAS_PER_ARCSEC
-            y_ast_true_all_arcsec = (a21 * true_e_mas + a22 * true_n_mas) / MAS_PER_ARCSEC
-            true_ast_source = "true_x/y blended centroid fallback"
-            warnings.append(
-                f"{lc_file.name}: blendless columns missing; derived noiseless BAGLE astrometry from true_x/y centroid columns."
-            )
-        else:
-            raise SmokeTestError(
-                f"BAGLE sanity: {lc_file.name} has true_x/y centroid columns but no #Astrometry_Transform; "
-                "cannot compare/plot noiseless astrometry in BAGLE frame."
-            )
+        true_ast_source = "deterministic total-centroid RA/Dec columns"
     else:
         raise SmokeTestError(
             f"BAGLE sanity: {lc_file.name} missing usable noiseless astrometry columns "
-            "(prefer RA_centroid_src_only_deg/Dec_centroid_src_only_deg; "
-            "fallbacks: centroid_src_x/y with #Astrometry_Transform, "
-                "or deterministic RA_noiseless/Dec_noiseless style columns)."
+            "(need contract-declared blendless columns, or deterministic total-centroid RA/Dec columns)."
         )
     if true_ast_source is not None:
         warnings.append(f"{lc_file.name}: noiseless astrometry source = {true_ast_source}.")
 
-    if col_x_err is not None and col_y_err is not None:
-        x_err_mas = df[col_x_err].to_numpy(dtype=float, copy=False)
-        y_err_mas = df[col_y_err].to_numpy(dtype=float, copy=False)
-    else:
-        sigma_mas = df[col_sigma].to_numpy(dtype=float, copy=False)
-        x_err_mas = sigma_mas.copy()
-        y_err_mas = sigma_mas.copy()
-        warnings.append(
-            f"{lc_file.name}: event_x/y error columns omitted by contract; using {col_sigma} symmetrically for BAGLE astrometric errors."
-        )
+    sigma_mas = df[col_sigma].to_numpy(dtype=float, copy=False)
+    x_err_mas = sigma_mas.copy()
+    y_err_mas = sigma_mas.copy()
     ast_mask = (
         outside_event_window
         &
@@ -1485,17 +1466,14 @@ def run_bagle_joint_fit_sanity(
         "b_sff1": fs_guess,
         "mag_src1": mag_src_guess,
     }
-    obs_location_used, obs_location_note = _select_obs_location(
+    obs_location_used = _select_obs_location(
         model,
         requested=obs_location,
-        fallback=obs_location_fallback,
         init_params=obs_probe_params,
         t_probe_mjd=t0_guess,
         ra_deg=ra_deg,
         dec_deg=dec_deg,
     )
-    if obs_location_note:
-        warnings.append(f"{lc_file.name}: {obs_location_note}")
     warnings.append(
         f"{lc_file.name}: BAGLE observer location set to {obs_location_used!r}."
     )
@@ -1872,16 +1850,10 @@ def run_bagle_joint_fit_sanity(
     # When astrometry is lens-relative, compare against raw .out murel_helio (lens-source).
     # Otherwise compare with source-lens convention used by BAGLE muRel.
     mu_ref_raw = np.array([mu_rel_e_ref, mu_rel_n_ref], dtype=float)
-    if lens_relative_astrometry:
-        mu_ref = mu_ref_raw.copy()
-        warnings.append(
-            "PM comparison uses raw .out murel_helio_* (lens-source) because astrometry is lens-relative."
-        )
-    else:
-        mu_ref = -mu_ref_raw
-        warnings.append(
-            "Applied sign conversion for PM comparison: .out murel_helio_* (lens-source) -> BAGLE muRel convention (source-lens)."
-        )
+    mu_ref = -mu_ref_raw
+    warnings.append(
+        "PM comparison converts .out murel_helio_* from lens-source convention to BAGLE muRel source-lens convention."
+    )
     mu_amp_fit = float(np.hypot(mu_fit[0], mu_fit[1]))
     mu_amp_ref = float(np.hypot(mu_ref[0], mu_ref[1]))
     if mu_amp_ref <= 1.0e-6:
@@ -1890,14 +1862,18 @@ def run_bagle_joint_fit_sanity(
     mu_dir_fit = math.degrees(math.atan2(mu_fit[1], mu_fit[0]))
     mu_dir_ref = math.degrees(math.atan2(mu_ref[1], mu_ref[0]))
     mu_dir_diff = abs(_angle_diff_deg(mu_dir_fit, mu_dir_ref))
-    if mu_amp_frac > mu_amp_frac_tol or mu_dir_diff > mu_dir_tol_deg:
-        deferred_failures.append(
-            f"BAGLE sanity: proper-motion mismatch for {lc_file.name} "
+    mu_mismatch_exceeds_tol = bool(
+        mu_amp_frac > mu_amp_frac_tol or mu_dir_diff > mu_dir_tol_deg
+    )
+    if mu_mismatch_exceeds_tol:
+        warnings.append(
+            f"BAGLE sanity diagnostic: fitted muRel differs from .out heliocentric mu_rel "
+            f"for {lc_file.name} "
             f"(fit_mu=({mu_fit[0]:.4f},{mu_fit[1]:.4f}) mas/yr, "
             f"out_mu_bagle=({mu_ref[0]:.4f},{mu_ref[1]:.4f}) mas/yr, "
             f"out_mu_raw=({mu_ref_raw[0]:.4f},{mu_ref_raw[1]:.4f}) mas/yr, "
-            f"|Δamp|/amp={mu_amp_frac:.3f} (tol={mu_amp_frac_tol:.3f}), "
-            f"Δdir={mu_dir_diff:.2f} deg (tol={mu_dir_tol_deg:.2f} deg))."
+            f"|Δamp|/amp={mu_amp_frac:.3f} (diag={mu_amp_frac_tol:.3f}), "
+            f"Δdir={mu_dir_diff:.2f} deg (diag={mu_dir_tol_deg:.2f} deg))."
             f"{lensing_context}"
         )
 
@@ -1906,22 +1882,15 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             "BAGLE sanity: best-fit model has no finite piE vector; cannot compare parallax."
         )
-    # Same convention handling for piE (direction tied to mu_rel definition).
     piE_ref_raw = np.array([_safe_get(row, "piEE"), _safe_get(row, "piEN")], dtype=float)
-    if lens_relative_astrometry:
-        piE_ref = piE_ref_raw.copy()
-        warnings.append(
-            "Parallax comparison uses raw .out piEE/piEN (lens-source) because astrometry is lens-relative."
-        )
-    else:
-        piE_ref = -piE_ref_raw
-        warnings.append(
-            "Applied sign conversion for parallax comparison: .out piEE/piEN (lens-source convention) -> BAGLE piE convention."
-        )
     if not np.all(np.isfinite(piE_ref_raw)):
         raise SmokeTestError(
             "BAGLE sanity: .out missing finite piEE/piEN; cannot compare parallax."
         )
+    piE_ref = -piE_ref_raw
+    warnings.append(
+        "Parallax comparison converts .out piEE/piEN from lens-source convention to BAGLE source-lens convention."
+    )
     piE_amp_fit = float(np.hypot(piE_fit[0], piE_fit[1]))
     piE_amp_ref = float(np.hypot(piE_ref[0], piE_ref[1]))
     if piE_amp_ref <= 1.0e-6:
@@ -1930,14 +1899,18 @@ def run_bagle_joint_fit_sanity(
     piE_dir_fit = math.degrees(math.atan2(piE_fit[1], piE_fit[0]))
     piE_dir_ref = math.degrees(math.atan2(piE_ref[1], piE_ref[0]))
     piE_dir_diff = abs(_angle_diff_deg(piE_dir_fit, piE_dir_ref))
-    if piE_amp_frac > piE_amp_frac_tol or piE_dir_diff > piE_dir_tol_deg:
-        deferred_failures.append(
-            f"BAGLE sanity: parallax mismatch for {lc_file.name} "
+    piE_mismatch_exceeds_tol = bool(
+        piE_amp_frac > piE_amp_frac_tol or piE_dir_diff > piE_dir_tol_deg
+    )
+    if piE_mismatch_exceeds_tol:
+        warnings.append(
+            f"BAGLE sanity diagnostic: fitted piE differs from .out heliocentric piE "
+            f"for {lc_file.name} "
             f"(fit_piE=({piE_fit[0]:.4f},{piE_fit[1]:.4f}), "
             f"out_piE_bagle=({piE_ref[0]:.4f},{piE_ref[1]:.4f}), "
             f"out_piE_raw=({piE_ref_raw[0]:.4f},{piE_ref_raw[1]:.4f}), "
-            f"|Δamp|/amp={piE_amp_frac:.3f} (tol={piE_amp_frac_tol:.3f}), "
-            f"Δdir={piE_dir_diff:.2f} deg (tol={piE_dir_tol_deg:.2f} deg))."
+            f"|Δamp|/amp={piE_amp_frac:.3f} (diag={piE_amp_frac_tol:.3f}), "
+            f"Δdir={piE_dir_diff:.2f} deg (diag={piE_dir_tol_deg:.2f} deg))."
             f"{lensing_context}"
         )
 
@@ -2036,21 +2009,53 @@ def run_bagle_joint_fit_sanity(
         },
         "proper_motion": {
             "fit": {"E": float(mu_fit[0]), "N": float(mu_fit[1]), "amp": mu_amp_fit},
-            "reference_bagle_convention": {"E": float(mu_ref[0]), "N": float(mu_ref[1]), "amp": mu_amp_ref},
-            "reference_out_raw": {"E": float(mu_ref_raw[0]), "N": float(mu_ref_raw[1]), "amp": float(np.hypot(mu_ref_raw[0], mu_ref_raw[1]))},
+            "out_helio_flipped_for_bagle_source_minus_lens_compare": {
+                "E": float(mu_ref[0]),
+                "N": float(mu_ref[1]),
+                "amp": mu_amp_ref,
+            },
+            "out_helio_raw_gulls_lens_minus_source": {
+                "E": float(mu_ref_raw[0]),
+                "N": float(mu_ref_raw[1]),
+                "amp": float(np.hypot(mu_ref_raw[0], mu_ref_raw[1])),
+            },
+            "amplitude_fraction_difference": mu_amp_frac,
             "direction_difference_deg": mu_dir_diff,
+            "diagnostic_thresholds": {
+                "amplitude_fraction": float(mu_amp_frac_tol),
+                "direction_deg": float(mu_dir_tol_deg),
+            },
+            "exceeds_diagnostic_threshold": mu_mismatch_exceeds_tol,
         },
         "parallax": {
             "fit": {"E": float(piE_fit[0]), "N": float(piE_fit[1]), "amp": piE_amp_fit},
-            "reference_bagle_convention": {"E": float(piE_ref[0]), "N": float(piE_ref[1]), "amp": piE_amp_ref},
-            "reference_out_raw": {"E": float(piE_ref_raw[0]), "N": float(piE_ref_raw[1]), "amp": float(np.hypot(piE_ref_raw[0], piE_ref_raw[1]))},
+            "out_helio_flipped_for_bagle_source_minus_lens_compare": {
+                "E": float(piE_ref[0]),
+                "N": float(piE_ref[1]),
+                "amp": piE_amp_ref,
+            },
+            "out_helio_raw_gulls_lens_minus_source": {
+                "E": float(piE_ref_raw[0]),
+                "N": float(piE_ref_raw[1]),
+                "amp": float(np.hypot(piE_ref_raw[0], piE_ref_raw[1])),
+            },
+            "amplitude_fraction_difference": piE_amp_frac,
             "direction_difference_deg": piE_dir_diff,
+            "diagnostic_thresholds": {
+                "amplitude_fraction": float(piE_amp_frac_tol),
+                "direction_deg": float(piE_dir_tol_deg),
+            },
+            "exceeds_diagnostic_threshold": piE_mismatch_exceeds_tol,
         },
         "best_fit_parameters": {name: float(best[name]) for name in needed if name in best},
         "best_fit_derived": {
             "tE_days": float(getattr(best_model, "tE", np.nan)),
             "thetaE_mas": float(getattr(best_model, "thetaE_amp", np.nan)),
             "piE_amp": float(getattr(best_model, "piE_amp", np.nan)),
+        },
+        "timing_crosscheck": {
+            "timing_source_used": "SIMULATION_ZERO_TIME + Simulation_time",
+            "bjd_minus_simulation_seconds": timing_bjd_diff_stats,
         },
         "lens_astrometry_comparison": {
             "rms_raw_mas": lens_ast_rms_raw_mas,

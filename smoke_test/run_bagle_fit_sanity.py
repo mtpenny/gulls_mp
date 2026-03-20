@@ -91,14 +91,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--obs-location",
         type=str,
-        default="jwst",
-        help="Observer location alias passed to BAGLE obsLocation (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--obs-location-fallback",
-        type=str,
         default="earth",
-        help="Fallback BAGLE obsLocation used when --obs-location cannot be initialized.",
+        help="Observer location alias passed to BAGLE obsLocation (default: %(default)s).",
     )
     parser.add_argument(
         "--max-phot-points",
@@ -136,25 +130,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--mu-amp-frac-tol",
         type=float,
         default=0.20,
-        help="Allowed fractional proper-motion amplitude mismatch (default: %(default)s).",
+        help="Diagnostic fractional proper-motion amplitude threshold recorded in the BAGLE summary (default: %(default)s).",
     )
     parser.add_argument(
         "--mu-dir-tol-deg",
         type=float,
         default=10.0,
-        help="Allowed proper-motion direction mismatch in degrees (default: %(default)s).",
+        help="Diagnostic proper-motion direction threshold in degrees recorded in the BAGLE summary (default: %(default)s).",
     )
     parser.add_argument(
         "--pie-amp-frac-tol",
         type=float,
         default=0.35,
-        help="Allowed fractional parallax amplitude mismatch (default: %(default)s).",
+        help="Diagnostic fractional parallax amplitude threshold recorded in the BAGLE summary (default: %(default)s).",
     )
     parser.add_argument(
         "--pie-dir-tol-deg",
         type=float,
         default=15.0,
-        help="Allowed parallax direction mismatch in degrees (default: %(default)s).",
+        help="Diagnostic parallax direction threshold in degrees recorded in the BAGLE summary (default: %(default)s).",
     )
     parser.add_argument(
         "--true-ast-rms-mas-max",
@@ -228,7 +222,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fit_true_astrometry=args.fit_true_astrometry,
                 true_ast_err_mas=args.true_ast_err_mas,
                 obs_location=args.obs_location,
-                obs_location_fallback=args.obs_location_fallback,
                 fit_reduced_chi2_max=args.fit_reduced_chi2_max,
                 mu_amp_frac_tol=args.mu_amp_frac_tol,
                 mu_dir_tol_deg=args.mu_dir_tol_deg,

@@ -24,6 +24,7 @@ CASES: Tuple[CaseDef, ...] = (
     ("fish-binary", "gullsFish.x", "smoke_fish_binary.prm"),
     ("fish-heavy", "gullsFish.x", "smoke_fish_heavy.prm"),
     ("general-single", "gulls_general.x", "smoke_general.prm"),
+    ("general-1s1l", "gulls_general.x", "smoke_1s1l.prm"),
     ("general-binary", "gulls_general.x", "smoke_general_binary.prm"),
     # Houston catalog tests - different seeds to test for serendipitous success
     ("std-houston-seed1", "gulls_std.x", "smoke_std_houston_seed1.prm"),
