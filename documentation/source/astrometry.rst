@@ -228,12 +228,18 @@ All columns are per-epoch rows in the ``.lc`` file.
    * - ``vbm_astrox2_source{i}_thE``
      - theta_E
      - Raw VBM x2 centroid output for source i
+   * - ``lenses_source{i}_x_thE``
+     - theta_E
+     - Lensed-image centroid for source i, ecliptic E (event frame)
+   * - ``lenses_source{i}_y_thE``
+     - theta_E
+     - Lensed-image centroid for source i, ecliptic N (event frame)
    * - ``source{i}_x_thE``
      - theta_E
-     - Source i position, ecliptic E (event frame)
+     - Unlensed source i position, ecliptic E (event frame)
    * - ``source{i}_y_thE``
      - theta_E
-     - Source i position, ecliptic N (event frame)
+     - Unlensed source i position, ecliptic N (event frame)
    * - ``source{i}_mu``
      - dimensionless
      - Magnification of source i
@@ -280,7 +286,16 @@ The ``.lc`` header contains astrometry metadata needed for downstream analysis:
       tangent plane.
 
 ``#Astrometry_Columns``
-    Maps logical column roles to actual column names.
+    Maps logical column roles to actual column names::
+
+        event_x_thetaE = blended_sources_lenses_x_thetaE
+        event_y_thetaE = blended_sources_lenses_y_thetaE
+        sky_ra_noiseless_deg  = true_RA_deg
+        sky_dec_noiseless_deg = true_Dec_deg
+        sky_ra_measured_deg   = measured_RA_deg
+        sky_dec_measured_deg  = measured_Dec_deg
+        sky_sigma_mas         = sigma_astrometric_mas
+        source_blend_total_flux = fractional_total_source_flux
 
 ``#Astrometry_BAGLE``
     Contract for BAGLE-specific validation::
@@ -344,13 +359,17 @@ With the corrected formula and the identities ``cos(alpha) = -sin(phi_pi)``,
 event-frame parallax contribution is::
 
     delta_E = tshift * cos(alpha) - ushift * sin(alpha)
-            = -piE * tau_raw * (-sin phi_pi) - piE * u_raw * (-(-cos phi_pi))
+            = (-piE * tau_raw)*(-sin phi) - (+piE * u_raw)*(-cos phi)
+            = piE * (tau_raw * sin phi + u_raw * cos phi)
 
-Expanding ``tau_raw`` and ``u_raw`` in terms of ``(Eshift, Nshift)`` and
-applying ``sin^2 + cos^2 = 1``::
+Expanding ``tau_raw = N*cos(phi) + E*sin(phi)`` and
+``u_raw = -N*sin(phi) + E*cos(phi)``::
 
-    delta_E = piE * Eshift
-    delta_N = piE * Nshift
+    delta_E = piE * [(N*cos*sin + E*sin^2) + (-N*sin*cos + E*cos^2)]
+            = piE * E * (sin^2 + cos^2)
+            = piE * Eshift
+
+    delta_N = piE * Nshift     [analogous derivation]
 
 The result has **no residual dependence on phi_pi**, confirming the rotation
 round-trip is clean.
@@ -420,12 +439,12 @@ Results (50 simulated events):
      - Median
      - Max
    * - Astrometric RMS (mas)
-     - 8.77e-05
-     - 1.19e-04
+     - 8.80e-05
+     - 1.18e-04
      - 2.39e-04
    * - Photometric RMS (rel flux)
-     - 6.71e-07
-     - 2.82e-05
+     - 1.00e-06
+     - 2.70e-05
      - 1.83e-02
 
 All 50 events achieve astrometric RMS below 0.001 mas.  The ~0.1

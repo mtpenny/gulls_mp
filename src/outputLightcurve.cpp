@@ -411,7 +411,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
    << " sky_sigma_mas=sigma_astrometric_mas"
    << " sky_ra_err_deg=measured_RA_error_deg"
    << " sky_dec_err_deg=measured_Dec_error_deg"
-   << " source_blend_total_flux=fractional_total_flux";
+   << " source_blend_total_flux=fractional_total_source_flux";
   lcfile << endl;
   lcfile << "#Astrometry_BAGLE: model_frame=absolute blendless_columns=none lens_columns=lens0_x_thE,lens0_y_thE lens_frame=event_xy_thetaE" << endl;
 

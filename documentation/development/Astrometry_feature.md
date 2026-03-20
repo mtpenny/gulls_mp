@@ -91,75 +91,86 @@ This is the direction of source motion relative to the lens (= negative of the
 lens-source relative proper motion), measured from ecliptic East toward ecliptic
 North in the standard `atan2(y, x)` convention.
 
-Since pi_E is parallel to the relative proper motion, and alpha points in the
-opposite direction:
+Let `theta = atan2(mubet_r, mulam_r)` be the direction of mu_rel in the
+standard ecliptic `(E, N)` plane.  Then:
 
 ```
-alpha = phi_pi + pi + (pi/2 - phi_pi - (pi/2 - theta)) ...
+phi_pi = atan2(mulam_r, mubet_r) = pi/2 - theta     [measured from N toward E]
+alpha  = atan2(-mubet_r, -mulam_r) = theta + pi      [measured from E toward N]
 ```
 
-More precisely, using `theta = atan2(mubet_r, mulam_r)`:
+Eliminating `theta`:
 
 ```
-phi_pi = pi/2 - theta
-alpha  = theta + pi
+alpha = 3*pi/2 - phi_pi
 ```
 
 Therefore:
 
 ```
-cos(alpha) = -sin(phi_pi)
-sin(alpha) = -cos(phi_pi)
+cos(alpha) = cos(3*pi/2 - phi_pi) = -sin(phi_pi)
+sin(alpha) = sin(3*pi/2 - phi_pi) = -cos(phi_pi)
 ```
 
 ### Perpendicular axis conventions differ
 
-**In `compute_tushifts`**, the `(tau, u)` decomposition is:
+**In `compute_tushifts`**, the axes are `(N, E)` — North first — and
+the decomposition into tau (parallel to pi_E) and u (perpendicular) is:
 
 ```
-tau_raw =  cos(phi_pi) * N + sin(phi_pi) * E  =  v_E * sin(phi_pi) + v_N * cos(phi_pi)
-u_raw   = -sin(phi_pi) * N + cos(phi_pi) * E  =  v_E * cos(phi_pi) - v_N * sin(phi_pi)
+tau_raw =  Nshift * cos(phi_pi) + Eshift * sin(phi_pi)
+u_raw   = -Nshift * sin(phi_pi) + Eshift * cos(phi_pi)
 ```
 
 The perpendicular axis `u_raw` points 90 degrees **clockwise** from the
-pi_E direction.
+pi_E direction (looking down on the sky).
 
-**In the alpha rotation**, the decomposition is:
+**In the alpha rotation** (omLightcurveGenerator), the axes are `(E, N)` —
+East first — and the reconstruction is:
 
 ```
 xs0 = tau * cos(alpha) - u * sin(alpha)    [ecliptic E]
 ys0 = tau * sin(alpha) + u * cos(alpha)    [ecliptic N]
 ```
 
-Here `u` is 90 degrees **counter-clockwise** from the tau direction.
+This is a standard 2D rotation, so `u` points 90 degrees
+**counter-clockwise** from the tau (source-motion) direction.
 
-Since pi_E and source motion are anti-parallel, "clockwise from pi_E" and
-"counter-clockwise from source motion" point in **opposite** directions.
-Therefore `u_raw = -u_alpha`, and the `u` component must be negated between the
-two rotations.
+Because pi_E and source motion are anti-parallel, "clockwise from pi_E"
+and "counter-clockwise from source motion" point in **opposite**
+directions.  Therefore `u_raw = -u_alpha`, and the `u` component must be
+negated when passing between the two rotations.
 
 ### Verification: round-trip with the NEW sign
 
-With the corrected formula:
+With the corrected formula (abbreviating `c = cos(phi_pi)`, `s = sin(phi_pi)`):
 
 ```
-tshift = -piE * tau_raw
-ushift = +piE * u_raw     (note: opposite sign from tshift)
+tshift = -piE * ( N*c + E*s)
+ushift = +piE * (-N*s + E*c)     [opposite sign prefix from tshift]
 ```
 
-The event-frame parallax contribution is:
+The event-frame parallax contribution (from the alpha rotation) is:
 
 ```
 delta_E = tshift * cos(alpha) - ushift * sin(alpha)
 delta_N = tshift * sin(alpha) + ushift * cos(alpha)
 ```
 
-Substituting `cos(alpha) = -sin(phi_pi)`, `sin(alpha) = -cos(phi_pi)`,
-expanding `tau_raw` and `u_raw`, and using `sin^2 + cos^2 = 1`:
+Substituting `cos(alpha) = -s`, `sin(alpha) = -c`:
 
 ```
-delta_E = piE * Eshift
-delta_N = piE * Nshift
+delta_E = [-piE*(Nc + Es)]*(-s)  -  [piE*(-Ns + Ec)]*(-c)
+        = piE*s*(Nc + Es)  +  piE*c*(-Ns + Ec)
+        = piE*(Ncs + Es²  -  Nsc + Ec²)
+        = piE * E * (s² + c²)
+        = piE * Eshift
+
+delta_N = [-piE*(Nc + Es)]*(-c)  +  [piE*(-Ns + Ec)]*(-s)
+        = piE*c*(Nc + Es)  -  piE*s*(-Ns + Ec)
+        = piE*(Nc² + Ecs  +  Ns² - Ecs)
+        = piE * N * (c² + s²)
+        = piE * Nshift
 ```
 
 This is a clean result with no residual dependence on `phi_pi`.  The old code
@@ -254,8 +265,8 @@ For each of 50 simulated 1-source-1-lens events:
 
 | Metric | Min | Median | Max |
 |---|---|---|---|
-| Astrometric RMS (mas) | 8.77e-05 | 1.19e-04 | 2.39e-04 |
-| Photometric RMS (relative flux) | 6.71e-07 | 2.82e-05 | 1.83e-02 |
+| Astrometric RMS (mas) | 8.80e-05 | 1.18e-04 | 2.39e-04 |
+| Photometric RMS (relative flux) | 1.00e-06 | 2.70e-05 | 1.83e-02 |
 
 **Astrometric agreement: sub-0.001 mas for all 50 events.**  The residual
 ~0.1 microarcsecond floor is consistent with differences between GULLS's
@@ -268,33 +279,28 @@ astrometry bug.
 
 ---
 
-## What the existing documentation got wrong
+## Documentation corrections (`astrometry.rst`)
 
 The previous `astrometry.rst` was written during development before the
-coordinate pipeline was finalized.  The following claims were incorrect:
+coordinate pipeline was finalized.  This PR rewrites it to match the actual
+implementation.  Key corrections:
 
-1. **"x,y orientation relative to celestial E,N is UNCERTAIN"** — the event
-   frame IS ecliptic E,N by construction.  Alpha is computed from the
-   reference-frame relative proper motion in ecliptic coordinates (line 165 of
-   `omLightcurveGenerator.cpp`), and the `(tau, u) → (xs0, ys0)` rotation is
-   designed to produce ecliptic `(E, N)`.
+1. **Event-frame orientation**: now documented as ecliptic (E, N) by
+   construction.  Alpha is computed from the ecliptic relative proper motion
+   (`omLightcurveGenerator.cpp` line 165), and the `(tau, u) → (xs0, ys0)`
+   rotation produces ecliptic `(E, N)` in theta_E units.
 
-2. **"Does NOT account for lens proper motion"** — lens proper motion IS
-   included (`pm_lam_mas`, `pm_beta_mas` in `photometry.cpp` line 230).
+2. **Lens proper motion**: now documented as included (`pm_lam_mas`,
+   `pm_beta_mas` added in `photometry.cpp`).
 
-3. **Column names** — the documentation listed columns like `centroid_src_x_mas`,
-   `RA_centroid_deg`, `RA_centroid_lpllx_deg` that do not exist in the actual
-   output.  Actual column names are `blended_sources_only_x_thetaE`,
-   `true_RA_deg`, etc.
+3. **Column names**: corrected to match actual output
+   (e.g. `blended_sources_only_x_thetaE`, `true_RA_deg`).
 
-4. **`#Astrometry_BAGLE` contract** — documented as `model_frame=lens_relative`
-   with `blendless_columns=RA_centroid_src_only_deg,...`, but the actual header
-   writes `model_frame=absolute` and `blendless_columns=none`.
+4. **`#Astrometry_BAGLE` contract**: corrected to `model_frame=absolute`,
+   `blendless_columns=none`.
 
-5. **Units** — documented centroid columns as being in mas; actual event-frame
-   columns are in theta_E.  Conversion to mas happens in `photometry.cpp`.
-
-The rewritten `astrometry.rst` corrects all of these.
+5. **Units**: event-frame columns are in theta_E, not mas.  Conversion to
+   mas and then degrees happens downstream in `photometry.cpp`.
 
 ---
 
