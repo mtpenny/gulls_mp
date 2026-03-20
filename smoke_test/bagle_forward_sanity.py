@@ -385,7 +385,8 @@ def run_bagle_forward_1s1l_sanity(
     truth_mapping: Dict[str, Any] = {
         "t0_geotr_mjd_from_gulls_t0lens1": float(t0_mjd),
         "t0par_mjd_from_gulls_tref": float(t0par_mjd),
-        "u0_amp_geotr_from_gulls_u0lens1": float(u0_for_bagle),
+        "u0_gulls_lens_source_from_u0lens1": float(row["u0lens1"]),
+        "u0_bagle_source_lens_negated_from_u0lens1": float(u0_for_bagle),
         "tE_geotr_days_from_gulls_tE_ref": float(row["tE_ref"]),
         "thetaE_mas_from_gulls_thetaE": float(thetaE_mas),
         "piS_mas_from_gulls_source_dist_kpc": float(1.0 / dS_kpc),
