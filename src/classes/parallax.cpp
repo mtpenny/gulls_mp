@@ -149,7 +149,7 @@ int parallax::compute_tushifts()
       //tshift[i] = -piE * ( NEshift[i][0]*cs + NEshift[i][1]*sn);
       //ushift[i] = -piE * (-NEshift[i][0]*sn + NEshift[i][1]*cs);
       tshift[i] = -piE * ( Nshift[i]*cs + Eshift[i]*sn);
-      ushift[i] = -piE * (-Nshift[i]*sn + Eshift[i]*cs);
+      ushift[i] =  piE * (-Nshift[i]*sn + Eshift[i]*cs);
     }
   status |= TUSHIFTS;
   return status;

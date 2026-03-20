@@ -343,13 +343,10 @@ def run_bagle_forward_1s1l_sanity(
     piE_E_geotr = piE_amp * mu_rel_ref_E / mu_rel_ref_amp
     piE_N_geotr = piE_amp * mu_rel_ref_N / mu_rel_ref_amp
 
-    # BAGLE's geoproj model accepts LS-convention piE and tb-convention u0
-    # (murel_in='LS', coord_in='tb' in convert_helio_geo_phot).  GULLS's
-    # published u0lens1 is already in the correct convention for this input:
-    # the sign and magnitude of u0 are preserved when passed directly.
-    # Empirical verification (photometric RMS < 3e-5 across all events)
-    # confirms that no sign flip is needed for either u0 or piE.
-    u0_for_bagle = float(row["u0lens1"])
+    # GULLS defines u0 with the LS (lens-source) sign convention for the
+    # perpendicular impact parameter, while BAGLE's geoproj model expects
+    # the SL (source-lens) convention. Negate to convert.
+    u0_for_bagle = -float(row["u0lens1"])
 
     muS_E = float(row["mu_source_helio_alpha"])
     muS_N = float(row["mu_source_helio_delta"])
@@ -376,13 +373,13 @@ def run_bagle_forward_1s1l_sanity(
     warnings: List[str] = [
         (
             f"{lc_file.name}: BAGLE forward model uses geocentric-projected photometric tuple "
-            "from Gulls: t0lens1, u0lens1, tE_ref, and piE projected into equatorial E/N "
-            "from the published murel_ref_alpha/delta direction (LS convention), with t0par=tref."
+            "from Gulls: t0lens1, -u0lens1 (negated: LS→SL convention), tE_ref, and piE "
+            "projected into equatorial E/N from the published murel_ref_alpha/delta direction "
+            "(LS convention), with t0par=tref."
         ),
         (
             f"{lc_file.name}: astrometric source position and proper motion remain in the SSB/heliocentric "
-            "form BAGLE expects for the geoproj class.  Residual astrometric drift (~0.01-0.4 mas) "
-            "is expected from ephemeris differences between GULLS (Keplerian) and BAGLE (ERFA)."
+            "form BAGLE expects for the geoproj class."
         ),
     ]
     truth_mapping: Dict[str, Any] = {
