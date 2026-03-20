@@ -1377,7 +1377,7 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             f"BAGLE sanity: event {evt} has invalid thetaE in .out"
         )
-    beta_guess = _safe_get(row, "u0lens1") * thetaE_guess
+    beta_guess = -_safe_get(row, "u0lens1") * thetaE_guess
 
     near_t0_idx = int(np.argmin(np.abs(t_mjd - t0_guess)))
     xS0_guess = float(x_ast_all_arcsec[near_t0_idx])
@@ -1882,14 +1882,24 @@ def run_bagle_joint_fit_sanity(
         raise SmokeTestError(
             "BAGLE sanity: best-fit model has no finite piE vector; cannot compare parallax."
         )
-    piE_ref_raw = np.array([_safe_get(row, "piEE"), _safe_get(row, "piEN")], dtype=float)
-    if not np.all(np.isfinite(piE_ref_raw)):
+    piE_amp_out = _safe_get(row, "piE")
+    if not math.isfinite(piE_amp_out) or piE_amp_out <= 0.0:
         raise SmokeTestError(
-            "BAGLE sanity: .out missing finite piEE/piEN; cannot compare parallax."
+            "BAGLE sanity: .out missing finite piE amplitude; cannot compare parallax."
         )
+    mu_rel_amp_ref = math.hypot(mu_rel_e_ref, mu_rel_n_ref)
+    if mu_rel_amp_ref < 1.0e-12:
+        raise SmokeTestError(
+            "BAGLE sanity: .out murel_helio vector is ~0; cannot derive equatorial piE direction."
+        )
+    piE_ref_raw = np.array([
+        piE_amp_out * mu_rel_e_ref / mu_rel_amp_ref,
+        piE_amp_out * mu_rel_n_ref / mu_rel_amp_ref,
+    ], dtype=float)
     piE_ref = -piE_ref_raw
     warnings.append(
-        "Parallax comparison converts .out piEE/piEN from lens-source convention to BAGLE source-lens convention."
+        "Parallax comparison derives equatorial piE from piE_amp * murel_helio direction, "
+        "then converts from lens-source to BAGLE source-lens convention."
     )
     piE_amp_fit = float(np.hypot(piE_fit[0], piE_fit[1]))
     piE_amp_ref = float(np.hypot(piE_ref[0], piE_ref[1]))
