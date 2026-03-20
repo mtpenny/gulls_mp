@@ -1,255 +1,515 @@
-Astrometry outputs and parameters
+Astrometry outputs and validation
 =================================
 
-This page summarizes the astrometry options added to gulls, the new output columns, and the noise recipe used to generate observed astrometric positions.
+This page documents the astrometry feature in the ``general`` gulls executable:
+the coordinate pipeline, output columns, noise model, parameter conventions,
+and validation against the BAGLE microlensing fitting framework.
+
+.. contents:: Contents
+   :local:
+   :depth: 2
+
 
 Parameters
 ----------
 
 - ``ASTROMETRY_ON`` (default: ``0``)
-  - Enable astrometric computation and outputs when set to 1.
-  - **Warning**: Enabling astrometry significantly slows VBMicrolensing computations.
-  - When 0, all astrometry outputs are written as 0.0.
+  When 1, per-epoch astrometric centroids are computed, converted to sky
+  coordinates, and written to the ``.lc`` file.  When 0, all astrometry
+  columns are written as 0.0.
+
+  **Warning**: enabling astrometry increases VBMicrolensing evaluation cost
+  because centroids must be computed for each source image.
 
 - ``ASTROMETRIC_SYS_FLOOR`` (units: mas, default: ``0.1``)
-  - Per-axis systematic floor for astrometric uncertainty.
-  - Combined in quadrature with the photon-limited term when producing per-epoch errors.
+  Per-axis systematic floor added in quadrature with the photon-limited
+  astrometric uncertainty.
 
-Coordinate Systems
-------------------
 
-Three coordinate systems are relevant to astrometry:
+Coordinate pipeline
+-------------------
 
-1. **VBM Internal Frame** (units: θ_E)
-   - The coordinate system used internally by VBMicrolensing library.
-   - Varies by lens configuration:
-     - *Single lens*: x1 along source-lens axis, x2 = 0 by axial symmetry
-     - *Binary lens*: x1 along binary axis, x2 perpendicular, origin at center of mass
-     - *N-lens (N≥3)*: Same as input source coordinates
-   - Raw VBM outputs are stored for debugging coordinate transforms.
+The astrometric centroid passes through five stages.  Each stage is stored
+in the Event structure for diagnostic output.
 
-2. **Lens-Centered Coordinates** (units: θ_E, converted to mas for output)
-   - Simulation coordinate system used throughout gulls.
-   - **Origin**: Lens center of mass (stationary in this frame).
-   - **Units**: Angular Einstein radius (θ_E).
-   - **x-axis**: Orientation relative to celestial East is **UNCERTAIN** - depends on α convention.
-   - **y-axis**: Orientation relative to celestial North is **UNCERTAIN**.
-   - Orientation defined by trajectory angle α, which may be inconsistently defined.
-   - All centroid columns (except raw VBM) are in this frame.
-   - **Validate x,y orientation with plots before trusting RA/Dec output!**
+Stage 1: VBM internal frame (theta_E)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-3. **ICRS Equatorial Coordinates** (RA/Dec in degrees)
-   - Absolute positions in the International Celestial Reference System.
-   - Base RA/Dec is written to lightcurve header as ``#Astrometry_Frame``.
-   - **Two versions output** for validation:
-     
-     a. Without lens parallax (``_deg`` columns): assumes catalog RA/Dec is lens position
-     b. With lens parallax (``_lpllx_deg`` columns): attempts to correct for observer position
-   
-   - Conversion assumes x~East, y~North (may be wrong!)::
-   
-         RA_deg = RA_base_deg + x_mas / (3600 × 1000 × cos(Dec_base))
-         Dec_deg = Dec_base_deg + y_mas / (3600 × 1000)
-   
-   - **Does NOT account for lens proper motion** - base RA/Dec is catalog position at t_ref.
+VBMicrolensing computes the flux-weighted centroid of the lensed source
+images in its own internal coordinate system:
 
-Output Columns
---------------
+- *Single lens*: x1 along source-lens axis, x2 perpendicular.
+- *Binary lens*: x1 along binary axis, x2 perpendicular, origin at center
+  of mass.
 
-All centroid columns are in **mas** (milliarcseconds) unless noted otherwise.
+Output columns: ``vbm_astrox1_source{i}_thE``, ``vbm_astrox2_source{i}_thE``.
 
-Raw VBM Output (for debugging)
+Stage 2: event frame (theta_E)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-These columns store the raw VBMicrolensing library output without transformation,
-per source and per epoch:
+``omLightcurveGenerator.cpp`` transforms VBM centroids to the event frame
+by applying the same coordinate rotation used for source/lens positions.
 
-- ``source{i}_vbm_astrox1_raw_thE`` (θ_E): Raw VBM x1 centroid output for source ``i``.
-- ``source{i}_vbm_astrox2_raw_thE`` (θ_E): Raw VBM x2 centroid output for source ``i``.
+The event frame is defined so that its axes align with **ecliptic East (E)
+and ecliptic North (N)**, in theta_E units, with the origin at the primary
+lens center of mass.  This alignment is achieved by computing the trajectory
+angle alpha from the reference-frame ecliptic relative proper motion::
 
-**Use case**: Debugging coordinate transforms between VBM internal coordinates and lens-centered coordinates.
+    alpha = atan2(-mubet_r, -mulam_r)
 
-Flux-Weighted Blending Columns
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+where ``mulam_r`` and ``mubet_r`` are the ecliptic (lambda, beta) components
+of the reference-frame relative proper motion unit vector.  This is the
+direction of source motion relative to the lens, measured from ecliptic East
+toward ecliptic North (standard ``atan2(y, x)`` convention).
 
-The photocenter is computed in stages, with each stage stored for diagnostic purposes:
+The source's (tau, u) coordinates are rotated by alpha to produce event-frame
+(x, y)::
 
-1. **Source-only centroid** (lensed sources, no baseline blending):
+    xs0 = tau * cos(alpha) - u * sin(alpha)    [ecliptic E, theta_E]
+    ys0 = tau * sin(alpha) + u * cos(alpha)    [ecliptic N, theta_E]
 
-   - ``centroid_src_x_mas``: Flux-weighted centroid of lensed source images (x).
-   - ``centroid_src_y_mas``: Flux-weighted centroid of lensed source images (y).
+Multiple sources are flux-weighted using magnified fluxes::
 
-   This is after:
-   
-   - VBM centroid transformed from VBM internal coordinates to lens-centered coordinates
-   - Flux-weighted blend across multiple sources (if present)
+    centroid = sum(flux_i * mu_i * centroid_i) / sum(flux_i * mu_i)
 
-2. **Source + lens centroid** (after blending with luminous lenses):
+Output columns:
+``blended_sources_only_x_thetaE``, ``blended_sources_only_y_thetaE``
+(source-only centroid, no lens light).
 
-   - ``centroid_src_lens_x_mas``: Centroid after blending with lens 1 and lens 2 (if luminous).
-   - ``centroid_src_lens_y_mas``: Same for y-component.
+Stage 3: luminous lens blending (theta_E)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-3. **Final centroid** (after blending with ambient stars):
+In ``photometry.cpp``, the source-only centroid is flux-weighted with up to
+two luminous lens positions::
 
-   - ``centroid_final_x_mas``: Final blended centroid (x).
-   - ``centroid_final_y_mas``: Final blended centroid (y).
+    centroid = (centroid_src * f_src_total
+                + pos_lens1 * fl1
+                + pos_lens2 * fl2) / (f_src_total + fl1 + fl2)
 
-   This equals the true centroid (``true_x_centroid_mas``).
+where ``fl1``, ``fl2`` are computed from lens magnitudes relative to the
+primary source zero point.
 
-True and Measured Centroids
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Output columns:
+``blended_sources_lenses_x_thetaE``, ``blended_sources_lenses_y_thetaE``.
 
-Lens-centered coordinates (mas):
+Stage 4: ecliptic tangent plane (degrees)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``true_x_centroid_mas``: Final blended centroid (noise-free).
-- ``true_y_centroid_mas``: Final blended centroid (noise-free).
-- ``true_x_centroid_error_mas``: Always 0.0 (no uncertainty on true value).
-- ``true_y_centroid_error_mas``: Always 0.0.
+Still in ``photometry.cpp``, the blended centroid is converted to absolute
+ecliptic coordinates:
 
-- ``x_centroid_mas``: Measured centroid with Gaussian noise added.
-- ``y_centroid_mas``: Measured centroid with Gaussian noise added.
-- ``x_centroid_error_mas``: 1-σ uncertainty on measured centroid.
-- ``y_centroid_error_mas``: 1-σ uncertainty on measured centroid.
+1. Multiply by ``thE_mas`` to get mas offset from the lens center of mass.
+2. Add the **lens reference-frame proper motion**: ``pm_lam_mas``,
+   ``pm_beta_mas`` (ecliptic lambda and beta, scaled by dt from tref).
+3. Add the **lens parallax**: ``-Eshift / D_L_kpc``, ``-Nshift / D_L_kpc``
+   (the observer's transverse displacement, divided by lens distance, with
+   a sign flip because the apparent lens motion is opposite to the observer's
+   displacement).
+4. Convert mas offset to a radians offset via the ecliptic tangent plane::
 
-Equatorial coordinates (ICRS, degrees) - **WARNING: x,y → E,N mapping is uncertain!**
+       dlambda_rad = dE_mas * mas_to_rad / cos(beta0)
+       dbeta_rad   = dN_mas * mas_to_rad
 
-Without lens parallax:
+5. Add to the reference ecliptic coordinates ``(lambda0, beta0)``.
 
-- ``RA_centroid_deg``: Observed centroid RA (with noise), relative to catalog position.
-- ``Dec_centroid_deg``: Observed centroid Dec (with noise).
-- ``RA_centroid_true_deg``: True centroid RA (noise-free).
-- ``Dec_centroid_true_deg``: True centroid Dec (noise-free).
+Output columns:
+``ecliptic_lambda_noiseless_deg``, ``ecliptic_beta_noiseless_deg``.
 
-With lens parallax attempt:
+Stage 5: equatorial ICRS (degrees)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``RA_centroid_lpllx_deg``: Observed RA with lens parallax correction.
-- ``Dec_centroid_lpllx_deg``: Observed Dec with lens parallax correction.
-- ``RA_true_lpllx_deg``: True RA with lens parallax correction.
-- ``Dec_true_lpllx_deg``: True Dec with lens parallax correction.
+The absolute ecliptic coordinates are converted to equatorial (RA, Dec) by
+``coords::ecl2ad``, a standard obliquity-based spherical transform.
 
-Validation data:
+Output columns (noiseless): ``true_RA_deg``, ``true_Dec_deg``.
 
-- ``lens_dist_kpc``: Lens distance in kpc (for computing your own parallax corrections).
-- ``lens_parallax_x_mas``: Lens parallax shift in x (mas) using observer position and lens distance.
-- ``lens_parallax_y_mas``: Lens parallax shift in y (mas) using observer position and lens distance.
+Output columns (with noise): ``measured_RA_deg``, ``measured_Dec_deg``.
 
-Source and Lens Positions
-~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Per-epoch positions of all sources and lenses are output in lens-centered coordinates (θ_E):
-
-- ``sourceN_x_thE``, ``sourceN_y_thE``: Position of source N (N=0,1,...).
-- ``sourceN_mu``: Magnification of source N.
-- ``lensN_x_thE``, ``lensN_y_thE``: Position of lens N (N=0,1,...).
-
-These positions are in lens-centered coordinates. **The x,y orientation relative to celestial E,N is uncertain!**
-Origin is at lens center of mass (lens 0 is at (0,0) for single lens events).
-
-**Validation tips**:
-
-1. Convert source/lens positions to mas (multiply by θ_E), compare against centroids.
-2. The centroid should shift toward the lens during high magnification.
-3. Plot VBM raw outputs vs lens-centered centroids to verify coordinate transforms.
-4. Compare RA/Dec output (both with and without lens parallax) against existing fitting codes.
-
-Blending Model
---------------
-
-Flux-weighted centroid blending is applied in stages:
-
-1. **Multiple sources** (in ``omLightcurveGenerator.cpp``):
-   
-   For each source, VBM computes the flux-weighted image centroid. If multiple sources exist, they are blended using magnified fluxes as weights::
-
-       centroid = Σ(flux_i × magnification_i × centroid_i) / Σ(flux_i × magnification_i)
-
-2. **Luminous lenses** (in ``photometry.cpp``):
-   
-   The source centroid is blended with up to two luminous lens positions::
-
-       centroid = (centroid_src × f_src + pos_lens1 × f_lens1 + pos_lens2 × f_lens2) / (f_src + f_lens1 + f_lens2)
-
-   Flux fractions ``fl1``, ``fl2`` should be set in ``buildEvent.cpp`` (currently defaults to old behavior if not set).
-
-3. **Ambient stars** (in ``photometry.cpp``):
-   
-   Blend with ambient stars in the aperture. Currently uses lens position as proxy (TODO: proper positions).
-
-Flux Fractions
-~~~~~~~~~~~~~~
-
-The following flux fractions are tracked per observatory:
-
-- ``fs``: Source(s) flux fraction (including companion sources)
-- ``fl1``: Primary lens flux fraction
-- ``fl2``: Secondary lens flux fraction (if luminous)
-- ``famb``: Ambient stars flux fraction
-
-These should satisfy: ``fs + fl1 + fl2 + famb = 1``
-
-**Note**: Proper computation of ``fl1``, ``fl2``, ``famb`` from lens magnitudes requires implementation in ``buildEvent.cpp``. Currently, if these are not set, all non-source flux is assumed to be at the primary lens position (legacy behavior).
-
-Noise Model
+Noise model
 -----------
 
-Per-epoch astrometric uncertainties are computed following Gould & Yee (2014).
-All noise calculations are performed entirely in mas:
+Per-epoch astrometric uncertainties follow Gould & Yee (2014), computed
+entirely in mas:
 
 1. Fractional photometric error::
 
-       σ_phot = Aerr / Aobs
+       sigma_phot = |Aerr / Aobs|
 
-2. PSF FWHM converted to mas::
+2. Photon-limited astrometric uncertainty::
 
-       FWHM_mas = FWHM_arcsec × 1000
+       sigma_ast_psf_mas = FWHM_arcsec * 1000 * sigma_phot / sqrt(ln 256)
 
-3. Photon-limited astrometric uncertainty (mas)::
+3. Total uncertainty with systematic floor::
 
-       σ_astro_mas = FWHM_mas × σ_phot / √(ln 256)
+       sigma_ast_mas = sqrt(sigma_ast_psf_mas^2 + ASTROMETRIC_SYS_FLOOR^2)
 
-4. Total uncertainty with systematic floor (mas)::
+4. Independent Gaussian noise is added to RA and Dec::
 
-       σ_total_mas = √(σ_astro_mas² + ASTROMETRIC_SYS_FLOOR²)
+       measured_RA_deg  = true_RA_deg  + sigma_ast_mas * N(0,1) * mas_to_deg / cos(dec0)
+       measured_Dec_deg = true_Dec_deg + sigma_ast_mas * N(0,1) * mas_to_deg
 
-5. Convert final blended centroid to mas::
+Output columns: ``sigma_astrometric_mas``, ``measured_RA_error_deg``,
+``measured_Dec_error_deg``.
 
-       xctrue_mas = xctrue_thE × θ_E
 
-6. Apply noise to final blended centroid (mas)::
+Output column reference
+-----------------------
 
-       xc_mas = xctrue_mas + σ_total_mas × N(0,1)
+All columns are per-epoch rows in the ``.lc`` file.
 
-7. Storage and output:
+.. list-table:: Lightcurve astrometry columns
+   :header-rows: 1
+   :widths: 40 15 45
 
-   - ``xc``, ``yc`` (observed): stored and output in **mas**
-   - ``xcerr``, ``ycerr``: stored and output in **mas**
-   - ``xctrue``, ``yctrue`` (true): stored in θ_E, output as ``× θ_E`` → mas
+   * - Column
+     - Units
+     - Description
+   * - ``blended_sources_only_x_thetaE``
+     - theta_E
+     - Flux-weighted source centroid, ecliptic E, no lens light
+   * - ``blended_sources_only_y_thetaE``
+     - theta_E
+     - Flux-weighted source centroid, ecliptic N, no lens light
+   * - ``blended_sources_lenses_x_thetaE``
+     - theta_E
+     - Blended centroid with luminous lenses, ecliptic E
+   * - ``blended_sources_lenses_y_thetaE``
+     - theta_E
+     - Blended centroid with luminous lenses, ecliptic N
+   * - ``ecliptic_lambda_noiseless_deg``
+     - degrees
+     - Noiseless blended centroid, ecliptic longitude
+   * - ``ecliptic_beta_noiseless_deg``
+     - degrees
+     - Noiseless blended centroid, ecliptic latitude
+   * - ``true_RA_deg``
+     - degrees
+     - Noiseless blended centroid, equatorial RA (ICRS)
+   * - ``true_Dec_deg``
+     - degrees
+     - Noiseless blended centroid, equatorial Dec (ICRS)
+   * - ``measured_RA_deg``
+     - degrees
+     - Observed centroid with noise, equatorial RA
+   * - ``measured_Dec_deg``
+     - degrees
+     - Observed centroid with noise, equatorial Dec
+   * - ``sigma_astrometric_mas``
+     - mas
+     - 1-sigma astrometric uncertainty per axis
+   * - ``measured_RA_error_deg``
+     - degrees
+     - 1-sigma RA uncertainty (= sigma_ast_mas / cos(dec) in deg)
+   * - ``measured_Dec_error_deg``
+     - degrees
+     - 1-sigma Dec uncertainty (= sigma_ast_mas in deg)
+   * - ``fractional_total_source_flux``
+     - dimensionless
+     - Magnified total source flux / unmagnified primary source flux
+   * - ``parallax_shift_t``
+     - theta_E
+     - Parallax shift in tau (along relative motion)
+   * - ``parallax_shift_u``
+     - theta_E
+     - Parallax shift in u (perpendicular to relative motion)
+   * - ``parallax_shift_x``
+     - AU
+     - Observer ecliptic-x position (3D, from orbital elements)
+   * - ``parallax_shift_y``
+     - AU
+     - Observer ecliptic-y position (3D)
+   * - ``parallax_shift_z``
+     - AU
+     - Observer ecliptic-z position (3D)
+   * - ``vbm_astrox1_source{i}_thE``
+     - theta_E
+     - Raw VBM x1 centroid output for source i
+   * - ``vbm_astrox2_source{i}_thE``
+     - theta_E
+     - Raw VBM x2 centroid output for source i
+   * - ``source{i}_x_thE``
+     - theta_E
+     - Source i position, ecliptic E (event frame)
+   * - ``source{i}_y_thE``
+     - theta_E
+     - Source i position, ecliptic N (event frame)
+   * - ``source{i}_mu``
+     - dimensionless
+     - Magnification of source i
+   * - ``lens{i}_x_thE``
+     - theta_E
+     - Lens i position, ecliptic E (event frame)
+   * - ``lens{i}_y_thE``
+     - theta_E
+     - Lens i position, ecliptic N (event frame)
 
-Affected Files
---------------
 
-- ``src/structures.h``: Astrometry parameters and intermediate centroid vectors.
-- ``src/readParamfile.cpp``: Parse ``ASTROMETRY_ON`` and ``ASTROMETRIC_SYS_FLOOR``.
-- ``src/omLightcurveGenerator.cpp``: Compute VBM centroids, transform to lens-centered coordinates, blend multiple sources.
-- ``src/photometry.cpp``: Blend with luminous lenses and ambient stars, add noise.
-- ``src/outputLightcurve.cpp``: Write astrometry columns to output files.
+Lightcurve header metadata
+--------------------------
 
-Lightcurve Header
+The ``.lc`` header contains astrometry metadata needed for downstream analysis:
+
+``#Astrometry_Frame``
+    Reference position and scale::
+
+        #Astrometry_Frame: RA_rad=X Dec_rad=Y RA_deg=X Dec_deg=Y
+            lambda0_deg=X beta0_deg=Y thE_mas=Z tref=T
+            frame=ecliptic_EN_barycenter
+
+    The reference position is the catalog lens position.  ``thE_mas`` is the
+    angular Einstein radius for unit conversion.  ``frame=ecliptic_EN_barycenter``
+    declares that event-frame x/y axes are ecliptic East/North.
+
+``#Astrometry_PM``
+    Published proper motions for source, lens, and relative (lens minus source)
+    in heliocentric and reference-frame variants, in equatorial and ecliptic
+    components.  Units are mas/yr.  Equatorial components use the
+    ``mu_alpha*cos(delta)`` convention (not raw ``mu_alpha``).
+
+``#Astrometry_Contract``
+    Machine-readable contract for downstream consumers::
+
+        #Astrometry_Contract: version=v2 model_frame=absolute
+            event_true_unit=thetaE noise_frame=ecliptic_tangent
+
+    - ``model_frame=absolute``: sky astrometry columns are absolute RA/Dec,
+      not lens-relative offsets.
+    - ``event_true_unit=thetaE``: event-frame centroid columns are in theta_E.
+    - ``noise_frame=ecliptic_tangent``: noise is applied in the ecliptic
+      tangent plane.
+
+``#Astrometry_Columns``
+    Maps logical column roles to actual column names.
+
+``#Astrometry_BAGLE``
+    Contract for BAGLE-specific validation::
+
+        #Astrometry_BAGLE: model_frame=absolute blendless_columns=none
+            lens_columns=lens0_x_thE,lens0_y_thE lens_frame=event_xy_thetaE
+
+    - ``model_frame=absolute``: BAGLE model astrometry should be compared
+      directly to ``true_RA_deg``/``true_Dec_deg`` (not lens-relative).
+    - ``blendless_columns=none``: no separate source-only RA/Dec columns are
+      currently published (source-only centroids are available in theta_E only).
+    - ``lens_columns=lens0_x_thE,lens0_y_thE``: primary lens track is
+      available in event-frame theta_E.
+
+
+The parallax sign fix
+---------------------
+
+A sign error in ``parallax.cpp::compute_tushifts`` (line 152) was corrected.
+This section provides the mathematical proof that the fix is correct.
+
+The problem
+~~~~~~~~~~~
+
+The parallax perturbation passes through two 2D rotations:
+
+1. ``compute_tushifts``: ecliptic ``(Nshift, Eshift)`` in AU, rotated by
+   ``phi_pi`` into ``(tshift, ushift)`` in theta_E.
+2. ``omLightcurveGenerator``: ``(tau + tshift, u0 + ushift)`` rotated by
+   ``alpha`` into event-frame ``(xs0, ys0)`` in theta_E.
+
+The ``u``-perpendicular axis has **opposite orientation** in these two rotations:
+
+- In ``compute_tushifts``, ``u_raw`` points 90 degrees **clockwise** from
+  the pi_E direction (decomposition: ``u_raw = v_E * cos(phi_pi) - v_N * sin(phi_pi)``).
+- In the alpha rotation, ``u`` points 90 degrees **counter-clockwise** from
+  the tau direction (the standard 2D rotation convention).
+
+Since pi_E and source motion (tau direction) are anti-parallel, "clockwise from
+pi_E" and "counter-clockwise from source motion" point in opposite directions.
+This means ``u_raw = -u_alpha``.
+
+The fix
+~~~~~~~
+
+The old code used the same sign (``-piE``) for both tau and u::
+
+    tshift[i] = -piE * ( Nshift[i]*cs + Eshift[i]*sn);   // correct
+    ushift[i] = -piE * (-Nshift[i]*sn + Eshift[i]*cs);   // WRONG
+
+The fix uses opposite signs::
+
+    tshift[i] = -piE * ( Nshift[i]*cs + Eshift[i]*sn);   // unchanged
+    ushift[i] =  piE * (-Nshift[i]*sn + Eshift[i]*cs);   // sign flipped
+
+Round-trip proof
+~~~~~~~~~~~~~~~~
+
+With the corrected formula and the identities ``cos(alpha) = -sin(phi_pi)``,
+``sin(alpha) = -cos(phi_pi)`` (derived from the angle definitions), the
+event-frame parallax contribution is::
+
+    delta_E = tshift * cos(alpha) - ushift * sin(alpha)
+            = -piE * tau_raw * (-sin phi_pi) - piE * u_raw * (-(-cos phi_pi))
+
+Expanding ``tau_raw`` and ``u_raw`` in terms of ``(Eshift, Nshift)`` and
+applying ``sin^2 + cos^2 = 1``::
+
+    delta_E = piE * Eshift
+    delta_N = piE * Nshift
+
+The result has **no residual dependence on phi_pi**, confirming the rotation
+round-trip is clean.
+
+With the old sign (``-piE`` on both), the result contains ``cos(2*phi_pi)``
+and ``sin(2*phi_pi)`` terms that spuriously rotate the parallax vector —
+corrupting astrometry while preserving ``|delta|`` (and hence photometry).
+
+Why photometry was unaffected
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Photometric magnification depends on ``|u|^2 = tau^2 + u^2``, which is
+invariant under sign flips of ``u``.  The sign of ``u0`` similarly cancels
+from ``u0^2``.  Both the ``ushift`` and ``u0`` sign errors are invisible
+to the lightcurve; only the astrometric centroid direction is affected.
+
+
+Sign conventions
+----------------
+
+GULLS uses the **lens-source (LS)** convention for the relative proper motion
+and impact parameter:
+
+- ``murel = mu_lens - mu_source``
+- ``u0lens1``: perpendicular source-lens separation at ``t0``, in LS convention
+- ``piE``: parallel to ``murel``; ``piEN`` = ecliptic beta component,
+  ``piEE`` = ecliptic lambda component
+- ``phi_pi = atan2(piEE, piEN)``: angle of pi_E from ecliptic N toward E
+
+BAGLE's ``PSPL_PhotAstrom_Par_Param4_geoproj`` uses the **source-lens (SL)**
+convention for ``u0``.  When comparing GULLS to BAGLE:
+
+- ``u0_bagle = -u0lens1``
+- ``piE`` direction is the same (both codes use LS for pi_E)
+- ``muS`` (heliocentric equatorial) passes through directly
+- ``piE_E/piE_N`` must be projected from ecliptic to equatorial:
+  the comparison code uses the published equatorial relative proper motion
+  direction ``(murel_ref_alpha, murel_ref_delta)`` as the pi_E direction
+  vector, since pi_E is parallel to mu_rel.
+
+
+Validation against BAGLE
+-------------------------
+
+Forward model comparison
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``smoke_test/bagle_forward_sanity.py`` constructs a BAGLE
+``PSPL_PhotAstrom_Par_Param4_geoproj`` model from the GULLS ``.out``
+parameters for each 1-source-1-lens event, evaluates it at all GULLS
+epochs, and compares:
+
+- **Photometry**: GULLS noiseless ``true_relative_flux`` vs BAGLE model
+  flux, converted to the same relative-flux convention.
+- **Astrometry**: GULLS noiseless ``(true_RA_deg, true_Dec_deg)`` converted
+  to tangent-plane arcsec vs BAGLE ``get_astrometry(t_mjd)``, with a
+  constant translation matched at the reference epoch.
+
+Results (50 simulated events):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 20 20
+
+   * - Metric
+     - Min
+     - Median
+     - Max
+   * - Astrometric RMS (mas)
+     - 8.77e-05
+     - 1.19e-04
+     - 2.39e-04
+   * - Photometric RMS (rel flux)
+     - 6.71e-07
+     - 2.82e-05
+     - 1.83e-02
+
+All 50 events achieve astrometric RMS below 0.001 mas.  The ~0.1
+microarcsecond residual floor is consistent with differences between GULLS's
+Keplerian Earth ephemeris and BAGLE's ERFA-based ephemeris.
+
+Photometric outliers (4 events with RMS > 0.001) all have small ``|u0|``
+(0.01--0.09) where finite-source effects dominate.  The PSPL forward model
+is expected to fail for these events; this is not an astrometry error.
+
+The parameter mapping (GULLS ``.out`` columns to BAGLE constructor arguments)
+is recorded in each event's JSON summary file under ``truth_mapping``, along
+with both convention-explicit names and numerical values.
+
+Astrometry sanity checks
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``smoke_test/astrometry_sanity.py`` performs structural validation:
+
+- Required column presence and header contract parsing.
+- Observer orbit non-constancy (``parallax_shift_x/y/z``).
+- Reference-frame proper motion recovery from finite-differenced source/lens
+  positions.
+- Long-baseline heliocentric PM comparison (far-field epochs, with parallax
+  correction) against published ``murel_helio_alpha/delta``.
+- Astropy cross-check of proper motion coordinate rotations.
+
+BAGLE joint fit
+~~~~~~~~~~~~~~~
+
+``smoke_test/bagle_fit_sanity.py`` performs a full joint photometric +
+astrometric PSPL + parallax fit (scipy least-squares fallback if PyMultiNest
+is unavailable) on selected well-behaved events, and compares recovered
+parameters against GULLS truth.
+
+
+Affected source files
+---------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - File
+     - Role
+   * - ``src/structures.h``
+     - Event structure: centroid vectors, PM structs, sky coordinate arrays
+   * - ``src/readParamfile.cpp``
+     - Parse ``ASTROMETRY_ON``, ``ASTROMETRIC_SYS_FLOOR``
+   * - ``src/omLightcurveGenerator.cpp``
+     - Alpha definition, (tau,u) to event-frame rotation, VBM centroid
+       transform, multi-source flux-weighted blending
+   * - ``src/photometry.cpp``
+     - Lens blending, event-frame to ecliptic to RA/Dec pipeline, noise
+   * - ``src/outputLightcurve.cpp``
+     - Header metadata, column definitions, per-epoch output
+   * - ``src/classes/parallax.cpp``
+     - ``compute_tushifts``: parallax (tau, u) shifts (sign fix here)
+   * - ``src/classes/coords.cpp``
+     - ``ecl2ad``, ``muecl2ad``, ``muad2ecl``: coordinate transforms
+   * - ``src/info.cpp``
+     - ``.out`` file columns including PM bundles and pi_E components
+
+
+Known limitations
 -----------------
 
-The lightcurve file contains astrometry metadata in the header:
+- **Ambient star positions**: ambient stars in the PSF aperture are blended
+  into photometry but not yet into the astrometric centroid.  This will
+  slightly bias the centroid for crowded fields.
 
-.. code-block:: text
+- **Source-only sky columns**: no separate ``RA/Dec`` columns for source-only
+  (blendless) centroids are published.  Source-only centroids are available
+  only in theta_E (``blended_sources_only_x/y_thetaE``).
 
-   #Astrometry_Frame: RA_rad=X Dec_rad=Y RA_deg=X Dec_deg=Y thE_mas=Z t0=T
-   #Astrometry_Frame: origin=catalog_position, xy_orientation=UNCERTAIN(validate!)
+- **Multi-lens (N >= 3) VBM transforms**: assumed VBM output is already in
+  the event frame.  This has not been independently verified for N >= 3
+  configurations.
 
-This defines the coordinate origin (catalog lens position) in both radians and degrees,
-along with the angular Einstein radius (θ_E in mas) needed for unit conversions.
+- **Commented-out overload**: ``parallax.cpp`` contains a commented-out
+  ``compute_tushifts(vector<...>*)`` overload (lines 187--188) that still
+  uses the old ``-piE`` convention for both tau and u.  If re-enabled, it
+  must be updated.
 
-Known Limitations
------------------
-
-- Ambient star positions: Currently uses lens position as proxy.
-- Lens flux fractions: Requires ``buildEvent.cpp`` implementation for proper values.
-- Multi-lens (N≥3) coordinate transforms: Assumed VBM output is already in lens-centered coordinates.
+- **Ephemeris mismatch**: GULLS uses Keplerian orbital elements for the
+  observer position; BAGLE uses ERFA (IAU SOFA derivative).  This produces
+  a ~0.1 microarcsecond astrometric floor in comparisons.
