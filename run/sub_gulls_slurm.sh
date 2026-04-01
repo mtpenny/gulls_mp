@@ -23,11 +23,17 @@ if ! [[ "$paramfile" =~ ^.+\.prm$ ]]; then
     exit
 fi
 
-source ~/gulls_fz/scripts/gullsPreamble.sh
+source ~/gulls_mp/scripts/gullsPreamble.sh
 
 date
 
 export GULLS_BASE_DIR=/project/penny/gulls/
+
+if [ -z ${fields+x} ]; then
+    fields=gbtdsfields;
+fi
+echo "Using $fields fields"
+
 
 tmp=$(pwd)
 if [ -d /var/scratch/$USER/$runname/ ]; then
@@ -42,7 +48,7 @@ cd /var/scratch/$USER/$runname/
 ~/gulls_mp/run/clear_hanging.sh &
 
 cd $finaldir
-seq -f "%02g" 0 19 | parallel ~/gulls_mp/run/run_gulls.sh $paramfile ~/gulls_mp/run/fields/gbtdsfields.txt.{} $subrun
+seq -f "%02g" 0 19 | parallel ~/gulls_mp/run/run_gulls.sh $paramfile ~/gulls_mp/run/fields/$fields.txt.{} $subrun
 
 date
 

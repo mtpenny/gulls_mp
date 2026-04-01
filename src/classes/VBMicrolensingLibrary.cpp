@@ -3428,6 +3428,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 				return std::numeric_limits<double>::quiet_NaN();
 			}
 			first->nim = Images->length;
+			if(Images->length>max_num_images) max_num_images=Images->length;
 			delete Images;
 			Images = nullptr;
 		}
@@ -3457,6 +3458,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		}
 		totNPS += NPS;
 		scan->nim = Images->length;
+		if(Images->length>max_num_images) max_num_images=Images->length;
 		delete Images;
 		Images = nullptr;
 		scr2 = sscr2 = 1;
@@ -3539,6 +3541,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 #ifdef _PRINT_ERRORS_DARK
 			printf("\n%d", Images->length);
 #endif
+			if(Images->length>max_num_images) max_num_images=Images->length;
 			delete Images;
 			Images = nullptr;
 
@@ -3606,7 +3609,10 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 
 		c = 0;
 
+		max_num_images=0;
+
 		Mag0 = MultiMag0(y1s, y2s, &Images);
+		max_num_images = Images->length;
 		delete Images;
 		rho2 = rho * rho;
 		corrquad *= 6 * (rho2 + 1.e-4 * Tol);

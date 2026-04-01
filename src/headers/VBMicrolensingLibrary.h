@@ -257,6 +257,9 @@ public:
 	int minannuli, maxannuli, nannuli, NPS, NPcrit;
 	int newtonstep;
 	double y_1, y_2, av, therr, astrox1, astrox2;
+
+        int max_num_images; //The maximum number of images that are seen in a calculation
+
 	double (*CumulativeFunction)(double r, double* LDpars);
 
 	// Critical curves and caustics calculation

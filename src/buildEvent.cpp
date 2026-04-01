@@ -68,15 +68,17 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   //Event->ljoint_tE.clear();
   //Event->ljoint_rE.clear();
 
+
   //Set up obsgroups
   if(int(Event->obsgroups.size())==0)
     {
-      if(Paramfile->verbosity>1) cout << "drawsl" << endl;
+      if(Paramfile->verbosity>1) cout << "setupObsGroups" << endl;
       setupObsGroups(Paramfile, Event);
     }
 
   if(Paramfile->verbosity>1) cout << "drawsl" << endl;
   drawsl(Paramfile, World, Event, Sources, Lenses, idum);
+  if(Paramfile->verbosity>1) cout << "drawsl done" << endl;
   //getPlanetvals(Event, Planets, Lenses, sdx);
 
   if(Paramfile->verbosity>1) cout << "addstars" << endl;
@@ -855,6 +857,38 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   if(Paramfile->verbosity>0)
     {
       cout << "setupParallax" << endl;
+    }
+
+  Event->xsrc.clear();
+  Event->ysrc.clear();
+  Event->mu_src.clear();
+  Event->nimages.clear();
+  Event->upeak.clear();
+  Event->tpeak.clear();
+  
+  
+  Event->xsrc.resize(Event->nsrc);
+  Event->ysrc.resize(Event->nsrc);
+  Event->mu_src.resize(Event->nsrc);
+  Event->nimageflag = vector<int>(Event->nsrc,0);
+  Event->nimages.resize(Event->nsrc);
+  Event->upeak.resize(Event->nsrc);
+  Event->tpeak.resize(Event->nsrc);
+  for(int i=0; i<Event->nsrc; i++)
+    {
+      Event->xsrc[i].resize(Event->nepochs);
+      Event->ysrc[i].resize(Event->nepochs);
+      Event->mu_src[i].resize(Event->nepochs);
+      Event->nimages[i].resize(Event->nepochs);
+    }
+  cout << "Event->nsrc = " << Event->nsrc << ", Event->nlens = " << Event->nlens << ", Event->nepochs = " << Event->nepochs << endl;
+  
+  Event->xlens.resize(Event->nlens);
+  Event->ylens.resize(Event->nlens);
+  for(int i=0; i<Event->nlens; i++)
+    {
+      Event->xlens[i].resize(Event->nepochs);
+      Event->ylens[i].resize(Event->nepochs);
     }
 
   Event->pllx.resize(Paramfile->numobservatories);

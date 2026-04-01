@@ -326,7 +326,7 @@ void buildWorld(struct filekeywords *Paramfile, struct obsfilekeywords World[], 
   setEpochProperties(World, Paramfile);
 
   if(Paramfile->verbosity>0) {printf("setupImage\n"); fflush(stdout);}
-  if(Paramfile->verbosity>1)
+  if(Paramfile->verbosity>-1)
     {
       int onx, inx;
       cout << "Modifications\n";

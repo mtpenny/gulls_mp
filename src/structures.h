@@ -315,6 +315,7 @@ struct event{
   double u0, alpha, t0, tcroin, ucroin, rcroin, tE_h, tE_r, rE, thE, piE, piEN, piEE, rs, murel, murel_l, murel_b, vt, gamma;
   //weights
   //double t0croin, rcroin, u0croin;
+  double umin;
   double u0max, t0range, weight_scale, raww, w;
   double l, b, ra, dec; //positions
   //vector<double> smag, lmag; //source and lens magnitudes
@@ -350,9 +351,9 @@ struct event{
   vector<int> flatlc;
   vector<double> flatchi2;
   double Amax;  //maximum measured magnification
-  double umin; //minimum value of u in the lightcurve
   int peakpoint; //the epoch number of the peak point
   int outputthis;
+  vector<int> nimageflag;
 
   //parallax
   //parallax pllx[MAX_NUM_OBSERVATORIES];
@@ -393,6 +394,8 @@ struct event{
   vector<double> xs2; //source position
   vector<double> ys2;
   vector<vector<double> > xsrc, ysrc, mu_src;
+  vector<double> upeak, tpeak;
+  vector<vector<int> > nimages;
   vector<double> xl1; //lens 1 position
   vector<double> yl1;
   vector<double> xl2; //lens 2 position

@@ -352,7 +352,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "parallax_shift_x" << " " << "parallax_shift_y" << " " <<    "parallax_shift_z" << " ";
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "source" << i << "_x" << " " << "source" << i << "_y" << " " << "source" << i << "_mu" << " ";
+      lcfile << "source" << i << "_x" << " " << "source" << i << "_y" << " " << "source" << i << "_mu" << " " << "source" << i << "_nimages" << " ";
     }
   for(int i=0;i<Event->nlens;i++)
     {
@@ -421,17 +421,17 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       shiftedidx = i-Event->nepochsvec[obsidx];
 	    
 	//fprintf(lcfile_ptr, "%.12g %.8g %g %.12g %g %d %d %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.8g %.6g %.6g %16.7f %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g %.6g ",
-      lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << flush;
-      lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << flush; 
-      lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " << flush;
-      lcfile << Event->xc[i] << " " << Event->xcerr[i] << " " << Event->yc[i] << " " << Event->ycerr[i] << " " << flush; 
-      lcfile << Event->xctrue[i] << " " << Event->xctrueerr[i] << " " << Event->yctrue[i] << " " << Event->yctrueerr[i] << " " << flush; 
-      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
-      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
-      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
-      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][0] << " " << flush;
-      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << flush; 
-      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " " << flush;
+      lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " ";// << flush;
+      lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " ";// << flush; 
+      lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " ";// << flush;
+      lcfile << Event->xc[i] << " " << Event->xcerr[i] << " " << Event->yc[i] << " " << Event->ycerr[i] << " ";// << flush; 
+      lcfile << Event->xctrue[i] << " " << Event->xctrueerr[i] << " " << Event->yctrue[i] << " " << Event->yctrueerr[i] << " ";// << flush; 
+      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " ";// << flush;
+      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " ";// << flush;
+      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " ";// << flush; 
+      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][0] << " ";// << flush;
+      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " ";// << flush; 
+      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " ";// << flush;
 
       if(Paramfile->verbosity>=4)
 	{
@@ -443,12 +443,12 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	  
       for(int s=0;s<Event->nsrc;s++)
 	{
-	  lcfile << Event->xsrc[s][i] << " " << Event->ysrc[s][i] << " " << Event->mu_src[s][i] << " " << flush;
+	  lcfile << Event->xsrc[s][i] << " " << Event->ysrc[s][i] << " " << Event->mu_src[s][i] << " " << Event->nimages[s][i] << " ";// << flush;
 	}
       lcfile << flush;
       for(int l=0;l<Event->nlens;l++)
 	{
-	  lcfile << Event->xlens[l][i] << " " << Event->ylens[l][i] << " " << flush;
+	  lcfile << Event->xlens[l][i] << " " << Event->ylens[l][i] << " ";// << flush;
 	}
       lcfile << flush;
 	  

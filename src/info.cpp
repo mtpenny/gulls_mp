@@ -68,6 +68,11 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 	  ofile << "Source2_" << Sources->datakey[i] << " ";
 	}
     }
+  ofile << "Source_NImageFlag ";
+  if(Paramfile->multiple_sources)
+    {
+      ofile << "Source2_NImageFlag ";
+    }
 
   //lens data - +10+1 = 15
   ofile << "NLens NPlanets ";
@@ -294,6 +299,8 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	    }
 	}
     }
+  ofile << Event->nimageflag[0] << " ";
+  if(Paramfile->multiple_sources) ofile << Event->nimageflag[1] << " ";
 
   //lens data - +10+1 = 15
   int ln = Event->lens;
