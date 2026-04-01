@@ -144,9 +144,9 @@ class VBMicrolensing
 	int* worst;
 	double e, phi, phip, phi0, Om, inc, u0, tE_inv, t0, alpha, pai1, pai2, PosAng, dPosAng, thetaE, d3, v3, GM, flagits;
 	int iastro;
-	double Obj[3], rad[3], tang[3], t0old;
+	double Obj[3], rad[3], tang[3], t0old, t0parold;
 	double Eq2000[3], Quad2000[3], North2000[3];
-	double Et0[2], vt0[2], Et[2], Ehel[2], lighttravel, lighttravel0;
+	double Et0[2], vt0[2], Et[2], Ehel[2], lighttravel, lighttravel0, lighttravel0par;
 	double ESPLout[__rsize_ESPL][__zsize_ESPL], ESPLin[__rsize_ESPL][__zsize_ESPL], ESPLoutastro[__rsize_ESPL][__zsize_ESPL], ESPLinastro[__rsize_ESPL][__zsize_ESPL];
 	bool coordinates_set;
 	bool multidark;
