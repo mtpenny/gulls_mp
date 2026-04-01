@@ -127,7 +127,7 @@ class VBMicrolensing
 	double** posEar, startEar, stepEar;
 	int ndataEar;
 	double Mag0;
-	double* dist_mp, * q;
+	double* q;
 	int nim0, n, n2, nnm1, nroots, nrootsmp, * nrootsmp_mp;
 	VBcomplex* zr, * zcr, ** pmza, ** pyaza, ** ppmy, * pza, * pza2, ** pmza2, * pdum, * ppy, * a, * s_offset, * pert, y, yc, * s;
 	VBcomplex* y_mp, *** pmza_mp, ** pza_mp, *** pyaza_mp, *** ppmy_mp, ** ppy_mp, ** zr_mp;
