@@ -23,6 +23,9 @@ CASES: Tuple[CaseDef, ...] = (
     ("fish-single", "gullsFish.x", "smoke_fish.prm"),
     ("fish-binary", "gullsFish.x", "smoke_fish_binary.prm"),
     ("fish-heavy", "gullsFish.x", "smoke_fish_heavy.prm"),
+    ("general-single", "gulls_general.x", "smoke_general.prm"),
+    ("general-1s1l", "gulls_general.x", "smoke_1s1l.prm"),
+    ("general-binary", "gulls_general.x", "smoke_general_binary.prm"),
     # Houston catalog tests - different seeds to test for serendipitous success
     ("std-houston-seed1", "gulls_std.x", "smoke_std_houston_seed1.prm"),
     ("std-houston-seed2", "gulls_std.x", "smoke_std_houston_seed2.prm"),
@@ -33,7 +36,10 @@ CASE_LABELS = {label for label, _, _ in CASES}
 CASE_LOOKUP: Dict[str, CaseDef] = {label: (label, exe, prm) for label, exe, prm in CASES}
 CASE_EXEC_MAP: Dict[str, List[CaseDef]] = {}
 for case in CASES:
-    CASE_EXEC_MAP.setdefault(case[1], []).append(case)
+    exe_name = case[1]
+    CASE_EXEC_MAP.setdefault(exe_name, []).append(case)
+    if exe_name.endswith(".x"):
+        CASE_EXEC_MAP.setdefault(exe_name[:-2], []).append(case)
 
 CASE_CHOICES: Tuple[str, ...] = tuple(sorted(CASE_LABELS | set(CASE_EXEC_MAP)))
 

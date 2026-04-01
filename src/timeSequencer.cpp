@@ -241,14 +241,6 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
   Event->Aerr.resize(Event->nepochs);
   Event->Atrue.resize(Event->nepochs);
   Event->Atrueerr.resize(Event->nepochs);
-  Event->xc.resize(Event->nepochs);
-  Event->xcerr.resize(Event->nepochs);
-  Event->xctrue.resize(Event->nepochs);
-  Event->xctrueerr.resize(Event->nepochs);
-  Event->yc.resize(Event->nepochs);
-  Event->ycerr.resize(Event->nepochs);
-  Event->yctrue.resize(Event->nepochs);
-  Event->yctrueerr.resize(Event->nepochs);
   Event->Afit.resize(Event->nepochs);
   Event->nosat.resize(Event->nepochs);
   Event->xs.resize(Event->nepochs);
@@ -262,6 +254,22 @@ void setupMemory(struct obsfilekeywords World[], struct event *Event, struct fil
   Event->vbm_rootaccuracy.resize(Event->nepochs);
   Event->vbm_squarecheck.resize(Event->nepochs);
   Event->vbm_therr.resize(Event->nepochs);
+  Event->xc_srcs_only.resize(Event->nepochs);
+  Event->yc_srcs_only.resize(Event->nepochs);
+  Event->xc_src_lens.resize(Event->nepochs);
+  Event->yc_src_lens.resize(Event->nepochs);
+  Event->src_flux_total.resize(Event->nepochs);
+  Event->astrox1_raw.clear();
+  Event->astrox2_raw.clear();
+  Event->lambda_noiseless_deg.resize(Event->nepochs);
+  Event->beta_noiseless_deg.resize(Event->nepochs);
+  Event->ra_noiseless_deg.resize(Event->nepochs);
+  Event->dec_noiseless_deg.resize(Event->nepochs);
+  Event->ra_measured_deg.resize(Event->nepochs);
+  Event->dec_measured_deg.resize(Event->nepochs);
+  Event->sigma_ast_mas.resize(Event->nepochs);
+  Event->ra_err_deg.resize(Event->nepochs);
+  Event->dec_err_deg.resize(Event->nepochs);
 
 }
 

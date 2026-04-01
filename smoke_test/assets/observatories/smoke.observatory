@@ -7,7 +7,8 @@ NAME		SmokeScope
 LATITUDE	0.0
 LONGITUDE	0.0
 SPACE		1
-ORBIT		2
+# ORBIT 0 = Earth orbit in setupOrbit(); keep SPACE=1 to avoid ground-only cuts.
+ORBIT		0
 
 ALTITUDE	0.0
 

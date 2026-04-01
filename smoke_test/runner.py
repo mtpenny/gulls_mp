@@ -18,6 +18,8 @@ from .constants import (
     CASES,
     REPO_ROOT,
 )
+from .astrometry_sanity import verify_astrometry_sanity
+from .bagle_fit_sanity import run_bagle_joint_fit_sanity
 from .errors import SmokeTestError
 from .execution import run_command
 from .metrics import gather_case_metrics
@@ -28,6 +30,7 @@ from .validation import (
     verify_catalog_alignment,
     verify_catalog_columns,
     verify_input_files_exist,
+    verify_planet_file_schema,
     verify_psf_files,
     verify_nfilters_matches_catalogs,
     verify_outputs,
@@ -85,6 +88,86 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=0,
         help="The debug verbosity level of the output"
     )
+    parser.add_argument(
+        "--astrometry-sanity",
+        action="store_true",
+        help=(
+            "Run strict astrometry self-consistency checks on generated .lc/.out products. "
+            "Useful for validating pre-generated astrometric outputs."
+        ),
+    )
+    parser.add_argument(
+        "--astrometry-strict-documented-columns",
+        action="store_true",
+        help=(
+            "With --astrometry-sanity, fail if documented lens_parallax_x_mas/y_mas "
+            "columns are missing."
+        ),
+    )
+    parser.add_argument(
+        "--astrometry-long-baseline-years",
+        type=float,
+        default=1.0,
+        help=(
+            "Required years of coverage on each side of tref for long-baseline "
+            "heliocentric proper-motion checks when --astrometry-sanity is enabled "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--astrometry-long-baseline-exclusion-te",
+        type=float,
+        default=5.0,
+        help=(
+            "Exclude epochs within this many tE of t0 for long-baseline heliocentric "
+            "proper-motion checks when --astrometry-sanity is enabled (default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--astrometry-long-baseline-direction-tol-deg",
+        type=float,
+        default=15.0,
+        help=(
+            "Minimum angular tolerance (deg) for long-baseline heliocentric "
+            "proper-motion direction checks when --astrometry-sanity is enabled "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--bagle-joint-fit-sanity",
+        action="store_true",
+        help=(
+            "Run an additional BAGLE joint photometric+astrometric fit sanity check "
+            "on one single-source, single-lens-like event in each case output."
+        ),
+    )
+    parser.add_argument(
+        "--bagle-event-id",
+        type=int,
+        default=None,
+        help=(
+            "With --bagle-joint-fit-sanity, force BAGLE fit to use this EventID "
+            "(default: auto-select using single-lens chi2)."
+        ),
+    )
+    parser.add_argument(
+        "--bagle-chi2-max",
+        type=float,
+        default=100.0,
+        help=(
+            "With --bagle-joint-fit-sanity, maximum .out ObsGroup_0_chi2 for event "
+            "selection (default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--bagle-n-live-points",
+        type=int,
+        default=200,
+        help=(
+            "With --bagle-joint-fit-sanity, nested-sampling live points "
+            "(default: %(default)s)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -96,7 +179,9 @@ def _resolve_case_selection(raw_choices: Sequence[str] | None, ci_mode: bool = F
                 ("smoke_std", "gulls_std.x", "smoke_std.prm"),
                 ("smoke_std_binary", "gulls_std.x", "smoke_std_binary.prm"),
                 ("smoke_fish", "gullsFish.x", "smoke_fish.prm"),
-                ("smoke_fish_binary", "gullsFish.x", "smoke_std_binary.prm"),
+                # For the fish binary CI case we should use the fish binary
+                # parameter file so outputs land under the fish/ output tree.
+                ("smoke_fish_binary", "gullsFish.x", "smoke_fish_binary.prm"),
                 ("smoke_croin", "gulls_croin.x", "smoke_croin.prm"),
                 ("smoke_croin_binary", "gulls_croin.x", "smoke_croin_binary.prm"),
                 ("smoke_general", "gulls_general.x", "smoke_general.prm"),
@@ -207,6 +292,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             verify_weather_coverage(case.params)
             verify_rates_file(case.params)
             verify_sequence_has_observations(case.params)
+            verify_planet_file_schema(case.params, args.field if args.field is not None else -1, args.instance)
         except SmokeTestError as err:
             print(f"Validation failed for {case.label}:")
             print(f" - {err}")
@@ -242,8 +328,67 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         out_files = verify_outputs(case.output_dir)
         verify_catalog_alignment(out_files, case.params)
+        if args.astrometry_sanity:
+            summary = verify_astrometry_sanity(
+                case.output_dir,
+                out_files,
+                case.params,
+                strict_documented_columns=args.astrometry_strict_documented_columns,
+                long_baseline_years_each_side=args.astrometry_long_baseline_years,
+                long_baseline_exclusion_te=args.astrometry_long_baseline_exclusion_te,
+                long_baseline_direction_tol_deg=args.astrometry_long_baseline_direction_tol_deg,
+            )
+            print(
+                "Astrometry sanity passed: "
+                f"{summary.checked_lightcurves} lightcurves, {summary.checked_epochs} epochs"
+            )
+            if summary.zscore_mean is not None and summary.zscore_std is not None:
+                print(
+                    "Astrometry residual z-score stats: "
+                    f"mean={summary.zscore_mean:.4f}, std={summary.zscore_std:.4f}"
+                )
+            for report in summary.pm_conversion_reports:
+                print(report)
+            max_warn = 10
+            for warning in summary.warnings[:max_warn]:
+                print(f"Astrometry warning: {warning}")
+            if len(summary.warnings) > max_warn:
+                print(
+                    "Astrometry warning: "
+                    f"... and {len(summary.warnings) - max_warn} more warnings"
+                )
+        if args.bagle_joint_fit_sanity:
+            bagle_summary = run_bagle_joint_fit_sanity(
+                case.output_dir,
+                out_files,
+                case.params,
+                chi2_max=args.bagle_chi2_max,
+                event_id=args.bagle_event_id,
+                n_live_points=args.bagle_n_live_points,
+            )
+            print(
+                "BAGLE joint-fit sanity passed: "
+                f"event={bagle_summary.event_id} (SubRun={bagle_summary.subrun}, Field={bagle_summary.field}), "
+                f"fit reduced chi2={bagle_summary.fit_reduced_chi2:.4f}"
+            )
+            print(
+                "BAGLE PM comparison: "
+                f"out(E,N)=({bagle_summary.mu_ref_e:.4f},{bagle_summary.mu_ref_n:.4f}) mas/yr, "
+                f"fit(E,N)=({bagle_summary.mu_fit_e:.4f},{bagle_summary.mu_fit_n:.4f}) mas/yr, "
+                f"dirΔ={bagle_summary.mu_dir_diff_deg:.2f} deg"
+            )
+            print(
+                "BAGLE parallax comparison: "
+                f"out(E,N)=({bagle_summary.piE_ref_e:.4f},{bagle_summary.piE_ref_n:.4f}), "
+                f"fit(E,N)=({bagle_summary.piE_fit_e:.4f},{bagle_summary.piE_fit_n:.4f}), "
+                f"dirΔ={bagle_summary.piE_dir_diff_deg:.2f} deg"
+            )
+            for warning in bagle_summary.warnings:
+                print(f"BAGLE warning: {warning}")
+            print(f"BAGLE plot: {bagle_summary.plot_path}")
+            print(f"BAGLE summary: {bagle_summary.result_json_path}")
         summaries = gather_case_metrics(out_files)
-        plot_lightcurves(case.output_dir, summaries, case.params)
+        plot_lightcurves(case.output_dir, summaries, case.params, build_bin)
 
     if failures:
         print("\nSmoke test failed:")

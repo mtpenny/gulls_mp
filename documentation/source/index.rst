@@ -45,6 +45,7 @@ Table of Content
 
    parameter_reference
    input_formats
+   astrometry
 
 .. toctree::
    :maxdepth: 1

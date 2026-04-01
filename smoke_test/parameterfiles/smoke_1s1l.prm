@@ -1,7 +1,7 @@
-RUN_NAME=smoke_croin_binary
-OUTPUT_DIR=smoke_test/output/croin/
-FINAL_DIR=smoke_test/output/croin/
-EXECUTABLE=gulls_croin
+RUN_NAME=smoke_1s1l
+OUTPUT_DIR=smoke_test/output/general/
+FINAL_DIR=smoke_test/output/general/
+EXECUTABLE=gulls_general
 
 OBSERVATORY_DIR=smoke_test/assets/observatories/
 OBSERVATORY_LIST=smoke.list
@@ -12,7 +12,7 @@ STARFIELD_DIR=smoke_test/assets/starfields/
 STARFIELD_LIST=smoke.starfields
 
 SOURCE_DIR=smoke_test/assets/sources/
-SOURCE_LIST=smoke_binary.sources
+SOURCE_LIST=smoke.sources
 SOURCE_COLOURS=0
 
 LENS_DIR=smoke_test/assets/lenses/
@@ -20,7 +20,7 @@ LENS_LIST=smoke.lenses
 LENS_COLOURS=0
 
 PLANET_DIR=smoke_test/assets/planets/
-PLANET_ROOT=smoke.planets.
+PLANET_ROOT=smoke_general_pspl.planets.
 
 RATES_FILE=smoke_test/assets/rates/smoke.rates
 
@@ -34,6 +34,7 @@ OUTPUT_ONDET=1
 OUTPUT_ONALL=1
 PARALLAX=1
 LENS_LIGHT=1
+VERBOSITY=4
 
 SET_RANDOM_SEED_TO_CLOCK=0
 RANDOM_SEED=12345
@@ -42,6 +43,8 @@ EXIT_ON_VBM_ERROR=0
 SIMULATION_ZERO_TIME=2458849.0
 
 SUBRUNSIZE=1
+NSUBRUNS=1
+MAXTIME=10.0
 
 NFILTERS=32
 AMIN=1.0001
@@ -67,7 +70,7 @@ REPEAT_SEQUENCE=0
 OBS_GROUPS=(ALL)
 OBS_GROUP_NAMES=smoke
 ERROR_SCALING=0
-MULTIPLE_SOURCES=1
+MULTIPLE_SOURCES=0
 MULTIPLE_LENSES=0
 
 ASTROMETRY_ON=1

@@ -5,6 +5,13 @@
 
 using namespace std;
 
+struct propermotionframe{
+  // Proper-motion components in mas/yr for one object.
+  // `_h` = heliocentric (barycentric), `_r` = reference-frame-centric.
+  double mua_h = 0.0, mud_h = 0.0, mul_h = 0.0, mub_h = 0.0, mulam_h = 0.0, mubet_h = 0.0, mu_h = 0.0;
+  double mua_r = 0.0, mud_r = 0.0, mul_r = 0.0, mub_r = 0.0, mulam_r = 0.0, mubet_r = 0.0, mu_r = 0.0;
+};
+
 class parallax{
 
   //Tools for easily computing microlensing parallax. Relies on the 
@@ -134,6 +141,8 @@ class parallax{
 
   int provide_murel_h_ad(double mua_h_, double mud_h_, double piE_, double thetaE_);
   int provide_murel_h_lb(double mul_h_, double mub_h_, double piE_, double thetaE_);
+  int provide_pm_h_ad(double mua_h_, double mud_h_, double pi_mas_, propermotionframe* pm);
+  int provide_pm_h_lb(double mul_h_, double mub_h_, double pi_mas_, propermotionframe* pm);
   int provide_observables_NE(double piEN_, double piEE_, double tE_r_, double thetaE_=1.0);
   int provide_observables_llrp(double piEll_, double piErp_, double tE_r_, double thetaE_=1.0);
 
