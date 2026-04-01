@@ -27,6 +27,8 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->id = sdx;
 
   Event->gamma = Paramfile->LD_GAMMA;
+  Event->pm_lens = propermotionframe();
+  Event->pm_source = propermotionframe();
 
   //clear the data vectors
   Event->data.clear();
@@ -63,6 +65,7 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->lcomp_dL.clear();
   Event->lcomp_mass.clear();
   Event->lcomp_period.clear();
+  //Event->m0.clear();
 
   //Event->ljoint_thE.clear();
   //Event->ljoint_tE.clear();
@@ -382,6 +385,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   int sn, ln; //source, lens and field numbers
   vector<double> lb(2); //galactic coordinates of the event
   double x;
+  vector<double> pmgal_l(2), pmgal_s(2); //galactic proper motion vectors for the lens and source
   vector<double> pmgal(2);
 
 
@@ -736,13 +740,23 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   // rE and thE already computed above so that companion properties could be
   // derived safely.
 
-  //relative ls proper motion - lens motion relative to the source
-  //in mas/yr
-  //calculate the heliocentric relative proper motion
-  pmgal[0] = Lenses->data[ln][Lenses->MUL]-Sources->data[sn][Sources->MUL];
-  pmgal[1] = Lenses->data[ln][Lenses->MUB]-Sources->data[sn][Sources->MUB];
+  // lens, source, and relative lens-source proper motion in mas/yr
+  pmgal_l[0] = Lenses->data[ln][Lenses->MUL];
+  pmgal_l[1] = Lenses->data[ln][Lenses->MUB];
+  pmgal_s[0] = Sources->data[sn][Sources->MUL];
+  pmgal_s[1] = Sources->data[sn][Sources->MUB];
 
-  //work out its absolute value
+  Event->pm_lens.mul_h = pmgal_l[0];
+  Event->pm_lens.mub_h = pmgal_l[1];
+  Event->pm_lens.mu_h = qAdd(pmgal_l[0], pmgal_l[1]);
+  Event->pm_source.mul_h = pmgal_s[0];
+  Event->pm_source.mub_h = pmgal_s[1];
+  Event->pm_source.mu_h = qAdd(pmgal_s[0], pmgal_s[1]);
+
+  // calculate the heliocentric relative proper motion
+  pmgal[0] = pmgal_l[0] - pmgal_s[0];
+  pmgal[1] = pmgal_l[1] - pmgal_s[1];
+
   Event->murel_l = pmgal[0];
   Event->murel_b = pmgal[1];
   Event->murel = qAdd(pmgal[0],pmgal[1]);
@@ -797,6 +811,20 @@ void compute_u0(struct filekeywords* Paramfile, struct obsfilekeywords World[], 
   u0max = (u0max<umaxmin?umaxmin:u0max);
   */
 
+  /*
+  for (int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
+	{
+	  int filter = World[obsidx].filter;
+	  // calculating the photometry-system magnitude zero point (m0) for each band
+	  // m0 - m_source1 = -2.5*log10(f_source1) or 
+	  // m0 - m_lens1 = -2.5*log10(f_lens1),
+	  // wherre the flux system is relative to a baseline of 1 count/s. 
+	  // This is the same system as the photometry, zeropoint can be calculated as ...?
+	  // I'll just fill with 0.0 for now
+  	  Event->m0[obsidx] = 0.0; // Sources->mags[Event->source][filter] - 2.5*log10(Sources->data[Event->source][Sources->FLUX]/Event->baselineFlux[obsidx]);
+	}
+  */
+
   Event->u0max = Paramfile->u0max;
   Event->u0 = Event->u0max*(2*ran2(idum)-1);
   //Event->w = Event->u0max*Event->raww;
@@ -849,8 +877,6 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   int sn = Event->source;
   int ln = Event->lens;
   double tref = Event->tref;
-
-  coords c;
 
   if(Paramfile->verbosity>0)
     {
@@ -915,6 +941,13 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   Event->piEE = Event->pllx[0].piEE; //*Event->piE;
   Event->tE_h = Event->pllx[0].tE_h;
   Event->tE_r = Event->pllx[0].tE_r;
+
+  const double lens_dist_kpc = Lenses->data[ln][Lenses->DIST];
+  const double source_dist_kpc = Sources->data[sn][Sources->DIST];
+  const double pi_lens_mas = (lens_dist_kpc > 0.0 ? 1.0 / lens_dist_kpc : 0.0);
+  const double pi_source_mas = (source_dist_kpc > 0.0 ? 1.0 / source_dist_kpc : 0.0);
+  Event->pllx[0].provide_pm_h_lb(Event->pm_lens.mul_h, Event->pm_lens.mub_h, pi_lens_mas, &Event->pm_lens);
+  Event->pllx[0].provide_pm_h_lb(Event->pm_source.mul_h, Event->pm_source.mub_h, pi_source_mas, &Event->pm_source);
 
   //Compute the event rate weighting
   Event->w = Event->raww * Event->weight_scale * Event->u0max * (Event->t0range/365.25) / (Event->tE_r/Event->tE_h);
@@ -1063,4 +1096,3 @@ void setupObsGroups(struct filekeywords *Paramfile, struct event *Event)
   Event->obsgroupoutputheader.clear();
   Event->obsgroupoutputheader.resize(Event->obsgroups.size(),string(""));
 }
-
