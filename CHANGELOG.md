@@ -6,14 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [3.1.0] - 2006-01-25 Astrometry Readdition
+## [3.1.0] - 2026-01-25
 
-coordinates passed into VBM are ecliptic (earth has inclination of zero) 
-cartesian ecliptic observer position is output in the lightcurve file (x, y, z)
-VBM astrometry is output relative to lens.
-update FWHM file and check where it is comming from (before use in photometry.cpp)
-added lens_parallax_x_mas and lens_parallax_y_mas columns to the lightcurve output
+### Added
+- Reintroduced astrometry output for VBM-based simulations.
+- Added cartesian ecliptic observer position columns (`x`, `y`, `z`) to the lightcurve output.
+- Added `lens_parallax_x_mas` and `lens_parallax_y_mas` columns to the lightcurve output.
 
+### Changed
+- VBM coordinates are now interpreted in the ecliptic frame.
+- VBM astrometry is now reported relative to the lens.
+- Updated FWHM handling used by photometry output.
 ## [3.0.0] - 2026-01-15 Gulls General
 
 > A new lightcurve generator has been developed to handle multi-lens and multi-source lightcurves with orbital motion - this is called general
