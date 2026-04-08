@@ -120,7 +120,7 @@ Inspect images in ds9 using zscale to check for:
 - **Automated testing** - CI runs tests automatically
 - **Better error messages** - Clear feedback when things go wrong
 - **Version management** - Automated releases with smart release notes (uses `RELEASE_NOTES.md` if present)
-- **Astrometry** (v2.1.0) - Basic astrometry implementation using low-level VBM functions, Gould & Yee (2014) noise approximations andminimal transformation. Values are expressed in the lens-frame in units of theta E. See [astrometry.rst](documentation/source/astrometry.rst) for more details.
+- **Astrometry** (v2.1.0) - Basic astrometry implementation using low-level VBM functions, Gould & Yee (2014) noise approximations, and minimal transformation. Values are expressed in the lens frame in units of `theta_E`. See [astrometry.rst](documentation/source/astrometry.rst) for more details.
 
 **See [CONTRIBUTING.md](CONTRIBUTING.md) for a gradual adoption guide.**
 
