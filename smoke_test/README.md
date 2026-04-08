@@ -55,11 +55,21 @@ Use `dat_tool.py` to inspect and adjust the whitespace-delimited catalogs under 
 
 ## Requirements
 
-- Built gulls executables in `build/bin/` (see main README for build instructions)
-- Python 3.7+ with the following packages:
+- Built gulls executables in `bin/` (see main README for build instructions)
+- Python 3.9+ with the following packages:
   - `numpy`
   - `pandas`
   - `matplotlib` (optional, for plotting)
+  - `astropy`
+  - `scipy`
+  - `VBMicrolensing`
+
+Additional packages for `--bagle-joint-fit-sanity`:
+- `bagle`
+- `joblib`
+- `dynesty`
+- `ultranest`
+- `pymultinest` (optional at runtime; if MultiNest is unavailable, the test falls back to scipy least-squares)
 
 ### Setting Up Python Dependencies
 
@@ -79,7 +89,10 @@ conda activate smoke
 #### Option 3: Using pip
 Alternatively, install packages with pip:
 ```bash
-pip install numpy pandas matplotlib
+pip install numpy pandas matplotlib astropy scipy VBMicrolensing
+
+# Additional dependencies for BAGLE joint-fit sanity checks
+pip install bagle joblib dynesty ultranest pymultinest
 ```
 
 **Note**: The main `environment.yml` includes all smoke test dependencies, so you don't need a separate smoke environment unless you have specific dependency conflicts.
@@ -208,6 +221,7 @@ python smoke_test/run_bagle_fit_sanity.py \
 
 Typical dependencies:
 - `bagle` (BAGLE_Microlensing)
+- `joblib`
 - `pymultinest` (+ MultiNest runtime), `dynesty`, `ultranest` (optional when scipy fallback is used)
 - `matplotlib` (for the diagnostic plot)
 - `scipy` (for fallback optimization path)
