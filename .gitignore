@@ -81,3 +81,7 @@ _codeql_detected_source_root
 
 # One-off diagnostic scripts (debugging artifacts, not part of the test suite)
 smoke_test/_diag_*.py
+
+# Smoke-test handoff bundles
+smoke_test/gulls_general_outputs_keep_changes.zip
+smoke_test/gulls_general_outputs_reverted_generator.zip
