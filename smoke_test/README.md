@@ -91,7 +91,7 @@ Alternatively, install packages with pip:
 ```bash
 pip install numpy pandas matplotlib astropy scipy VBMicrolensing
 
-# Additional dependencies for BAGLE joint-fit sanity checks
+# Additional dependencies for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`)
 pip install bagle joblib dynesty ultranest pymultinest
 ```
 
