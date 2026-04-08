@@ -9,6 +9,7 @@ dependencies:
   - astropy
   - numpy
   - scipy
+  - pip
   - pip:
       - VBMicrolensing
       - bagle
