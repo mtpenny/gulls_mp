@@ -69,7 +69,7 @@ Additional packages for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--b
 - `joblib`
 - `dynesty`
 - `ultranest`
-- `pymultinest` (optional at runtime; if MultiNest is unavailable, the test falls back to scipy least-squares)
+- `pymultinest`
 
 ### Setting Up Python Dependencies
 
@@ -92,10 +92,7 @@ Alternatively, install packages with pip:
 pip install numpy pandas matplotlib astropy scipy VBMicrolensing
 
 # Additional dependencies for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`)
-pip install bagle joblib dynesty ultranest
-
-# Optional: only if you want PyMultiNest available instead of scipy fallback
-pip install pymultinest
+pip install bagle joblib dynesty ultranest pymultinest
 ```
 
 **Note**: The main `environment.yml` includes all smoke test dependencies, so you don't need a separate smoke environment unless you have specific dependency conflicts.
