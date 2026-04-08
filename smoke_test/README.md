@@ -120,7 +120,7 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 
 - `--build-bin PATH`: Directory containing executables (default: `build/bin`)
 - `--keep-output`: Skip cleaning existing output directories before running
-- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
+- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`, `general-1s1l`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
 - `--field N`: Field index passed via `-f` flag (default: `0`; use `-1` for auto-select)
 - `--exec-timeout SECONDS`: Timeout per executable (default: `180`; `<=0` disables)
@@ -130,8 +130,11 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 - `--astrometry-long-baseline-exclusion-te`: Exclude `|t-t0| <= N*tE` for long-baseline heliocentric-PM fits (default: `5.0`)
 - `--astrometry-long-baseline-direction-tol-deg`: Minimum angular tolerance for long-baseline heliocentric-PM direction checks (default: `15.0`)
 - `--bagle-joint-fit-sanity`: Run an additional BAGLE combined photometry+astrometry fit sanity check
+- `--bagle-forward-sanity`: Run an additional BAGLE forward-model sanity check (no fitting) on explicit 1s1l events
 - `--bagle-event-id`: With `--bagle-joint-fit-sanity`, force a specific `EventID` (otherwise auto-select one with single-lens chi2 < threshold)
 - `--bagle-chi2-max`: With `--bagle-joint-fit-sanity`, event-selection threshold on `ObsGroup_0_chi2` (default: `100.0`)
+- `--bagle-forward-event-id`: With `--bagle-forward-sanity`, force a specific explicit 1s1l `EventID` (otherwise auto-select first explicit 1s1l event)
+- `--bagle-forward-obs-location`: With `--bagle-forward-sanity`, observer location passed to BAGLE (default: `earth`)
 - `--bagle-n-live-points`: With `--bagle-joint-fit-sanity`, BAGLE nested-sampling live points (default: `200`)
 
 ### Examples
@@ -155,6 +158,12 @@ python smoke_test/run_smoke_test.py \
   --bagle-joint-fit-sanity \
   --bagle-chi2-max 100 \
   --bagle-n-live-points 250
+
+# Run explicit 1s1l case plus BAGLE forward-model sanity check (no fitting)
+python smoke_test/run_smoke_test.py \
+  --cases general-1s1l \
+  --bagle-forward-sanity \
+  --bagle-forward-obs-location earth
 ```
 
 ## Standalone Astrometry Sanity Checks

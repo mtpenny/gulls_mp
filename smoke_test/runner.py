@@ -19,6 +19,7 @@ from .constants import (
     REPO_ROOT,
 )
 from .astrometry_sanity import verify_astrometry_sanity
+from .bagle_forward_sanity import run_bagle_forward_1s1l_sanity
 from .bagle_fit_sanity import run_bagle_joint_fit_sanity
 from .errors import SmokeTestError
 from .execution import run_command
@@ -142,6 +143,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--bagle-forward-sanity",
+        action="store_true",
+        help=(
+            "Run an additional BAGLE forward-model sanity check "
+            "(no fitting) on one explicit 1s1l event in each case output."
+        ),
+    )
+    parser.add_argument(
         "--bagle-event-id",
         type=int,
         default=None,
@@ -157,6 +166,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "With --bagle-joint-fit-sanity, maximum .out ObsGroup_0_chi2 for event "
             "selection (default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--bagle-forward-event-id",
+        type=int,
+        default=None,
+        help=(
+            "With --bagle-forward-sanity, force BAGLE forward comparison to use "
+            "this EventID (default: auto-select first explicit 1s1l event)."
+        ),
+    )
+    parser.add_argument(
+        "--bagle-forward-obs-location",
+        default="earth",
+        help=(
+            "With --bagle-forward-sanity, BAGLE observer location (default: %(default)s)."
         ),
     )
     parser.add_argument(
@@ -387,6 +412,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"BAGLE warning: {warning}")
             print(f"BAGLE plot: {bagle_summary.plot_path}")
             print(f"BAGLE summary: {bagle_summary.result_json_path}")
+        if args.bagle_forward_sanity:
+            bagle_forward_summary = run_bagle_forward_1s1l_sanity(
+                case.output_dir,
+                event_id=args.bagle_forward_event_id,
+                obs_location=args.bagle_forward_obs_location,
+            )
+            print(
+                "BAGLE forward sanity passed: "
+                f"event={bagle_forward_summary.event_id}, "
+                f"model={bagle_forward_summary.bagle_model_name}"
+            )
+            print(
+                "BAGLE forward astrometry RMS: "
+                f"{bagle_forward_summary.astrometry_rms_mas:.6f} mas"
+            )
+            print(
+                "BAGLE forward photometry RMS/max|Δflux|: "
+                f"{bagle_forward_summary.photometry_rms_relative_flux:.6e} / "
+                f"{bagle_forward_summary.photometry_max_abs_relative_flux_diff:.6e}"
+            )
+            for warning in bagle_forward_summary.warnings:
+                print(f"BAGLE forward warning: {warning}")
+            print(f"BAGLE forward plot: {bagle_forward_summary.plot_path}")
+            print(f"BAGLE forward summary: {bagle_forward_summary.summary_json_path}")
         summaries = gather_case_metrics(out_files)
         plot_lightcurves(case.output_dir, summaries, case.params, build_bin)
 
