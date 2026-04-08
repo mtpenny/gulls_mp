@@ -16,4 +16,3 @@ dependencies:
       - joblib
       - dynesty
       - ultranest
-      - pymultinest

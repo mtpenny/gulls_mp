@@ -64,7 +64,7 @@ Use `dat_tool.py` to inspect and adjust the whitespace-delimited catalogs under 
   - `scipy`
   - `VBMicrolensing`
 
-Additional packages for `--bagle-joint-fit-sanity`:
+Additional packages for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`):
 - `bagle`
 - `joblib`
 - `dynesty`
@@ -92,7 +92,10 @@ Alternatively, install packages with pip:
 pip install numpy pandas matplotlib astropy scipy VBMicrolensing
 
 # Additional dependencies for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`)
-pip install bagle joblib dynesty ultranest pymultinest
+pip install bagle joblib dynesty ultranest
+
+# Optional: only if you want PyMultiNest available instead of scipy fallback
+pip install pymultinest
 ```
 
 **Note**: The main `environment.yml` includes all smoke test dependencies, so you don't need a separate smoke environment unless you have specific dependency conflicts.
@@ -118,7 +121,7 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 
 ### Command-Line Options
 
-- `--build-bin PATH`: Directory containing executables (default: `build/bin`)
+- `--build-bin PATH`: Directory containing executables (default: `bin/`)
 - `--keep-output`: Skip cleaning existing output directories before running
 - `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`, `general-1s1l`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
@@ -146,8 +149,8 @@ python smoke_test/run_smoke_test.py --cases gulls_std --exec-timeout 120
 # Test all executables and keep previous outputs
 python smoke_test/run_smoke_test.py --keep-output
 
-# Test with custom build directory
-python smoke_test/run_smoke_test.py --build-bin /path/to/custom/build/bin
+# Test with custom executable directory
+python smoke_test/run_smoke_test.py --build-bin /path/to/custom/bin
 
 # Run only general case plus astrometry sanity checks
 python smoke_test/run_smoke_test.py --cases general-single --astrometry-sanity
@@ -301,7 +304,7 @@ The smoke test passes when:
 
 ### "Missing executable" error
 - Ensure you've built the project: `cmake --build build`
-- Check that executables exist in `build/bin/`
+- Check that executables exist in `bin/`
 
 ### "Missing ESPL.tbl" error
 - Copy the VBMicrolensing ESPL table: `cp VBMicrolensing/ESPL.tbl src/`
