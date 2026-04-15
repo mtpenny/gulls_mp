@@ -85,3 +85,4 @@ smoke_test/_diag_*.py
 # Smoke-test handoff bundles
 smoke_test/gulls_general_outputs_keep_changes.zip
 smoke_test/gulls_general_outputs_reverted_generator.zip
+smoke_test/comparison*
