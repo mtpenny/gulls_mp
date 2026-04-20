@@ -110,27 +110,6 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   Event->vbm->a1 = Event->gamma;
   Event->vbm->astrometry = (Paramfile->astrometry_on != 0);
 
-  Event->xsrc.clear();
-  Event->ysrc.clear();
-  Event->mu_src.clear();
-  
-  Event->xsrc.resize(Event->nsrc);
-  Event->ysrc.resize(Event->nsrc);
-  Event->mu_src.resize(Event->nsrc);
-  for(int i=0; i<Event->nsrc; i++)
-    {
-      Event->xsrc[i].resize(Event->nepochs);
-      Event->ysrc[i].resize(Event->nepochs);
-      Event->mu_src[i].resize(Event->nepochs);
-    }
-  
-  Event->xlens.resize(Event->nlens);
-  Event->ylens.resize(Event->nlens);
-  for(int i=0; i<Event->nlens; i++)
-    {
-      Event->xlens[i].resize(Event->nepochs);
-      Event->ylens[i].resize(Event->nepochs);
-    }
 
   Event->astrox1_raw.resize(Event->nsrc);
   Event->astrox2_raw.resize(Event->nsrc);
@@ -138,18 +117,19 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   Event->astrox_raw.resize(Event->nsrc);
   Event->astroy_raw.resize(Event->nsrc);
   for(int i=0; i<Event->nsrc; i++)
-	{
-	  Event->astrox1_raw[i].assign(Event->nepochs,0.0);
-	  Event->astrox2_raw[i].assign(Event->nepochs,0.0);
-	  Event->astrox_raw[i].assign(Event->nepochs,0.0);
-	  Event->astroy_raw[i].assign(Event->nepochs,0.0);
-	}
+    {
+      Event->astrox1_raw[i].assign(Event->nepochs,0.0);
+      Event->astrox2_raw[i].assign(Event->nepochs,0.0);
+      Event->astrox_raw[i].assign(Event->nepochs,0.0);
+      Event->astroy_raw[i].assign(Event->nepochs,0.0);
+    }
   Event->xc_srcs_only.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids
   Event->yc_srcs_only.assign(Event->nepochs,0.0);
   Event->xc_src_lens.assign(Event->nepochs,0.0);  // flux weighted addition of source-image centroids and luminous lens centroids, for astrometry path only. This is the relevant blended centroid for astrometry, since ambient light does not contribute to astrometric blending by contract.
   Event->yc_src_lens.assign(Event->nepochs,0.0);
 
   Event->src_flux_total.assign(Event->nepochs,0.0); // total source flux (for calculating blended centroid), in units of the unmagnified source flux, for astrometry path only
+
   Event->moons = 0;
   Event->circumbinary=0;
   Event->distantbinary=0;
@@ -239,6 +219,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     }
   //Hold the magnifications
   vector<double> mu(nsrc,0.0);
+  vector<double> mupeak(nsrc,0.0);
 
   //Setup orbits for the lens(es)
 
@@ -679,7 +660,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     }
 
 
-  
+  if(Paramfile->verbosity>=1) cout << "Starting lightcurve generation" << endl;
   
   for(int idx=0; idx<Event->nepochs; idx++)
     {
@@ -694,6 +675,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  if (time_elapsed > timeout)
 	    {
 	      timed_out = true;
+	      cout << "Timeout reached, time_elapsed=" << time_elapsed << " timeout=" << timeout << endl;
 	      break;
 	    }
 	}
@@ -803,10 +785,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	{
 	  if(!warned_single_lens_nonzero_origin)
 	    {
-			// weather we have COM or lens 1 at the origin of the event-frame, they would
-			// both mean the same thing for the single-lens case. 
-			// VBM's astrometry is scalar for the single lens case, so it assumes the lens 
-			// is at the origin of the event frame. 
+	      // whether we have COM or lens 1 at the origin of the event-frame, they would
+	      // both mean the same thing for the single-lens case. 
+	      // VBM's astrometry is scalar for the single lens case, so it assumes the lens 
+	      // is at the origin of the event frame. 
 	      const double lens_origin_tol = 1e-12;
 	      if(fabs(xl[0]) > lens_origin_tol || fabs(yl[0]) > lens_origin_tol)
 		{
@@ -868,12 +850,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  double q = 0.0;
 	  if (Event->lcompanions.size()>0)
 	    {
-		  q = Event->lcomp_q[0];  // mass ratio of the two stellar lenses
-           
-		}
+	      q = Event->lcomp_q[0];  // mass ratio of the two stellar lenses
+	      
+	    }
 	  else
 	    {
-		  q = Event->p_q[0];  // mass ratio of the two lenses
+	      q = Event->p_q[0];  // mass ratio of the two lenses
 	    }
 	  double rot = atan2(yl[1],xl[1]);  // angle to rotate coordinates into the VBM binary lens frame, which is defined such that 
 	  // the two lenses lie on the x-axis. This rotation is needed because the VBM binary lens magnification functions assume the 
@@ -896,17 +878,17 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      double ys_com_ecl = ys[is] + l_delta[1];  // VBM is COM centered, but what was the event frame centered on?
 		  // it must have lens 1 for this to make sense.
 
-          // rotate from event -> VBM frame
+	      // rotate from event -> VBM frame
 	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;
 	      double ysi = sr*xs_com_ecl + cr*ys_com_ecl;
 	      bool used_vbm_astrometry = false;  // this gets set to true if we use the VBM astrometry logic path.
 	      if(Paramfile->skip_magnification==0)  // if we aren't skipping the magnification calculation...
-			{
-			  mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);  //calculate the per source per epoch magnification using VBM
-			  Event->VBM_function = "BinaryMag2";  // store the function that was used, for debugging
-			  if(handle_vbm_api_error("BinaryMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
-			  used_vbm_astrometry = true;  // mark this path as executed, for debugging
-			}
+		{
+		  mu[is] = Event->vbm->BinaryMag2(s,q,xsi, ysi, rho);  //calculate the per source per epoch magnification using VBM
+		  Event->VBM_function = "BinaryMag2";  // store the function that was used, for debugging
+		  if(handle_vbm_api_error("BinaryMag2", Paramfile, Event, logfile_ptr, Event->vbm)) return;
+		  used_vbm_astrometry = true;  // mark this path as executed, for debugging
+		}
 	      else mu[is] = 1.0;  // if we are skipping the magnification calculation, set the magnification to 1, and we won't use the VBM astrometry
 	      if(Paramfile->astrometry_on && used_vbm_astrometry)
 		{
@@ -1030,20 +1012,20 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 		  if(Paramfile->astrometry_on && used_vbm_astrometry && astrometry_vbm)
 		    {
-			      if(Event->VBM_function == "ESPLMag2" && fallback_lens_idx >= 0 && fallback_lens_weight > 0.0)
-				{
-				  const double dx = xs[is] - lens_parameters[fallback_lens_idx*3+0];
-				  const double dy = ys[is] - lens_parameters[fallback_lens_idx*3+1];
-				  const double dist = qAdd(dx,dy);
-				  if(dist > 1e-12)
-				    {
-				      // ESPLMag2 returns a scalar centroid shift along the source-lens axis in the
-				      // component-lens Einstein units. Project it back onto the 2D event frame and
-				      // rescale by sqrt(mass fraction) to recover event-thetaE units.
-				      const double ast_shift_event = astrometry_vbm->astrox1 * sqrt(fallback_lens_weight);
-				      astro_x[is] = lens_parameters[fallback_lens_idx*3+0] + ast_shift_event * dx/dist;
-				      astro_y[is] = lens_parameters[fallback_lens_idx*3+1] + ast_shift_event * dy/dist;
-				    }
+		      if(Event->VBM_function == "ESPLMag2" && fallback_lens_idx >= 0 && fallback_lens_weight > 0.0)
+			{
+			  const double dx = xs[is] - lens_parameters[fallback_lens_idx*3+0];
+			  const double dy = ys[is] - lens_parameters[fallback_lens_idx*3+1];
+			  const double dist = qAdd(dx,dy);
+			  if(dist > 1e-12)
+			    {
+			      // ESPLMag2 returns a scalar centroid shift along the source-lens axis in the
+			      // component-lens Einstein units. Project it back onto the 2D event frame and
+			      // rescale by sqrt(mass fraction) to recover event-thetaE units.
+			      const double ast_shift_event = astrometry_vbm->astrox1 * sqrt(fallback_lens_weight);
+			      astro_x[is] = lens_parameters[fallback_lens_idx*3+0] + ast_shift_event * dx/dist;
+			      astro_y[is] = lens_parameters[fallback_lens_idx*3+1] + ast_shift_event * dy/dist;
+			    }
 			  else
 			    {
 			      astro_x[is] = xs[is];
@@ -1067,6 +1049,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      Event->astrox2_raw[is][idx] = astrometry_vbm->astrox2;
 		    }
 			}
+
 	      else mu[is] = 1.0;
 	      Event->astrox_raw[is][idx] = astro_x[is];
 	      Event->astroy_raw[is][idx] = astro_y[is];
@@ -1076,6 +1059,12 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       for(int is=0;is<nsrc;is++)
 	{
 	  Event->mu_src[is][idx] = mu[is];
+	  if(mu[is]>mupeak[is])
+	    {
+	      mupeak[is] = mu[is];
+	      Event->tpeak[is] = Event->epoch[idx];
+	      Event->upeak[is] = 1.0/mupeak[is];
+	    }
 	}
 
       //Here Atrue is magnification, but later it gets converted into fractional flux

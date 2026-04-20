@@ -2,6 +2,8 @@
 #include "integerPowers.h"
 #include "ephem.h"
 
+#include<algorithm>
+
 #define DEBUGVAR 0
 
 double my_f (const gsl_vector *v, void *params);
@@ -127,17 +129,30 @@ int lightcurveFitter(struct filekeywords* Paramfile, struct obsfilekeywords Worl
       ss = gsl_vector_alloc (3);
     }
 
-  gsl_vector_set (x, 0, Event->u0);
-  gsl_vector_set (x, 1, Event->t0);
+  gsl_vector_set (x, 0, Event->upeak[0]);
+  gsl_vector_set (x, 1, Event->tpeak[0]);
   gsl_vector_set (x, 2, Event->tE_r);
+
+
+  if(Paramfile->multiple_sources && Event->nsrc>1)
+    {
+      double max_mu0 = *max_element(Event->mu_src[0].begin(),Event->mu_src[0].end());
+      double max_mu1 = *max_element(Event->mu_src[1].begin(),Event->mu_src[1].end());
+      if(Event->scomp_fsofs1[0][World[obsidx].filter] * max_mu1 > max_mu0)
+      {
+	gsl_vector_set (x, 0, Event->upeak[1]);
+	gsl_vector_set (x, 1, Event->tpeak[1]);
+	gsl_vector_set (x, 2, Event->tE_r);
+      }
+    }
 
   /* Set initial step sizes to 1 */
 
-  double t0step = Event->tE_r/50.0;
+  double t0step = abs(Event->tE_r)/50.0;
   if(Event->tE_r>10) t0step=0.01;
-  gsl_vector_set (ss,0, abs(Event->u0)/100.0);
+  gsl_vector_set (ss,0, abs(gsl_vector_get(x,0))/100.0);
   gsl_vector_set (ss,1, t0step);
-  gsl_vector_set (ss,2, Event->tE_r/100.0);
+  gsl_vector_set (ss,2, abs(gsl_vector_get(x,2))/100.0);
 
     
   /* Initialize method and iterate */

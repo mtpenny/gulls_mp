@@ -462,7 +462,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     }
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " ";  // mu is magnification
+      lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " " << "source" << i << "_nimages" << " ";  // mu is magnification
     }
   for(int i=0;i<Event->nlens;i++)
     {
@@ -546,30 +546,31 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
       obsidx=Event->obsidx[i];
       shiftedidx = i-Event->nepochsvec[obsidx];
 	    
-	      lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << flush;
-	      lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << flush; 
-	      lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " << flush;
-        lcfile << safe_get(Event->xc_srcs_only, i) << " " << safe_get(Event->yc_srcs_only, i) << " " << flush;
-        lcfile << safe_get(Event->xc_src_lens, i) << " " << safe_get(Event->yc_src_lens, i) << " " << flush;
-        lcfile << safe_get(Event->lambda_noiseless_deg, i) << " " << safe_get(Event->beta_noiseless_deg, i) << " " << flush;
-        lcfile << safe_get(Event->ra_noiseless_deg, i) << " " << safe_get(Event->dec_noiseless_deg, i) << " " << flush;
-        lcfile << safe_get(Event->ra_measured_deg, i) << " " << safe_get(Event->dec_measured_deg, i) << " " << flush;
-        lcfile << safe_get(Event->sigma_ast_mas, i) << " " << safe_get(Event->ra_err_deg, i) << " " << safe_get(Event->dec_err_deg, i) << " " << flush;
-        lcfile << safe_get(Event->src_flux_total, i) << " " << flush;
-	      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
-	      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
-	      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
-	      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][0] << " " << flush;
-	      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << flush; 
-	      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " " << flush;
+
+      lcfile << setprecision(16) << Event->epoch[i] << " " << Event->Aobs[i] << " " << Event->Aerr[i] << " " << flush;
+      lcfile << Event->Atrue[i] << " " << Event->Atrueerr[i] << " " << obsidx << " " << flush; 
+      lcfile << (Event->nosat[i]?0:1) << " " << Event->Afit[i] << " " << flush;
+      lcfile << safe_get(Event->xc_srcs_only, i) << " " << safe_get(Event->yc_srcs_only, i) << " " << flush;
+      lcfile << safe_get(Event->xc_src_lens, i) << " " << safe_get(Event->yc_src_lens, i) << " " << flush;
+      lcfile << safe_get(Event->lambda_noiseless_deg, i) << " " << safe_get(Event->beta_noiseless_deg, i) << " " << flush;
+      lcfile << safe_get(Event->ra_noiseless_deg, i) << " " << safe_get(Event->dec_noiseless_deg, i) << " " << flush;
+      lcfile << safe_get(Event->ra_measured_deg, i) << " " << safe_get(Event->dec_measured_deg, i) << " " << flush;
+      lcfile << safe_get(Event->sigma_ast_mas, i) << " " << safe_get(Event->ra_err_deg, i) << " " << safe_get(Event->dec_err_deg, i) << " " << flush;
+      lcfile << safe_get(Event->src_flux_total, i) << " " << flush;
+      lcfile << Event->pllx[obsidx].tshift[shiftedidx] << " " << flush;
+      lcfile << Event->pllx[obsidx].ushift[shiftedidx] << " " << flush;
+      lcfile << Event->pllx[obsidx].epochs[shiftedidx] << " " << flush; 
+      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][0] << " " << flush;
+      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][1] << " " << flush; 
+      lcfile << Event->pllx[obsidx].sslocation[shiftedidx][2] << " " << flush;
       for(int s=0;s<Event->nsrc;s++)
-  {
-    lcfile << safe_get2d(Event->astrox1_raw, make_pair(s,i)) << " " << safe_get2d(Event->astrox2_raw, make_pair(s,i)) << " " << flush;
-  }
+	{
+	  lcfile << safe_get2d(Event->astrox1_raw, make_pair(s,i)) << " " << safe_get2d(Event->astrox2_raw, make_pair(s,i)) << " " << flush;
+	}
       for(int s=0;s<Event->nsrc;s++)
-  {
-    lcfile << safe_get2d(Event->astrox_raw, make_pair(s,i)) << " " << safe_get2d(Event->astroy_raw, make_pair(s,i)) << " " << flush;
-  }
+	{
+	  lcfile << safe_get2d(Event->astrox_raw, make_pair(s,i)) << " " << safe_get2d(Event->astroy_raw, make_pair(s,i)) << " " << flush;
+	}
 
       if(Paramfile->verbosity>=4)
 	{
@@ -581,12 +582,12 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	  
       for(int s=0;s<Event->nsrc;s++)
 	{
-	  lcfile << Event->xsrc[s][i] << " " << Event->ysrc[s][i] << " " << Event->mu_src[s][i] << " " << flush;
+	  lcfile << Event->xsrc[s][i] << " " << Event->ysrc[s][i] << " " << Event->mu_src[s][i] << " " << Event->nimages[s][i] << " ";// << flush;
 	}
       lcfile << flush;
       for(int l=0;l<Event->nlens;l++)
 	{
-	  lcfile << Event->xlens[l][i] << " " << Event->ylens[l][i] << " " << flush;
+	  lcfile << Event->xlens[l][i] << " " << Event->ylens[l][i] << " ";// << flush;
 	}
       lcfile << flush;
 	  
