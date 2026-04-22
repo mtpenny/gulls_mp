@@ -398,10 +398,10 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	 << " rel_r_ecl_lambda=" << (have_rel_pm ? Event->pllx[0].mulam_r : nan_pm)
 	 << " rel_r_ecl_beta=" << (have_rel_pm ? Event->pllx[0].mubet_r : nan_pm);
   lcfile << endl;
-  lcfile << "#Astrometry_Contract: version=v2 model_frame=absolute event_true_unit=thetaE noise_frame=ecliptic_tangent" << endl;
+  lcfile << "#Astrometry_Contract: version=v2 model_frame=absolute event_true_unit=thetaE noise_frame=ecliptic_tangent event_axes=xN_yE event_to_ecliptic_mapping=E_from_y,N_from_x" << endl;
   lcfile << "#Astrometry_Columns:"
-    << " event_x_thetaE=blended_sources_lenses_x_thetaE"
-    << " event_y_thetaE=blended_sources_lenses_y_thetaE"
+   << " event_x_thetaE=blended_sources_lenses_x_thetaE"
+   << " event_y_thetaE=blended_sources_lenses_y_thetaE"
    << " ecliptic_lambda_noiseless_deg=ecliptic_lambda_noiseless_deg"
    << " ecliptic_beta_noiseless_deg=ecliptic_beta_noiseless_deg"
    << " sky_ra_noiseless_deg=true_RA_deg"

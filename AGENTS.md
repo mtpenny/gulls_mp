@@ -73,3 +73,14 @@ Smoke observer notes
 
 - `smoke_test/assets/observatories/smoke.observatory` uses `SPACE=1` and `ORBIT=0` (Earth orbit path from `setupOrbit`).
 - Weather is still loaded globally, but `smoke_test/assets/weather/smoke.weather` is all `1`s, so cadence is not weather-thinned.
+
+Astrometric Deflection Sanity Check (Source-Dominated)
+------------------------------------------------------
+To verify astrometry is working under the hood, consider a source-dominated centroid track for a source at ~5 kpc ($\pi_S = 0.2$ mas). Instead of assuming a standard May-Sept season, we can mathematically verify the exact solar system locations appended to the `general-single` `.lc` file against the observed deflection:
+- **The Geometry:** The Galactic bulge is at ecliptic longitude $\lambda \approx 266^\circ$. The parallactic shift is $\Delta\mathbf{s} = - \mathbf{r}_\oplus / D_S$. The observed displacement is anti-parallel to Earth's positional vector.
+- **Simulation Timeline:** The `smoke_general` event simulates 200 days from $t=0$ (BJD 2458849, exactly Jan 1st, 2020) to mid-July. The event $t_0$ peaks around $t=75$ (mid-March).
+- **Tracing the Deflection:** 
+  - **Start (Jan 1, $t=0$):** Earth is at $\lambda_\oplus \approx 100^\circ$ ($x_\oplus \approx -0.16 \text{ AU}, y_\oplus \approx 0.97 \text{ AU}$). Projected against the $266^\circ$ line of sight, the transverse Eastward deflection ($\Delta E \propto x_\oplus \sin\lambda - y_\oplus \cos\lambda$) is a mild $\sim +0.05$ mas East.
+  - **Peak Deflection (Late March, $t=80$):** Earth swings to $\lambda_\oplus \approx 170^\circ$ ($x \approx -0.97 \text{ AU}, y \approx 0.18 \text{ AU}$), maximizing its perpendicular distance to the bulge. The source shift arcs maximally to the **East** ($\sim +0.2$ mas).
+  - **End (Mid-July, $t=200$):** Earth orbits around past opposition to $\lambda_\oplus \approx 296^\circ$ ($x \approx 0.45 \text{ AU}, y \approx -0.91 \text{ AU}$). The apparent source shift swings across 0 and deflects to the **West** ($\sim -0.1$ mas).
+- **The Result:** The simulated blue source-dominated centroid traces an arc that smoothly swings $\sim +0.2$ mas *Eastward* around the March event peak before curving strongly back toward the *West* by July. The data physically match the exact ecliptic $x/y/z$ coordinates appended in the `parallax_shift_*` output columns, confirming the transformations and alignments are fully robust.

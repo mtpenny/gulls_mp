@@ -139,10 +139,17 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   //Track the apparent motion of the centers of mass of the source and lens, then compute offsets from them
   //for each component
 
-  //For general, alpha is set by the relative proper motion in ecliptic coordinates
-  //As murel is lens minus source, but alpha describes the direction of source motion relative to the
-  //lens, it is the angle of the negative of the murel vector in ecliptic coordinates
-  double alpharad = atan2(-Event->pllx[0].mubet_r,-Event->pllx[0].mulam_r);
+  // Alpha is a scalar angle (not a vector) derived from the lens-source
+  // relative proper-motion vector mu_rel = (mu_lambda, mu_beta), where
+  // mu_rel = mu_lens - mu_source in ecliptic components.
+  // Angle convention here:
+  //   phi_pi = atan2(y, x) with y=mu_rel_lambda and x=mu_rel_beta
+  // so phi_pi is measured from +mu_beta toward +mu_lambda (CCW in the
+  // (mu_beta, mu_lambda) plane). Then:
+  //   alpha = phi_pi - pi
+  // alpha is used to orient the source trajectory via xs0/ys0.
+  double phi_pi = atan2(Event->pllx[0].mulam_r, Event->pllx[0].mubet_r);
+  double alpharad = phi_pi - pi;
   Event->alpha = 180.0/pi * alpharad;
     
   double antipode_ra = c.fold(Event->ra + PI,0,twoPi); //Used for computing orbits
@@ -699,15 +706,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
       Event->umin=min(Event->umin,qAdd(tt,uu));
 
-      //Compute the location of the reference point of the source relative to the reference point of the lens
-      double xs0 = tt * cosa - uu * sina;
-      double ys0 = tt * sina + uu * cosa; 
-	  // okay, but why are we roating by alpha here? -A
-	  // The rotation by alpha is to go from the coordinate system, where the x-axis
-	  // is along the direction of relative motion at t0, to the event-frame coordinates (ecliptic N,E)? 
-	  // This matches BAGLE's parameter definition, but not the historic Gulls parameter definition, where 
-	  // alpha is the angle of the lens-source relative motion vector relative to the binary-lens axis. 
-	  // I'm fairly sure this is a bug, or at least a redifinition of alpha that is not clear.
+      //Compute the source reference point in event-frame coordinates using
+      //the requested alpha convention.
+      double xs0 = uu * sina + tt * cosa;
+      double ys0 = -uu * cosa + tt * sina;
 
       vector<double> xs(nsrc,0.0); //source position in the plane of the sky, ecliptic sky coordinates in AU
       vector<double> ys(nsrc,0.0); // AU is a strange unit. Aren't these angles on the sky? -A

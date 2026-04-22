@@ -205,8 +205,9 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 		  // Converting into the observable frame
 
 		  // Convert to mas
-		  double de_mas = cx_blend_thE * thE_mas;
-		  double dn_mas = cy_blend_thE * thE_mas;
+		  // Event-frame convention is x=N, y=E, so map to ecliptic EN here.
+		  double de_mas = cy_blend_thE * thE_mas;
+		  double dn_mas = cx_blend_thE * thE_mas;
 
 		  // move to absolute position in rad
 		  double e0 = lambda0;
