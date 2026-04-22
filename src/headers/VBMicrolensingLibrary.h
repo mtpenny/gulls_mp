@@ -127,7 +127,7 @@ class VBMicrolensing
 	double** posEar, startEar, stepEar;
 	int ndataEar;
 	double Mag0;
-	double* dist_mp, * q;
+	double* q;
 	int nim0, n, n2, nnm1, nroots, nrootsmp, * nrootsmp_mp;
 	VBcomplex* zr, * zcr, ** pmza, ** pyaza, ** ppmy, * pza, * pza2, ** pmza2, * pdum, * ppy, * a, * s_offset, * pert, y, yc, * s;
 	VBcomplex* y_mp, *** pmza_mp, ** pza_mp, *** pyaza_mp, *** ppmy_mp, ** ppy_mp, ** zr_mp;
@@ -144,9 +144,9 @@ class VBMicrolensing
 	int* worst;
 	double e, phi, phip, phi0, Om, inc, u0, tE_inv, t0, alpha, pai1, pai2, PosAng, dPosAng, thetaE, d3, v3, GM, flagits;
 	int iastro;
-	double Obj[3], rad[3], tang[3], t0old;
+	double Obj[3], rad[3], tang[3], t0old, t0parold;
 	double Eq2000[3], Quad2000[3], North2000[3];
-	double Et0[2], vt0[2], Et[2], Ehel[2], lighttravel, lighttravel0;
+	double Et0[2], vt0[2], Et[2], Ehel[2], lighttravel, lighttravel0, lighttravel0par;
 	double ESPLout[__rsize_ESPL][__zsize_ESPL], ESPLin[__rsize_ESPL][__zsize_ESPL], ESPLoutastro[__rsize_ESPL][__zsize_ESPL], ESPLinastro[__rsize_ESPL][__zsize_ESPL];
 	bool coordinates_set;
 	bool multidark;

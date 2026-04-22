@@ -25,7 +25,13 @@ candidate = (REPO_ROOT.parent / "VBMicrolensing").resolve()
 if candidate.is_dir():
     sys.path.append(str(candidate))
 
-from VBMicrolensing import VBMicrolensing as VBMicrolensingClass  # type: ignore[attr-defined]
+try:
+    from VBMicrolensing import VBMicrolensing as VBMicrolensingClass  # type: ignore[attr-defined]
+except Exception as exc:  # pragma: no cover - optional environment dependency
+    VBMicrolensingClass = None  # type: ignore[assignment]
+    VBM_IMPORT_ERROR = exc
+else:
+    VBM_IMPORT_ERROR = None
 
 VBM_CLASS = VBMicrolensingClass  # type: ignore
 
@@ -518,6 +524,12 @@ def _compute_vbm_model(
         or float(tE_val) <= 0
     ):
         return None, "missing positive rho/tE/source distance for VBM evaluation"
+
+    if VBM_CLASS is None:
+        detail = "VBMicrolensing import unavailable"
+        if VBM_IMPORT_ERROR is not None:
+            detail = f"{type(VBM_IMPORT_ERROR).__name__}: {VBM_IMPORT_ERROR}"
+        return None, detail
 
     vbm = VBM_CLASS()  # type: ignore[operator]
     skycoord = SkyCoord(
@@ -1283,7 +1295,7 @@ def plot_lightcurves(
     if exec_name.endswith(".x"):
         exec_name = exec_name[:-2]
     vbm_supported = exec_name in {"gulls_croin", "gullsfish", "gulls_std"}
-    vbm_required = astrometry_expected and vbm_supported and exec_name != "gullssingle"
+    vbm_required = astrometry_expected and vbm_supported and exec_name != "gullssingle" and VBM_CLASS is not None
     plot_failures: List[str] = []
     
     for lc_file in lc_files:
@@ -1960,6 +1972,11 @@ def plot_lightcurves(
                 raise SmokeTestError(
                     f"Smoke test failed: missing VBM lens-frame plot for {lc_file.name}{detail}"
                 )
+        elif astrometry_expected and vbm_supported and exec_name != "gullssingle" and VBM_IMPORT_ERROR is not None:
+            print(
+                "  Skipping VBM overlay: "
+                f"{type(VBM_IMPORT_ERROR).__name__}: {VBM_IMPORT_ERROR}"
+            )
 
         plot_file, lensframe_path = _render_astrometric_figure(
             lc_file,
