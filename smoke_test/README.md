@@ -55,11 +55,21 @@ Use `dat_tool.py` to inspect and adjust the whitespace-delimited catalogs under 
 
 ## Requirements
 
-- Built gulls executables in `build/bin/` (see main README for build instructions)
-- Python 3.7+ with the following packages:
+- Built gulls executables in `bin/` (see main README for build instructions)
+- Python 3.9+ with the following packages:
   - `numpy`
   - `pandas`
   - `matplotlib` (optional, for plotting)
+  - `astropy`
+  - `scipy`
+  - `VBMicrolensing`
+
+Additional packages for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`):
+- `bagle`
+- `joblib`
+- `dynesty`
+- `ultranest`
+- `pymultinest`
 
 ### Setting Up Python Dependencies
 
@@ -79,7 +89,10 @@ conda activate smoke
 #### Option 3: Using pip
 Alternatively, install packages with pip:
 ```bash
-pip install numpy pandas matplotlib
+pip install numpy pandas matplotlib astropy scipy VBMicrolensing
+
+# Additional dependencies for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`)
+pip install bagle joblib dynesty ultranest pymultinest
 ```
 
 **Note**: The main `environment.yml` includes all smoke test dependencies, so you don't need a separate smoke environment unless you have specific dependency conflicts.
@@ -105,9 +118,9 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 
 ### Command-Line Options
 
-- `--build-bin PATH`: Directory containing executables (default: `build/bin`)
+- `--build-bin PATH`: Directory containing executables (default: `bin/`)
 - `--keep-output`: Skip cleaning existing output directories before running
-- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
+- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`, `general-1s1l`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
 - `--field N`: Field index passed via `-f` flag (default: `0`; use `-1` for auto-select)
 - `--exec-timeout SECONDS`: Timeout per executable (default: `180`; `<=0` disables)
@@ -117,8 +130,11 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 - `--astrometry-long-baseline-exclusion-te`: Exclude `|t-t0| <= N*tE` for long-baseline heliocentric-PM fits (default: `5.0`)
 - `--astrometry-long-baseline-direction-tol-deg`: Minimum angular tolerance for long-baseline heliocentric-PM direction checks (default: `15.0`)
 - `--bagle-joint-fit-sanity`: Run an additional BAGLE combined photometry+astrometry fit sanity check
+- `--bagle-forward-sanity`: Run an additional BAGLE forward-model sanity check (no fitting) on explicit 1s1l events
 - `--bagle-event-id`: With `--bagle-joint-fit-sanity`, force a specific `EventID` (otherwise auto-select one with single-lens chi2 < threshold)
 - `--bagle-chi2-max`: With `--bagle-joint-fit-sanity`, event-selection threshold on `ObsGroup_0_chi2` (default: `100.0`)
+- `--bagle-forward-event-id`: With `--bagle-forward-sanity`, force a specific explicit 1s1l `EventID` (otherwise auto-select first explicit 1s1l event)
+- `--bagle-forward-obs-location`: With `--bagle-forward-sanity`, observer location passed to BAGLE (default: `earth`)
 - `--bagle-n-live-points`: With `--bagle-joint-fit-sanity`, BAGLE nested-sampling live points (default: `200`)
 
 ### Examples
@@ -130,8 +146,8 @@ python smoke_test/run_smoke_test.py --cases gulls_std --exec-timeout 120
 # Test all executables and keep previous outputs
 python smoke_test/run_smoke_test.py --keep-output
 
-# Test with custom build directory
-python smoke_test/run_smoke_test.py --build-bin /path/to/custom/build/bin
+# Test with custom executable directory
+python smoke_test/run_smoke_test.py --build-bin /path/to/custom/bin
 
 # Run only general case plus astrometry sanity checks
 python smoke_test/run_smoke_test.py --cases general-single --astrometry-sanity
@@ -142,6 +158,12 @@ python smoke_test/run_smoke_test.py \
   --bagle-joint-fit-sanity \
   --bagle-chi2-max 100 \
   --bagle-n-live-points 250
+
+# Run explicit 1s1l case plus BAGLE forward-model sanity check (no fitting)
+python smoke_test/run_smoke_test.py \
+  --cases general-1s1l \
+  --bagle-forward-sanity \
+  --bagle-forward-obs-location earth
 ```
 
 ## Standalone Astrometry Sanity Checks
@@ -208,6 +230,7 @@ python smoke_test/run_bagle_fit_sanity.py \
 
 Typical dependencies:
 - `bagle` (BAGLE_Microlensing)
+- `joblib`
 - `pymultinest` (+ MultiNest runtime), `dynesty`, `ultranest` (optional when scipy fallback is used)
 - `matplotlib` (for the diagnostic plot)
 - `scipy` (for fallback optimization path)
@@ -278,7 +301,7 @@ The smoke test passes when:
 
 ### "Missing executable" error
 - Ensure you've built the project: `cmake --build build`
-- Check that executables exist in `build/bin/`
+- Check that executables exist in `bin/`
 
 ### "Missing ESPL.tbl" error
 - Copy the VBMicrolensing ESPL table: `cp VBMicrolensing/ESPL.tbl src/`

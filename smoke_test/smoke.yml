@@ -8,5 +8,12 @@ dependencies:
   - pandas
   - astropy
   - numpy
+  - scipy
+  - pip
   - pip:
       - VBMicrolensing
+      - bagle
+      - joblib
+      - dynesty
+      - ultranest
+      - pymultinest
