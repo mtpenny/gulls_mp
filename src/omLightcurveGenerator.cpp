@@ -898,7 +898,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  double cy_bin = Event->vbm->astrox2;
 		  astro_x[is] = cr_inv*cx_bin - sr_inv*cy_bin;
 		  astro_y[is] = sr_inv*cx_bin + cr_inv*cy_bin;
-		  // do we need to shift back to lens 1 as the origin?
+		  // do we need to shift back to lens 1 as the origin? MP: I don't think so, it is the center of mass that is an inertial frame
 		}
 	      else
 		{
@@ -915,7 +915,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->astroy_raw[is][idx] = astro_y[is];
 	    }
 	}
-      else
+      else //We're using multi-body lensing
 	{	 
 	  for(int is=0;is<nsrc;is++)
 	    {
@@ -978,11 +978,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      if(lens_mass_frac <= 0.0) continue;
 		      double u_lens = qAdd(xs[is]-lens_parameters[i*3+0],ys[is]-lens_parameters[i*3+1])/sqrt(lens_mass_frac);
 		      if(u_lens<u_min)
-			    {
-			      u_min=u_lens;
-			      fallback_lens_idx = i;
-			      fallback_lens_weight = lens_mass_frac;
-			  }
+			{
+			  u_min=u_lens;
+			  fallback_lens_idx = i;
+			  fallback_lens_weight = lens_mass_frac;
+			}
 		    }
 
 		  VBMicrolensing* astrometry_vbm = nullptr;
@@ -1000,7 +1000,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      // If the source is far from all lenses, approximate the system as the single
 		      // component lens chosen by the fallback metric (minimum source-lens separation
 		      // in component Einstein-radius units; the most influential lenser). ESPLMag2 works in 
-			  // that lens's natural Einstein-radius units, so convert both u and rho before calling VBM.
+		      // that lens's natural Einstein-radius units, so convert both u and rho before calling VBM.
 		      const double rho_lens = (fallback_lens_weight > 0.0 ? rho/sqrt(fallback_lens_weight) : rho);
 		      mu[is] = Event->vbm->ESPLMag2(u_min, rho_lens);
 		      Event->VBM_function = "ESPLMag2";
@@ -1048,7 +1048,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      Event->astrox1_raw[is][idx] = astrometry_vbm->astrox1;
 		      Event->astrox2_raw[is][idx] = astrometry_vbm->astrox2;
 		    }
-			}
+		}
 
 	      else mu[is] = 1.0;
 	      Event->astrox_raw[is][idx] = astro_x[is];
