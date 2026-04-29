@@ -25,6 +25,7 @@ ran1.o : ran1.f global.h
 psf.o : psf.cpp $(psf_h)
 image.o : image.cpp $(image_h)
 random.o : random.cpp random.h
+random_backend.o : random_backend.cpp random_backend.h
 rbf.o : rbf.cpp $(rbf_h)
 zodiacalLight.o : zodiacalLight.cpp $(zodiacalLight_h)
 ephem.o : ephem.cpp $(ephem_h)

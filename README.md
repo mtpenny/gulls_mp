@@ -100,6 +100,7 @@ This produces maximum diagnostic output:
 
 **GSL fallback warnings:**
 - For production science, replace `src/classes/random.cpp` and `src/classes/zroots2.cpp` with licensed Numerical Recipes implementations
+- `src/headers/random.h` is kept compatible with the original random interface; the Gulls stub guard lives in separate `random_backend` files so real drop-ins do not need repo-specific functions.
 - GSL fallbacks are for CI/testing only
 - **Binary releases include GSL fallbacks and are NOT suitable for production science**
 

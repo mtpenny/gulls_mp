@@ -45,7 +45,7 @@ FC	= gfortran
 
 #Object dependencies
 
-COMMON = gulls.o strfns.o readParamfile.o readObservatoryfile.o buildWorld.o random.o info.o timeSequencer.o astroFns.o mathFns.o $(wittFSPL) image.o psf.o readStarfields.o readSLList.o readPlanets.o $(parallax) $(zodiacalLight) photometry.o buildEvent.o
+COMMON = gulls.o strfns.o readParamfile.o readObservatoryfile.o buildWorld.o random.o random_backend.o info.o timeSequencer.o astroFns.o mathFns.o $(wittFSPL) image.o psf.o readStarfields.o readSLList.o readPlanets.o $(parallax) $(zodiacalLight) photometry.o buildEvent.o
 
 
 FSBLCOMMON = pllxLightcurveGenerator.o outputLightcurve.o $(CURVEGEN) backupGenerator.o fs.o zroots2.o binaryMag.o pllxLightcurveFitter.o pllxLightcurveFitter_FS.o
@@ -212,7 +212,7 @@ test_parallax: $(TESTPLLXOBJ)
 ALLFILES = structures.h constdefs.h constants.h definitions.h info.h strfns.h mathFns.h astroFns.h $(parallax_h) $(wittFSPL_h)
 weatherFns_h = weatherFns.h $(random_h)
 
-gulls.o: gulls.cpp gulls.h $(ALLFILES) readParamfile.h buildEvent.h $(random_h) buildWorld.h timeSequencer.h lightcurveGenerator.h lightcurveFitter.h readStarfields.h outputLightcurve.h readSLList.h readPlanets.h detectionCuts.h
+gulls.o: gulls.cpp gulls.h $(ALLFILES) readParamfile.h buildEvent.h $(random_h) $(random_backend_h) buildWorld.h timeSequencer.h lightcurveGenerator.h lightcurveFitter.h readStarfields.h outputLightcurve.h readSLList.h readPlanets.h detectionCuts.h
 strfns.o: strfns.cpp strfns.h $(ALLFILES)
 readParam_test.o: readParam_test.cpp $(ALLFILES)
 readParamfile.o: readParamfile.cpp readParamfile.h $(ALLFILES)

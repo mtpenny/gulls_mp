@@ -1,4 +1,5 @@
 #include "random.h"
+#include "random_backend.h"
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include <gsl/gsl_sf_gamma.h>
@@ -32,15 +33,16 @@ static void cleanup_fallback_rng() {
 // Register cleanup function
 static int dummy = (atexit(cleanup_fallback_rng), 0);
 
-bool gulls_random_is_stub() {
-    return true;
+namespace {
+int register_random_backend() {
+    gulls_register_random_stub_backend("gsl_fallback_stub");
+    return 0;
 }
 
-const char* gulls_random_backend_name() {
-    return "gsl_fallback_stub";
+const int random_backend_registration = register_random_backend();
 }
 
-double ran1(long *idum) {
+float ran1(long *idum) {
     init_fallback_rng();
     // Only reseed if idum is negative (NR convention for initialization)
     if (idum && *idum < 0) {
@@ -50,7 +52,7 @@ double ran1(long *idum) {
     return gsl_rng_uniform(gsl_rng_fallback);
 }
 
-double ran2(long *idum) {
+float ran2(long *idum) {
     init_fallback_rng();
     // Only reseed if idum is negative (NR convention for initialization)
     if (idum && *idum < 0) {
@@ -60,11 +62,11 @@ double ran2(long *idum) {
     return gsl_rng_uniform(gsl_rng_fallback);
 }
 
-double ran0(long *idum) {
+float ran3(long *idum) {
     return ran2(idum);
 }
 
-double gasdev(long *idum) {
+float gasdev(long *idum) {
     init_fallback_rng();
     // Only reseed if idum is negative (NR convention for initialization)
     if (idum && *idum < 0) {
@@ -79,32 +81,12 @@ double gammln(double xx) {
     return gsl_sf_lngamma(xx);
 }
 
-double gammp(double a, double x) {
-    // Use GSL's incomplete gamma function P(a,x)
-    return gsl_sf_gamma_inc_P(a, x);
-}
-
-double gammq(double a, double x) {
-    // Use GSL's incomplete gamma function Q(a,x) = 1 - P(a,x)
-    return gsl_sf_gamma_inc_Q(a, x);
-}
-
-int randint(int min, int max, long *seed) {
+double poisson(double mean, long *idum) {
     init_fallback_rng();
-    // Only reseed if seed is negative (NR convention for initialization)
-    if (seed && *seed < 0) {
-        gsl_rng_set(gsl_rng_fallback, -(*seed));
-        *seed = 1; // Mark as initialized
-    }
-    return min + gsl_rng_uniform_int(gsl_rng_fallback, max - min + 1);
-}
-
-double poisson(double mean, long *seed) {
-    init_fallback_rng();
-    // Only reseed if seed is negative (NR convention for initialization)
-    if (seed && *seed < 0) {
-        gsl_rng_set(gsl_rng_fallback, -(*seed));
-        *seed = 1; // Mark as initialized
+    // Only reseed if idum is negative (NR convention for initialization)
+    if (idum && *idum < 0) {
+        gsl_rng_set(gsl_rng_fallback, -(*idum));
+        *idum = 1; // Mark as initialized
     }
     return gsl_ran_poisson(gsl_rng_fallback, mean);
 }
