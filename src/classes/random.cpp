@@ -34,12 +34,18 @@ static void cleanup_fallback_rng() {
 static int dummy = (atexit(cleanup_fallback_rng), 0);
 
 namespace {
+float bounded_uniform_float() {
+    constexpr float rnmx = 1.0f - 1.2e-7f;
+    const double uniform = gsl_rng_uniform(gsl_rng_fallback);
+    return (uniform >= rnmx) ? rnmx : static_cast<float>(uniform);
+}
+
 int register_random_backend() {
     gulls_register_random_stub_backend("gsl_fallback_stub");
     return 0;
 }
 
-const int random_backend_registration = register_random_backend();
+[[maybe_unused]] const int random_backend_registration = register_random_backend();
 }
 
 float ran1(long *idum) {
@@ -49,7 +55,7 @@ float ran1(long *idum) {
         gsl_rng_set(gsl_rng_fallback, -(*idum));
         *idum = 1; // Mark as initialized
     }
-    return gsl_rng_uniform(gsl_rng_fallback);
+    return bounded_uniform_float();
 }
 
 float ran2(long *idum) {
@@ -59,7 +65,7 @@ float ran2(long *idum) {
         gsl_rng_set(gsl_rng_fallback, -(*idum));
         *idum = 1; // Mark as initialized
     }
-    return gsl_rng_uniform(gsl_rng_fallback);
+    return bounded_uniform_float();
 }
 
 float ran3(long *idum) {
