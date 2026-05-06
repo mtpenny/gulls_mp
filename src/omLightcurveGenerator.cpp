@@ -155,8 +155,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   double antipode_ra = c.fold(Event->ra + PI,0,twoPi); //Used for computing orbits
   double antipode_dec = c.fold(-Event->dec,-PI,PI);
       
-  vector<double> s_delta(3,0.0); //Offset of the chosen lens from its center of mass at tref
-  vector<double> l_delta(3,0.0); //Offset of the chosen source from its center of mass at tref
+  vector<double> s_delta(3,0.0); //Offset of the chosen source from its center of mass at tref
+  vector<double> l_delta(3,0.0); //Offset of the chosen lens from its center of mass at tref
 
   int sn = Event->source;
   int sc = -1;
@@ -219,7 +219,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       vector<double> xp;      
       for(int j=0;j<int(s_elements[0].size());j++)
 	{
-	  s_elements[0][j].viewfrom(Event->tref,antipode_ra,antipode_dec,&xp);
+	  s_elements[0][j].viewfrom(Event->tref+Paramfile->simulation_zerotime,antipode_ra,antipode_dec,&xp);
 	  s_delta[0] += xp[0]; s_delta[1] += xp[1]; s_delta[2] += xp[2];
 	}
       
@@ -327,6 +327,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->p_dL.push_back(Event->lcomp_dL[i]);
 	      Event->p_q.push_back(Event->lcomp_q[i]);
 	      Event->p_s0.push_back(0.0);
+	      Event->p_x0.push_back(0.0);
+	      Event->p_y0.push_back(0.0);
+	      Event->p_z0.push_back(0.0);
+	      Event->p_dsdt.push_back(0.0);
+	      Event->p_dalphadt.push_back(0.0);
+	      Event->p_dxdt.push_back(0.0);
+	      Event->p_dydt.push_back(0.0);
+	      Event->p_dzdt.push_back(0.0);
 	      Event->p_orbtype.push_back(-1); //to represent a binary star
 	    }
 	}
@@ -574,6 +582,63 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
     }
 
+  //Set up the origin for t0,u0. For all cases this will be relative to the first lens at time t_ref
+
+  //Compute the origin shift relative to the center of mass of the lens - normalization by rEsrc will be done later
+
+  const double toff=7.0e-3; //1 minute
+  
+  if(nlens>=2)
+    {
+      vector<double> xp; //orbit contribution to vector
+      vector<double> rp(3,0.0); //total position vector at time tref
+      vector<double> rp1(3,0.0); //total position vector at time tref+delta
+      for(int i=0;i<int(l_elements.size());i++)
+	{
+	  for(int j=0;j<int(l_elements[i].size());j++)
+	    {
+	      l_elements[i][j].viewfrom(Event->tref+Paramfile->simulation_zerotime,antipode_ra,antipode_dec,&xp);
+	      rp[0] += xp[0]; rp[1] += xp[1]; rp[2] += xp[2];
+	      l_elements[i][j].viewfrom(Event->tref+Paramfile->simulation_zerotime+toff,antipode_ra,antipode_dec,&xp);
+	      rp1[0] += xp[0]; rp1[1] += xp[1]; rp1[2] += xp[2];
+	      
+	    }
+
+	  if(i==0)
+	    {
+	      l_delta[0] = rp[0];  l_delta[1] = rp[1]; l_delta[2] = rp[2];
+	    }
+	  
+	  rp[0] = (rp[0]+l_delta[0])/Event->rE;
+	  rp[1] = (rp[1]+l_delta[1])/Event->rE;
+	  rp[2] = (rp[2]+l_delta[2])/Event->rE;
+	  rp1[0] = (rp1[0]+l_delta[0])/Event->rE;
+	  rp1[1] = (rp1[1]+l_delta[1])/Event->rE;
+	  rp1[2] = (rp1[2]+l_delta[2])/Event->rE;
+
+	  if(i>0)
+	    {
+	      Event->p_s0[i-1] = qAdd(rp[0],rp[1]);
+	      Event->p_x0[i-1] = rp[0];
+	      Event->p_y0[i-1] = rp[1];
+	      Event->p_z0[i-1] = rp[2];
+	      double s1 = qAdd(rp1[0],rp1[1]);
+	      Event->p_dsdt[i-1] = (s1-Event->p_s0[i-1])/toff;
+	      Event->p_dalphadt[i-1] = (atan2(rp1[1],rp1[0])-atan2(rp[1],rp[0]))/toff;
+	      Event->p_dxdt[i-1] = (rp1[0]-rp[0])/toff;
+	      Event->p_dydt[i-1] = (rp1[1]-rp[1])/toff;
+	      Event->p_dzdt[i-1] = (rp1[2]-rp[2])/toff;
+	      
+	      //p_dalphadt, p_dxdt, p_dydt;
+	    }
+	  
+
+	}
+    }
+  
+
+  
+
   double time_elapsed=0;
   bool warned_single_lens_nonzero_origin = false;
 
@@ -644,6 +709,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  cout << " mass=" << Event->p_mass[i] << " ";
 	  cout << " q=" << Event->p_q[i] << " ";
 	  cout << " s0=" << Event->p_s0[i] << " ";
+	  cout << " x0=" << Event->p_x0[i] << " ";
+	  cout << " y0=" << Event->p_y0[i] << " ";
+	  cout << " z0=" << Event->p_z0[i] << " ";
+	  cout << " dsdt=" << Event->p_dsdt[i] << " ";
+	  cout << " dalphadt=" << Event->p_dalphadt[i] << " ";
+	  cout << " dxdt=" << Event->p_dxdt[i] << " ";
+	  cout << " dydt=" << Event->p_dydt[i] << " ";
+	  cout << " dzdt=" << Event->p_dzdt[i] << " ";
 	  cout << " orbtype=" << Event->p_orbtype[i] << " ";
 	  cout << endl;
 	}
@@ -711,6 +784,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       double xs0 = uu * sina + tt * cosa;
       double ys0 = -uu * cosa + tt * sina;
 
+      //Shift from CoM origin to lens1@tref origin
+      xs0 += l_delta[0]; //already in units of Einstein ring
+      ys0 += l_delta[1];
+
       vector<double> xs(nsrc,0.0); //source position in the plane of the sky, ecliptic sky coordinates in AU
       vector<double> ys(nsrc,0.0); // AU is a strange unit. Aren't these angles on the sky? -A
       vector<double> ds(nsrc,0.0); //source distance
@@ -726,7 +803,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
-	      xs[i] /= rEsrc; ys[i] /= rEsrc; ds[i] /= rEsrc;  // now they are angles? -A
+	      xs[i] /= rEsrc; ys[i] /= rEsrc; ds[i] /= rEsrc;  // now they are angles? -A MP: unitless relative to the Einstein radius
 	      //Rotation needed here?
 	      
 	      xs[i] += xs0; ys[i] += ys0;
@@ -757,7 +834,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  if(Paramfile->verbosity>=3 || idx==0) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][shiftedidx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
 		  xl[i] += xp[0]; yl[i] += xp[1]; dl[i] += xp[2];
 		}
-	      xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
+	      //This shift of origin away from the center of mass has been moved to the source position
+	      //xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
 
 
 	      xl[i] /= Event->rE; yl[i] /= Event->rE; dl[i] /= Event->rE;
@@ -765,7 +843,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      //rotations needed here?
 	      lens_parameters[3*i+0] = xl[i];
 	      lens_parameters[3*i+1] = yl[i];
-	      Event->xlens[i][idx] = xl[i];  // is this lens parallax? -A
+	      Event->xlens[i][idx] = xl[i];  // is this lens parallax? -A MP: No, this is in the center of mass frame
 	      Event->ylens[i][idx] = yl[i];
 	    }
 
@@ -774,7 +852,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       else
 	{
 	  xl[0] = 0.0; yl[0] = 0.0;
-	  Event->xlens[0][idx] = 0.0; Event->ylens[0][idx] = 0.0; // how come this doesn't need parallax? -A
+	  Event->xlens[0][idx] = 0.0; Event->ylens[0][idx] = 0.0; // how come this doesn't need parallax? -A MP: again, center of mass frame
 	}
 
       

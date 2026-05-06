@@ -115,7 +115,15 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
       ofile << "Planet_" << i << "_O ";
       ofile << "Planet_" << i << "_dL ";
       ofile << "Planet_" << i << "_q ";
-      ofile << "Planet_" << i << "_s0 "; 
+      ofile << "Planet_" << i << "_s0 ";
+      ofile << "Planet_" << i << "_x0 ";
+      ofile << "Planet_" << i << "_y0 ";
+      ofile << "Planet_" << i << "_z0 ";
+      ofile << "Planet_" << i << "_dsdt ";
+      ofile << "Planet_" << i << "_dalphadt ";
+      ofile << "Planet_" << i << "_dxdt ";
+      ofile << "Planet_" << i << "_dydt ";
+      ofile << "Planet_" << i << "_dzdt "; 
       ofile << "Planet_" << i << "_orbtype ";
     }
     
@@ -362,9 +370,17 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->p_dL[i] << " ";
 	  ofile << Event->p_q[i] << " ";
 	  ofile << Event->p_s0[i] << " ";
+	  ofile << Event->p_x0[i] << " ";
+	  ofile << Event->p_y0[i] << " ";
+	  ofile << Event->p_z0[i] << " ";
+	  ofile << Event->p_dsdt[i] << " ";
+	  ofile << Event->p_dalphadt[i] << " ";
+	  ofile << Event->p_dxdt[i] << " ";
+	  ofile << Event->p_dydt[i] << " ";
+	  ofile << Event->p_dzdt[i] << " ";
 	  ofile << Event->p_orbtype[i] << " ";
 	}
-      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
+      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	    
     }
 
