@@ -443,7 +443,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(isbinary==1)
 	    {
 	      if(Paramfile->verbosity>2) cout << "and is the primary." << endl;
-	      for(int i=sn+1;i<Sources->data.size();i++)
+	      //Look for the secondart
+	      for(int i=0;i<Sources->data.size();i++)
 		{
 		  if(Sources->data[i][Sources->datadict["primary_ID"]]==Sources->data[sn][Sources->datadict["ID"]])
 		    {
@@ -595,7 +596,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(isbinary==1)
 	    {
 	      if(Paramfile->verbosity>2) cout << "and is the primary." << endl;
-	      for(int i=ln+1;i<Lenses->data.size();i++)
+	      for(int i=0;i<Lenses->data.size();i++)
 		{
 		  if(Lenses->data[i][Lenses->datadict["primary_ID"]]==Lenses->data[ln][Lenses->datadict["ID"]])
 		    {
