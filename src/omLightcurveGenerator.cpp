@@ -586,16 +586,16 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   //Compute the origin shift relative to the center of mass of the lens - normalization by rEsrc will be done later
 
-  const double toff=7.0e-3; //1 minute
+  const double toff=7.0e-3; //1 minute  <- that's 10 minutes, Matt
   
   if(nlens>=2)
     {
       vector<double> xp; //orbit contribution to vector
       vector<double> rp(3,0.0); //total position vector at time tref
       vector<double> rp1(3,0.0); //total position vector at time tref+delta
-      for(int i=0;i<int(l_elements.size());i++)
+      for(int i=0;i<int(l_elements.size());i++)  // loop { star reflex orbits, planet orbits, moon orbits }
 	{
-	  for(int j=0;j<int(l_elements[i].size());j++)
+	  for(int j=0;j<int(l_elements[i].size());j++)  // loop over orbital contributions for this lens object; each contribution has { a, e, I, L0, w, O, dL }
 	    {
 	      l_elements[i][j].viewfrom(Event->tref+Paramfile->simulation_zerotime,antipode_ra,antipode_dec,&xp);
 	      rp[0] += xp[0]; rp[1] += xp[1]; rp[2] += xp[2];
@@ -609,8 +609,9 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      l_delta[0] = rp[0];  l_delta[1] = rp[1]; l_delta[2] = rp[2];
 	    }
 	  
-	  rp[0] = (rp[0]+l_delta[0])/Event->rE;
-	  rp[1] = (rp[1]+l_delta[1])/Event->rE;
+	  // converting from physical units (AU) to Einstein radius units, and applying the origin shift for the lens-system barycenter.
+	  rp[0] = (rp[0]+l_delta[0])/Event->rE;  //why does this need a unit correction?
+	  rp[1] = (rp[1]+l_delta[1])/Event->rE;  // + ?
 	  rp[2] = (rp[2]+l_delta[2])/Event->rE;
 	  rp1[0] = (rp1[0]+l_delta[0])/Event->rE;
 	  rp1[1] = (rp1[1]+l_delta[1])/Event->rE;
@@ -618,7 +619,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 	  if(i>0)
 	    {
-	      Event->p_s0[i-1] = qAdd(rp[0],rp[1]);
+	      Event->p_s0[i-1] = qAdd(rp[0],rp[1]);  // is p meant to be in AU here?
 	      Event->p_x0[i-1] = rp[0];
 	      Event->p_y0[i-1] = rp[1];
 	      Event->p_z0[i-1] = rp[2];
