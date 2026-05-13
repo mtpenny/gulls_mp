@@ -7,6 +7,7 @@
 #include<exception>
 #include<sys/timeb.h>
 #include "VBMicrolensingLibrary.h"
+#include "random_backend.h"
 
 using namespace std;
 
