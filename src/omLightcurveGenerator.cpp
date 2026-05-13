@@ -586,15 +586,19 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   //Compute the origin shift relative to the center of mass of the lens - normalization by rEsrc will be done later
 
-  const double toff=7.0e-3; //1 minute  <- that's 10 minutes, Matt
+  const double toff = 1.0/(24.0*60.0); // one minute, in days
   
   if(nlens>=2)
     {
       vector<double> xp; //orbit contribution to vector
       vector<double> rp(3,0.0); //total position vector at time tref
       vector<double> rp1(3,0.0); //total position vector at time tref+delta
+      vector<double> primary_rp(3,0.0); //primary lens position at tref, in AU
+      vector<double> primary_rp1(3,0.0); //primary lens position at tref+delta, in AU
       for(int i=0;i<int(l_elements.size());i++)  // loop { star reflex orbits, planet orbits, moon orbits }
 	{
+	  rp.assign(3,0.0);  // Codex is insisting this needs to be here, but I get it. -A
+	  rp1.assign(3,0.0);
 	  for(int j=0;j<int(l_elements[i].size());j++)  // loop over orbital contributions for this lens object; each contribution has { a, e, I, L0, w, O, dL }
 	    {
 	      l_elements[i][j].viewfrom(Event->tref+Paramfile->simulation_zerotime,antipode_ra,antipode_dec,&xp);
@@ -606,16 +610,20 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 	  if(i==0)
 	    {
-	      l_delta[0] = rp[0];  l_delta[1] = rp[1]; l_delta[2] = rp[2];
+	      primary_rp = rp;
+	      primary_rp1 = rp1;
+	      l_delta[0] = rp[0]/Event->rE;
+	      l_delta[1] = rp[1]/Event->rE;
+	      l_delta[2] = rp[2]/Event->rE;
 	    }
 	  
 	  // converting from physical units (AU) to Einstein radius units, and applying the origin shift for the lens-system barycenter.
-	  rp[0] = (rp[0]+l_delta[0])/Event->rE;  //why does this need a unit correction?
-	  rp[1] = (rp[1]+l_delta[1])/Event->rE;  // + ?
-	  rp[2] = (rp[2]+l_delta[2])/Event->rE;
-	  rp1[0] = (rp1[0]+l_delta[0])/Event->rE;
-	  rp1[1] = (rp1[1]+l_delta[1])/Event->rE;
-	  rp1[2] = (rp1[2]+l_delta[2])/Event->rE;
+	  rp[0] = (rp[0]-primary_rp[0])/Event->rE;
+	  rp[1] = (rp[1]-primary_rp[1])/Event->rE;
+	  rp[2] = (rp[2]-primary_rp[2])/Event->rE;
+	  rp1[0] = (rp1[0]-primary_rp1[0])/Event->rE;
+	  rp1[1] = (rp1[1]-primary_rp1[1])/Event->rE;
+	  rp1[2] = (rp1[2]-primary_rp1[2])/Event->rE;
 
 	  if(i>0)
 	    {
