@@ -520,6 +520,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  Event->nsrc++;
 	  Event->scomp_rs.push_back((Sources->data[sc][Sources->RADIUS] * Rsun / Sources->data[sc][Sources->DIST]) / Event->thE);
 	  double P = pow(10,Sources->data[sc][Sources->datadict["combined_logP"]])/DAYINYR;
+	  if(abs(log10(abs(Sources->data[sc][Sources->datadict["combined_logP"]]))+50)<0.8) //test if the log period is close to a filler value
+	    P = pow(10,Sources->data[sn][Sources->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Sources->data[sn][Sources->datadict["Mass"]];
 	  double M2 = Sources->data[sc][Sources->datadict["Mass"]];
 	  Event->scomp_q.push_back(M2/M1);
@@ -532,6 +534,10 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(Sources->datadict.count("Eccentricity")==1)
 	    {
 	      e = Sources->data[sn][Sources->datadict["Eccentricity"]];
+	    }
+	  if(Sources->datadict.count("Eccentricity")==1)
+	    {
+	      e = Sources->data[sn][Sources->datadict["eccentricity"]];
 	    }
 	  Event->scomp_e.push_back(e);
 
@@ -668,6 +674,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	{
 	  Event->nlens++;
 	  double P = pow(10,Lenses->data[lc][Lenses->datadict["combined_logP"]])/DAYINYR;
+	  if(abs(log10(abs(Lenses->data[lc][Lenses->datadict["combined_logP"]]))+50)<0.8) //test if the log period is close to a filler value
+	    P = pow(10,Lenses->data[ln][Lenses->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Lenses->data[ln][Lenses->datadict["Mass"]];
 	  double M2 = Lenses->data[lc][Lenses->datadict["Mass"]];
 	  cout << "Binary with masses M1=" << M1 << " M2=" << M2 << endl;
@@ -682,6 +690,10 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(Lenses->datadict.count("Eccentricity")==1)
 	    {
 	      e = Lenses->data[ln][Lenses->datadict["Eccentricity"]];
+	    }
+	  if(Lenses->datadict.count("eccentricity")==1)
+	    {
+	      e = Lenses->data[ln][Lenses->datadict["eccentricity"]];
 	    }
 	  Event->lcomp_e.push_back(e);
 

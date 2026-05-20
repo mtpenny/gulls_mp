@@ -83,6 +83,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   int skipped_planets=0;
   double first_inc=0;
   double first_long=0;
+  double first_argperi=0;
 
   for(int i=0;i<nplanets;i++)
     {
@@ -125,6 +126,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 
       double inc=Event->p_I.back();
       double long_ascnode=Event->p_O.back();
+      double arg_peri=Event->p_w.back(); 
       if(inc>900)
       {
 	//If inclination is relative to the binary orbit, then it should have 1000 degrees added to it
@@ -132,6 +134,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	  {
 	    inc = Event->lcomp_I[0] + (inc-1000.0);
 	    long_ascnode = Event->lcomp_O[0];
+	    arg_peri = Event->lcomp_w[0];
 	  }
 	else
 	  {
@@ -143,15 +146,18 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 		long_ascnode=360*ran2(Paramfile->seed);
 		first_inc = inc;
 		first_long = long_ascnode;
+		first_argperi = arg_peri;
 	      }
 	    else
 	      {
 		inc=first_inc;
 		long_ascnode = first_long;
+		arg_peri = first_argperi;
 	      }
 	  }
-	Event->p_I.push_back(inc);
-	Event->p_O.push_back(long_ascnode);
+	Event->p_I.back() = inc;
+	Event->p_O.back() = long_ascnode;
+	Event->p_w.back() = arg_peri;
       }
 
       

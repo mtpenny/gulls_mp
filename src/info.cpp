@@ -54,7 +54,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 
   //source data - +6+1 = 8
   ofile << "NSource ";
-  ofile << "SourceID" << " ";
+  ofile << "Source_gulls_ID" << " ";
   for(int i=0;i<Sources->datakey.size();i++)
     {
       ofile << "Source_" << Sources->datakey[i] << " ";
@@ -62,7 +62,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_sources)
     {
       ofile << "SourceCompanions ";
-      ofile << "Source2ID ";
+      ofile << "Source2_gulls_ID ";
       for(int i=0;i<Sources->datakey.size();i++)
 	{
 	  ofile << "Source2_" << Sources->datakey[i] << " ";
@@ -76,7 +76,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 
   //lens data - +10+1 = 15
   ofile << "NLens NPlanets ";
-  ofile << "LensID" << " ";
+  ofile << "Lens_gulls_ID" << " ";
   for(int i=0;i<Lenses->datakey.size();i++)
     {
       ofile << "Lens_" << Lenses->datakey[i] << " ";
@@ -84,7 +84,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_lenses)
     {
       ofile << "LensCompanions ";
-      ofile << "Lens2_ID ";
+      ofile << "Lens2_gulls_ID ";
       for(int i=0;i<Lenses->datakey.size();i++)
 	{
 	  ofile << "Lens2_" << Lenses->datakey[i] << " ";
