@@ -54,7 +54,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 
   //source data - +6+1 = 8
   ofile << "NSource ";
-  ofile << "SourceID" << " ";
+  ofile << "Source_gulls_ID" << " ";
   for(int i=0;i<Sources->datakey.size();i++)
     {
       ofile << "Source_" << Sources->datakey[i] << " ";
@@ -62,16 +62,21 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_sources)
     {
       ofile << "SourceCompanions ";
-      ofile << "Source2ID ";
+      ofile << "Source2_gulls_ID ";
       for(int i=0;i<Sources->datakey.size();i++)
 	{
 	  ofile << "Source2_" << Sources->datakey[i] << " ";
 	}
     }
+  ofile << "Source_NImageFlag ";
+  if(Paramfile->multiple_sources)
+    {
+      ofile << "Source2_NImageFlag ";
+    }
 
   //lens data - +10+1 = 15
   ofile << "NLens NPlanets ";
-  ofile << "LensID" << " ";
+  ofile << "Lens_gulls_ID" << " ";
   for(int i=0;i<Lenses->datakey.size();i++)
     {
       ofile << "Lens_" << Lenses->datakey[i] << " ";
@@ -79,7 +84,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_lenses)
     {
       ofile << "LensCompanions ";
-      ofile << "Lens2_ID ";
+      ofile << "Lens2_gulls_ID ";
       for(int i=0;i<Lenses->datakey.size();i++)
 	{
 	  ofile << "Lens2_" << Lenses->datakey[i] << " ";
@@ -110,7 +115,15 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
       ofile << "Planet_" << i << "_O ";
       ofile << "Planet_" << i << "_dL ";
       ofile << "Planet_" << i << "_q ";
-      ofile << "Planet_" << i << "_s0 "; 
+      ofile << "Planet_" << i << "_s0 ";
+      ofile << "Planet_" << i << "_x0 ";
+      ofile << "Planet_" << i << "_y0 ";
+      ofile << "Planet_" << i << "_z0 ";
+      ofile << "Planet_" << i << "_dsdt ";
+      ofile << "Planet_" << i << "_dalphadt ";
+      ofile << "Planet_" << i << "_dxdt ";
+      ofile << "Planet_" << i << "_dydt ";
+      ofile << "Planet_" << i << "_dzdt "; 
       ofile << "Planet_" << i << "_orbtype ";
     }
     
@@ -136,6 +149,10 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 		<< "rho" << " " << "piE" << " " << "piEN" << " " << "piEE" << " "
 		<< "murel_helio_alpha" << " " << "murel_helio_delta" << " " << "murel_helio_l" << " " << "murel_helio_b" << " " << "murel_helio_lambda" << " " << "murel_helio_beta" << " " << "murel_helio" << " "
 		<< "murel_ref_alpha" << " " << "murel_ref_delta" << " " << "murel_ref_l" << " " << "murel_ref_b" << " " << "murel_ref_lambda" << " " << "murel_ref_beta" << " " << "murel_ref" << " "
+		<< "mu_source_helio_alpha" << " " << "mu_source_helio_delta" << " " << "mu_source_helio_l" << " " << "mu_source_helio_b" << " " << "mu_source_helio_lambda" << " " << "mu_source_helio_beta" << " " << "mu_source_helio" << " "
+		<< "mu_source_ref_alpha" << " " << "mu_source_ref_delta" << " " << "mu_source_ref_l" << " " << "mu_source_ref_b" << " " << "mu_source_ref_lambda" << " " << "mu_source_ref_beta" << " " << "mu_source_ref" << " "
+		<< "mu_lens_helio_alpha" << " " << "mu_lens_helio_delta" << " " << "mu_lens_helio_l" << " " << "mu_lens_helio_b" << " " << "mu_lens_helio_lambda" << " " << "mu_lens_helio_beta" << " " << "mu_lens_helio" << " "
+		<< "mu_lens_ref_alpha" << " " << "mu_lens_ref_delta" << " " << "mu_lens_ref_l" << " " << "mu_lens_ref_b" << " " << "mu_lens_ref_lambda" << " " << "mu_lens_ref_beta" << " " << "mu_lens_ref" << " "
 		<< "vtilde_helio" << " " << "vtilde_ref" << " " << "v_ref" << " "
 		<< "vtilde_helio_N" << " " << "vtilde_helio_E" << " " <<  "vtilde_ref_N" << " " << "vtilde_ref_E" << " " << "v_ref_N" << " " << "v_ref_E" << " "
 		<< "piEll" << " " << "piErp" << " "
@@ -294,6 +311,8 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	    }
 	}
     }
+  ofile << Event->nimageflag[0] << " ";
+  if(Paramfile->multiple_sources) ofile << Event->nimageflag[1] << " ";
 
   //lens data - +10+1 = 15
   int ln = Event->lens;
@@ -351,9 +370,17 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->p_dL[i] << " ";
 	  ofile << Event->p_q[i] << " ";
 	  ofile << Event->p_s0[i] << " ";
+	  ofile << Event->p_x0[i] << " ";
+	  ofile << Event->p_y0[i] << " ";
+	  ofile << Event->p_z0[i] << " ";
+	  ofile << Event->p_dsdt[i] << " ";
+	  ofile << Event->p_dalphadt[i] << " ";
+	  ofile << Event->p_dxdt[i] << " ";
+	  ofile << Event->p_dydt[i] << " ";
+	  ofile << Event->p_dzdt[i] << " ";
 	  ofile << Event->p_orbtype[i] << " ";
 	}
-      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
+      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	    
     }
 
@@ -388,6 +415,10 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	<< Event->rs << " " << Event->piE << " " << Event->piEN << " " << Event->piEE << " "
 	<< Event->murel*Event->pllx[0].mua_h << " " << Event->murel*Event->pllx[0].mud_h << " " << Event->murel*Event->pllx[0].mul_h << " " << Event->murel*Event->pllx[0].mub_h << " " << Event->murel*Event->pllx[0].mulam_h << " " << Event->murel*Event->pllx[0].mubet_h << " " << Event->pllx[0].murel_h << " "
 	<< murel_ref*Event->pllx[0].mua_r << " " <<  murel_ref*Event->pllx[0].mud_r << " " << murel_ref*Event->pllx[0].mul_r << " " << murel_ref*Event->pllx[0].mub_r << " " << murel_ref*Event->pllx[0].mulam_r << " " << murel_ref*Event->pllx[0].mubet_r << " " << Event->pllx[0].murel_r << " "
+	<< Event->pm_source.mua_h << " " << Event->pm_source.mud_h << " " << Event->pm_source.mul_h << " " << Event->pm_source.mub_h << " " << Event->pm_source.mulam_h << " " << Event->pm_source.mubet_h << " " << Event->pm_source.mu_h << " "
+	<< Event->pm_source.mua_r << " " << Event->pm_source.mud_r << " " << Event->pm_source.mul_r << " " << Event->pm_source.mub_r << " " << Event->pm_source.mulam_r << " " << Event->pm_source.mubet_r << " " << Event->pm_source.mu_r << " "
+	<< Event->pm_lens.mua_h << " " << Event->pm_lens.mud_h << " " << Event->pm_lens.mul_h << " " << Event->pm_lens.mub_h << " " << Event->pm_lens.mulam_h << " " << Event->pm_lens.mubet_h << " " << Event->pm_lens.mu_h << " "
+	<< Event->pm_lens.mua_r << " " << Event->pm_lens.mud_r << " " << Event->pm_lens.mul_r << " " << Event->pm_lens.mub_r << " " << Event->pm_lens.mulam_r << " " << Event->pm_lens.mubet_r << " " << Event->pm_lens.mu_r << " "
 	<< Event->pllx[0].vtilde_h << " " << Event->pllx[0].vtilde_r << " " << Event->pllx[0].v_ref << " "
 	<< Event->pllx[0].vtilde_N_h << " " << Event->pllx[0].vtilde_E_h << " " <<  Event->pllx[0].vtilde_N_r << " " << Event->pllx[0].vtilde_E_r << " " << Event->pllx[0].v_ref_N << " " << Event->pllx[0].v_ref_E << " "
 	<< Event->pllx[0].piEll << " " << Event->pllx[0].piErp << " "
@@ -454,6 +485,10 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
       else
 	{
+	  // No detected source companion: keep column count aligned with header.
+	  // Placeholder values for:
+	  // Source2_rho, Source2_s, Source2_alpha, Source2_phase,
+	  // Source2_acomb, Source2_e, Source2_I, Source2_L0, Source2_w, Source2_O, Source2_dL
 	  ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {

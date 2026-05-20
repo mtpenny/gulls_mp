@@ -58,6 +58,10 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   Event->p_period.clear();
   Event->p_q.clear();
   Event->p_s0.clear();
+  Event->p_dsdt.clear();
+  Event->p_dalphadt.clear();
+  Event->p_dxdt.clear();
+  Event->p_dydt.clear();
 
   if(int(Planets->header.size())%7 != 0)
     {
@@ -79,10 +83,11 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
   int skipped_planets=0;
   double first_inc=0;
   double first_long=0;
+  double first_argperi=0;
 
   for(int i=0;i<nplanets;i++)
     {
-      double mass;
+      double mass = 0.0;
       for(int j=0;j<7;j++)
 	{
 	  int col = 7*i+j;
@@ -112,8 +117,16 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	   
 	}
 
+      if(mass<=0.0)
+	{
+	  if(Paramfile->verbosity>=1) cout << "Skipping planet " << i << " with zero mass" << endl;
+	  skipped_planets++;
+	  continue;
+	}
+
       double inc=Event->p_I.back();
       double long_ascnode=Event->p_O.back();
+      double arg_peri=Event->p_w.back(); 
       if(inc>900)
       {
 	//If inclination is relative to the binary orbit, then it should have 1000 degrees added to it
@@ -121,6 +134,7 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	  {
 	    inc = Event->lcomp_I[0] + (inc-1000.0);
 	    long_ascnode = Event->lcomp_O[0];
+	    arg_peri = Event->lcomp_w[0];
 	  }
 	else
 	  {
@@ -132,15 +146,18 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 		long_ascnode=360*ran2(Paramfile->seed);
 		first_inc = inc;
 		first_long = long_ascnode;
+		first_argperi = arg_peri;
 	      }
 	    else
 	      {
 		inc=first_inc;
 		long_ascnode = first_long;
+		arg_peri = first_argperi;
 	      }
 	  }
-	Event->p_I.push_back(inc);
-	Event->p_O.push_back(long_ascnode);
+	Event->p_I.back() = inc;
+	Event->p_O.back() = long_ascnode;
+	Event->p_w.back() = arg_peri;
       }
 
       
@@ -148,6 +165,14 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	{
 	  Event->p_L0.push_back(360.0*ran2(Paramfile->seed));
 	  Event->p_s0.push_back(0.0);
+	  Event->p_x0.push_back(0.0);
+	  Event->p_y0.push_back(0.0);
+	  Event->p_z0.push_back(0.0);
+	  Event->p_dsdt.push_back(0.0);
+	  Event->p_dalphadt.push_back(0.0);
+	  Event->p_dxdt.push_back(0.0);
+	  Event->p_dydt.push_back(0.0);
+	  Event->p_dzdt.push_back(0.0);
 	  
 
 	  if(orbtype==0)
@@ -222,11 +247,6 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
 	    }
 
 	} //end if mass >0
-      else
-	{
-	  if(Paramfile->verbosity>=1) cout << "Skipping planet " << i << " with zero mass" << endl;
-	  skipped_planets++;
-	}
       
       //Event->lcomp_alpha.push_back(360.0*ran2(idum));
       //Event->lcomp_phase.push_back(360.0*ran2(idum));

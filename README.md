@@ -100,6 +100,7 @@ This produces maximum diagnostic output:
 
 **GSL fallback warnings:**
 - For production science, replace `src/classes/random.cpp` and `src/classes/zroots2.cpp` with licensed Numerical Recipes implementations
+- `src/headers/random.h` is kept compatible with the original random interface; the Gulls stub guard lives in separate `random_backend` files so real drop-ins do not need repo-specific functions.
 - GSL fallbacks are for CI/testing only
 - **Binary releases include GSL fallbacks and are NOT suitable for production science**
 
@@ -120,6 +121,7 @@ Inspect images in ds9 using zscale to check for:
 - **Automated testing** - CI runs tests automatically
 - **Better error messages** - Clear feedback when things go wrong
 - **Version management** - Automated releases with smart release notes (uses `RELEASE_NOTES.md` if present)
+- **Astrometry** (v2.1.0) - Basic astrometry implementation using low-level VBM functions, Gould & Yee (2014) noise approximations, and minimal transformation. Values are expressed in the lens frame in units of `theta_E`. See [astrometry.rst](documentation/source/astrometry.rst) for more details.
 
 **See [CONTRIBUTING.md](CONTRIBUTING.md) for a gradual adoption guide.**
 

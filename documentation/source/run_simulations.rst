@@ -267,7 +267,8 @@ Troubleshooting
 **GSL fallback warnings:**
 
 - For production science, replace ``src/classes/random.cpp`` and ``src/classes/zroots2.cpp``
-  with licensed Numerical Recipes implementations
+  with licensed Numerical Recipes implementations. ``src/headers/random.h`` matches the original
+  random interface, and the Gulls stub guard lives separately in ``random_backend`` files.
 - GSL fallbacks are for CI/testing only
 
 For more issues, see :doc:`basic_troubleshooting`.

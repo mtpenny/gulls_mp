@@ -27,6 +27,8 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->id = sdx;
 
   Event->gamma = Paramfile->LD_GAMMA;
+  Event->pm_lens = propermotionframe();
+  Event->pm_source = propermotionframe();
 
   //clear the data vectors
   Event->data.clear();
@@ -63,20 +65,23 @@ void buildEvent(struct event *Event, struct obsfilekeywords World[],
   Event->lcomp_dL.clear();
   Event->lcomp_mass.clear();
   Event->lcomp_period.clear();
+  //Event->m0.clear();
 
   //Event->ljoint_thE.clear();
   //Event->ljoint_tE.clear();
   //Event->ljoint_rE.clear();
 
+
   //Set up obsgroups
   if(int(Event->obsgroups.size())==0)
     {
-      if(Paramfile->verbosity>1) cout << "drawsl" << endl;
+      if(Paramfile->verbosity>1) cout << "setupObsGroups" << endl;
       setupObsGroups(Paramfile, Event);
     }
 
   if(Paramfile->verbosity>1) cout << "drawsl" << endl;
   drawsl(Paramfile, World, Event, Sources, Lenses, idum);
+  if(Paramfile->verbosity>1) cout << "drawsl done" << endl;
   //getPlanetvals(Event, Planets, Lenses, sdx);
 
   if(Paramfile->verbosity>1) cout << "addstars" << endl;
@@ -382,6 +387,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   int sn, ln; //source, lens and field numbers
   vector<double> lb(2); //galactic coordinates of the event
   double x;
+  vector<double> pmgal_l(2), pmgal_s(2); //galactic proper motion vectors for the lens and source
   vector<double> pmgal(2);
 
 
@@ -437,7 +443,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(isbinary==1)
 	    {
 	      if(Paramfile->verbosity>2) cout << "and is the primary." << endl;
-	      for(int i=sn+1;i<Sources->data.size();i++)
+	      //Look for the secondart
+	      for(int i=0;i<Sources->data.size();i++)
 		{
 		  if(Sources->data[i][Sources->datadict["primary_ID"]]==Sources->data[sn][Sources->datadict["ID"]])
 		    {
@@ -513,6 +520,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  Event->nsrc++;
 	  Event->scomp_rs.push_back((Sources->data[sc][Sources->RADIUS] * Rsun / Sources->data[sc][Sources->DIST]) / Event->thE);
 	  double P = pow(10,Sources->data[sc][Sources->datadict["combined_logP"]])/DAYINYR;
+	  if(abs(log10(abs(Sources->data[sc][Sources->datadict["combined_logP"]]))+50)<0.8) //test if the log period is close to a filler value
+	    P = pow(10,Sources->data[sn][Sources->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Sources->data[sn][Sources->datadict["Mass"]];
 	  double M2 = Sources->data[sc][Sources->datadict["Mass"]];
 	  Event->scomp_q.push_back(M2/M1);
@@ -525,6 +534,10 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(Sources->datadict.count("Eccentricity")==1)
 	    {
 	      e = Sources->data[sn][Sources->datadict["Eccentricity"]];
+	    }
+	  if(Sources->datadict.count("Eccentricity")==1)
+	    {
+	      e = Sources->data[sn][Sources->datadict["eccentricity"]];
 	    }
 	  Event->scomp_e.push_back(e);
 
@@ -589,7 +602,7 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(isbinary==1)
 	    {
 	      if(Paramfile->verbosity>2) cout << "and is the primary." << endl;
-	      for(int i=ln+1;i<Lenses->data.size();i++)
+	      for(int i=0;i<Lenses->data.size();i++)
 		{
 		  if(Lenses->data[i][Lenses->datadict["primary_ID"]]==Lenses->data[ln][Lenses->datadict["ID"]])
 		    {
@@ -661,6 +674,8 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	{
 	  Event->nlens++;
 	  double P = pow(10,Lenses->data[lc][Lenses->datadict["combined_logP"]])/DAYINYR;
+	  if(abs(log10(abs(Lenses->data[lc][Lenses->datadict["combined_logP"]]))+50)<0.8) //test if the log period is close to a filler value
+	    P = pow(10,Lenses->data[ln][Lenses->datadict["combined_logP"]])/DAYINYR;
 	  double M1 = Lenses->data[ln][Lenses->datadict["Mass"]];
 	  double M2 = Lenses->data[lc][Lenses->datadict["Mass"]];
 	  cout << "Binary with masses M1=" << M1 << " M2=" << M2 << endl;
@@ -675,6 +690,10 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
 	  if(Lenses->datadict.count("Eccentricity")==1)
 	    {
 	      e = Lenses->data[ln][Lenses->datadict["Eccentricity"]];
+	    }
+	  if(Lenses->datadict.count("eccentricity")==1)
+	    {
+	      e = Lenses->data[ln][Lenses->datadict["eccentricity"]];
 	    }
 	  Event->lcomp_e.push_back(e);
 
@@ -736,13 +755,23 @@ void drawsl(struct filekeywords* Paramfile, struct obsfilekeywords World[], stru
   // rE and thE already computed above so that companion properties could be
   // derived safely.
 
-  //relative ls proper motion - lens motion relative to the source
-  //in mas/yr
-  //calculate the heliocentric relative proper motion
-  pmgal[0] = Lenses->data[ln][Lenses->MUL]-Sources->data[sn][Sources->MUL];
-  pmgal[1] = Lenses->data[ln][Lenses->MUB]-Sources->data[sn][Sources->MUB];
+  // lens, source, and relative lens-source proper motion in mas/yr
+  pmgal_l[0] = Lenses->data[ln][Lenses->MUL];
+  pmgal_l[1] = Lenses->data[ln][Lenses->MUB];
+  pmgal_s[0] = Sources->data[sn][Sources->MUL];
+  pmgal_s[1] = Sources->data[sn][Sources->MUB];
 
-  //work out its absolute value
+  Event->pm_lens.mul_h = pmgal_l[0];
+  Event->pm_lens.mub_h = pmgal_l[1];
+  Event->pm_lens.mu_h = qAdd(pmgal_l[0], pmgal_l[1]);
+  Event->pm_source.mul_h = pmgal_s[0];
+  Event->pm_source.mub_h = pmgal_s[1];
+  Event->pm_source.mu_h = qAdd(pmgal_s[0], pmgal_s[1]);
+
+  // calculate the heliocentric relative proper motion
+  pmgal[0] = pmgal_l[0] - pmgal_s[0];
+  pmgal[1] = pmgal_l[1] - pmgal_s[1];
+
   Event->murel_l = pmgal[0];
   Event->murel_b = pmgal[1];
   Event->murel = qAdd(pmgal[0],pmgal[1]);
@@ -795,6 +824,20 @@ void compute_u0(struct filekeywords* Paramfile, struct obsfilekeywords World[], 
   double u0max = sqrt(2.0*sqrt(1.0+1.0/(mumin*mumin-1.0)) - 2.0);
   u0max = (u0max>umaxmax?umaxmax:u0max);
   u0max = (u0max<umaxmin?umaxmin:u0max);
+  */
+
+  /*
+  for (int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
+	{
+	  int filter = World[obsidx].filter;
+	  // calculating the photometry-system magnitude zero point (m0) for each band
+	  // m0 - m_source1 = -2.5*log10(f_source1) or 
+	  // m0 - m_lens1 = -2.5*log10(f_lens1),
+	  // wherre the flux system is relative to a baseline of 1 count/s. 
+	  // This is the same system as the photometry, zeropoint can be calculated as ...?
+	  // I'll just fill with 0.0 for now
+  	  Event->m0[obsidx] = 0.0; // Sources->mags[Event->source][filter] - 2.5*log10(Sources->data[Event->source][Sources->FLUX]/Event->baselineFlux[obsidx]);
+	}
   */
 
   Event->u0max = Paramfile->u0max;
@@ -850,11 +893,41 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   int ln = Event->lens;
   double tref = Event->tref;
 
-  coords c;
-
   if(Paramfile->verbosity>0)
     {
       cout << "setupParallax" << endl;
+    }
+
+  Event->xsrc.clear();
+  Event->ysrc.clear();
+  Event->mu_src.clear();
+  Event->nimages.clear();
+  Event->upeak.clear();
+  Event->tpeak.clear();
+  
+  
+  Event->xsrc.resize(Event->nsrc);
+  Event->ysrc.resize(Event->nsrc);
+  Event->mu_src.resize(Event->nsrc);
+  Event->nimageflag = vector<int>(Event->nsrc,0);
+  Event->nimages.resize(Event->nsrc);
+  Event->upeak.resize(Event->nsrc);
+  Event->tpeak.resize(Event->nsrc);
+  for(int i=0; i<Event->nsrc; i++)
+    {
+      Event->xsrc[i].resize(Event->nepochs);
+      Event->ysrc[i].resize(Event->nepochs);
+      Event->mu_src[i].resize(Event->nepochs);
+      Event->nimages[i].resize(Event->nepochs);
+    }
+  cout << "Event->nsrc = " << Event->nsrc << ", Event->nlens = " << Event->nlens << ", Event->nepochs = " << Event->nepochs << endl;
+  
+  Event->xlens.resize(Event->nlens);
+  Event->ylens.resize(Event->nlens);
+  for(int i=0; i<Event->nlens; i++)
+    {
+      Event->xlens[i].resize(Event->nepochs);
+      Event->ylens[i].resize(Event->nepochs);
     }
 
   Event->pllx.resize(Paramfile->numobservatories);
@@ -915,6 +988,13 @@ void setupParallax(struct filekeywords* Paramfile, struct obsfilekeywords World[
   Event->piEE = Event->pllx[0].piEE; //*Event->piE;
   Event->tE_h = Event->pllx[0].tE_h;
   Event->tE_r = Event->pllx[0].tE_r;
+
+  const double lens_dist_kpc = Lenses->data[ln][Lenses->DIST];
+  const double source_dist_kpc = Sources->data[sn][Sources->DIST];
+  const double pi_lens_mas = (lens_dist_kpc > 0.0 ? 1.0 / lens_dist_kpc : 0.0);
+  const double pi_source_mas = (source_dist_kpc > 0.0 ? 1.0 / source_dist_kpc : 0.0);
+  Event->pllx[0].provide_pm_h_lb(Event->pm_lens.mul_h, Event->pm_lens.mub_h, pi_lens_mas, &Event->pm_lens);
+  Event->pllx[0].provide_pm_h_lb(Event->pm_source.mul_h, Event->pm_source.mub_h, pi_source_mas, &Event->pm_source);
 
   //Compute the event rate weighting
   Event->w = Event->raww * Event->weight_scale * Event->u0max * (Event->t0range/365.25) / (Event->tE_r/Event->tE_h);
@@ -1063,4 +1143,3 @@ void setupObsGroups(struct filekeywords *Paramfile, struct event *Event)
   Event->obsgroupoutputheader.clear();
   Event->obsgroupoutputheader.resize(Event->obsgroups.size(),string(""));
 }
-

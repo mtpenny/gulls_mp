@@ -1,11 +1,11 @@
 # Gulls Smoke Test Suite
 
-This directory contains a minimal end-to-end smoke test for the three gulls executables: `gulls_std`, `gulls_croin`, and `gullsFish`. The smoke test verifies that the executables can run successfully with synthetic input data and produce expected outputs including lightcurves, reports, and visualizations.
+This directory contains a minimal end-to-end smoke test for the gulls executables: `gulls_std`, `gulls_croin`, `gullsFish`, and `gulls_general`. The smoke test verifies that the executables can run successfully with synthetic input data and produce expected outputs including lightcurves, reports, and visualizations.
 
 ## Overview
 
 The smoke test uses synthetic catalogs and simplified observatory configurations to quickly validate that:
-- All three executables compile and run without errors
+- All executables compile and run without errors
 - Lightcurve generation completes within timeout limits
 - Photometry and astrometry outputs are generated correctly
 - Visualization plots can be created from the output data
@@ -19,7 +19,8 @@ smoke_test/
 ├── parameterfiles/            # Parameter files for each executable
 │   ├── smoke_std.prm
 │   ├── smoke_croin.prm
-│   └── smoke_fish.prm
+│   ├── smoke_fish.prm
+│   └── smoke_general.prm
 ├── assets/                    # Test input data
 │   ├── lenses/                # Synthetic lens catalogs
 │   ├── sources/               # Synthetic source catalogs
@@ -31,7 +32,8 @@ smoke_test/
 └── output/                    # Test outputs (generated at runtime)
     ├── std/
     ├── croin/
-    └── fish/
+    ├── fish/
+    └── general/
 ```
 
 ## Catalog Helper Tool
@@ -53,11 +55,21 @@ Use `dat_tool.py` to inspect and adjust the whitespace-delimited catalogs under 
 
 ## Requirements
 
-- Built gulls executables in `build/bin/` (see main README for build instructions)
-- Python 3.7+ with the following packages:
+- Built gulls executables in `bin/` (see main README for build instructions)
+- Python 3.9+ with the following packages:
   - `numpy`
   - `pandas`
   - `matplotlib` (optional, for plotting)
+  - `astropy`
+  - `scipy`
+  - `VBMicrolensing`
+
+Additional packages for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`):
+- `bagle`
+- `joblib`
+- `dynesty`
+- `ultranest`
+- `pymultinest`
 
 ### Setting Up Python Dependencies
 
@@ -77,7 +89,10 @@ conda activate smoke
 #### Option 3: Using pip
 Alternatively, install packages with pip:
 ```bash
-pip install numpy pandas matplotlib
+pip install numpy pandas matplotlib astropy scipy VBMicrolensing
+
+# Additional dependencies for BAGLE sanity checks (`--bagle-joint-fit-sanity` and `--bagle-forward-sanity`)
+pip install bagle joblib dynesty ultranest pymultinest
 ```
 
 **Note**: The main `environment.yml` includes all smoke test dependencies, so you don't need a separate smoke environment unless you have specific dependency conflicts.
@@ -86,7 +101,7 @@ pip install numpy pandas matplotlib
 
 ### Basic Usage
 
-Run all three test cases:
+Run all test cases:
 ```bash
 python smoke_test/run_smoke_test.py
 ```
@@ -103,12 +118,24 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 
 ### Command-Line Options
 
-- `--build-bin PATH`: Directory containing executables (default: `build/bin`)
+- `--build-bin PATH`: Directory containing executables (default: `bin/`)
 - `--keep-output`: Skip cleaning existing output directories before running
-- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
+- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`, `general-1s1l`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
 - `--field N`: Field index passed via `-f` flag (default: `0`; use `-1` for auto-select)
 - `--exec-timeout SECONDS`: Timeout per executable (default: `180`; `<=0` disables)
+- `--astrometry-sanity`: Run astrometric self-consistency checks on generated `.lc/.out` files
+- `--astrometry-strict-documented-columns`: With `--astrometry-sanity`, fail if documented `lens_parallax_x_mas/y_mas` columns are missing
+- `--astrometry-long-baseline-years`: Coverage required on each side of `tref` (years) for long-baseline heliocentric-PM checks (default: `1.0`)
+- `--astrometry-long-baseline-exclusion-te`: Exclude `|t-t0| <= N*tE` for long-baseline heliocentric-PM fits (default: `5.0`)
+- `--astrometry-long-baseline-direction-tol-deg`: Minimum angular tolerance for long-baseline heliocentric-PM direction checks (default: `15.0`)
+- `--bagle-joint-fit-sanity`: Run an additional BAGLE combined photometry+astrometry fit sanity check
+- `--bagle-forward-sanity`: Run an additional BAGLE forward-model sanity check (no fitting) on explicit 1s1l events
+- `--bagle-event-id`: With `--bagle-joint-fit-sanity`, force a specific `EventID` (otherwise auto-select one with single-lens chi2 < threshold)
+- `--bagle-chi2-max`: With `--bagle-joint-fit-sanity`, event-selection threshold on `ObsGroup_0_chi2` (default: `100.0`)
+- `--bagle-forward-event-id`: With `--bagle-forward-sanity`, force a specific explicit 1s1l `EventID` (otherwise auto-select first explicit 1s1l event)
+- `--bagle-forward-obs-location`: With `--bagle-forward-sanity`, observer location passed to BAGLE (default: `earth`)
+- `--bagle-n-live-points`: With `--bagle-joint-fit-sanity`, BAGLE nested-sampling live points (default: `200`)
 
 ### Examples
 
@@ -119,9 +146,94 @@ python smoke_test/run_smoke_test.py --cases gulls_std --exec-timeout 120
 # Test all executables and keep previous outputs
 python smoke_test/run_smoke_test.py --keep-output
 
-# Test with custom build directory
-python smoke_test/run_smoke_test.py --build-bin /path/to/custom/build/bin
+# Test with custom executable directory
+python smoke_test/run_smoke_test.py --build-bin /path/to/custom/bin
+
+# Run only general case plus astrometry sanity checks
+python smoke_test/run_smoke_test.py --cases general-single --astrometry-sanity
+
+# Run general case plus BAGLE joint-fit sanity check
+python smoke_test/run_smoke_test.py \
+  --cases general-single \
+  --bagle-joint-fit-sanity \
+  --bagle-chi2-max 100 \
+  --bagle-n-live-points 250
+
+# Run explicit 1s1l case plus BAGLE forward-model sanity check (no fitting)
+python smoke_test/run_smoke_test.py \
+  --cases general-1s1l \
+  --bagle-forward-sanity \
+  --bagle-forward-obs-location earth
 ```
+
+## Standalone Astrometry Sanity Checks
+
+You can validate pre-generated outputs without rerunning executables:
+
+```bash
+# Auto-discover run directories under smoke_test/output/
+python smoke_test/run_astrometry_sanity.py
+
+# Check one run directory with explicit parameter file (for BJD consistency checks)
+python smoke_test/run_astrometry_sanity.py \
+  smoke_test/output/general/smoke_general \
+  --params smoke_test/parameterfiles/smoke_general.prm
+
+# Require >=2 years on each side of tref for long-baseline checks
+python smoke_test/run_astrometry_sanity.py \
+  /path/to/run_dir \
+  --long-baseline-years 2.0 \
+  --long-baseline-exclusion-te 8.0 \
+  --long-baseline-direction-tol-deg 10.0
+```
+
+The astrometry sanity checker validates:
+- required astrometry column presence and finite values
+- lightcurve `#Astrometry_Frame` consistency with canonical `.out` event metadata
+- declared frame metadata (`#Astrometry_EventToEcl`, `#Astrometry_Transform`, `#Astrometry_BAGLE`) is present for explicit convention tracking
+- astrometric position at epoch nearest `tref` is close to canonical event pointing from `.out`
+- relative proper-motion magnitude near `tref` from lightcurve source/lens tracks is consistent with `.out` (`murel_ref`, `thetaE`, `tE_ref`)
+- centroid `(E,N)` ↔ `RA/Dec` conversion consistency
+- lens-parallax `RA/Dec` offsets against documented `lens_parallax_x_mas/y_mas` columns
+- long-baseline (far from event) parallax-corrected heliocentric proper-motion magnitude **and direction** consistency with `.out` (`murel_helio`, `murel_helio_alpha`, `murel_helio_delta`)
+- BJD consistency with `SIMULATION_ZERO_TIME + Simulation_time`
+- noise sanity using normalized residual statistics `(observed - true) / sigma`
+
+## BAGLE Joint-Fit Sanity Check
+
+This check performs a full **combined photometric + astrometric** fit with BAGLE on one event that satisfies:
+- `NSource == 1`
+- `ObsGroup_0_chi2 < 100` (configurable)
+- `ObsGroup_0_FiniteSourceflag == 0` (PSPL-like event)
+
+It then:
+- fits `PSPL_PhotAstrom_Par_Param1` using BAGLE nested sampling
+- generates a diagnostic plot with best-fit model vs data
+- uses event timing in MJD (explicit JD/BJD -> MJD conversion)
+- compares fitted proper-motion vector (`muRel`) against `.out` `murel_helio_alpha/delta`
+- compares fitted parallax vector (`piE`) against `.out` `piEE/piEN`
+- fails with detailed diagnostics if amplitude or direction mismatches exceed thresholds
+- applies documented sign conversion when comparing to `.out` vectors:
+  - `.out` stores lens-source convention, BAGLE `muRel`/`piE` uses source-lens convention
+  - comparison uses `(-murel_helio_alpha, -murel_helio_delta)` and `(-piEE, -piEN)`
+- if PyMultiNest / MultiNest runtime is unavailable, the check automatically falls back to a scipy least-squares BAGLE fit
+
+Run it standalone on pre-generated outputs:
+
+```bash
+python smoke_test/run_bagle_fit_sanity.py \
+  smoke_test/output/general/smoke_general \
+  --params smoke_test/parameterfiles/smoke_general.prm \
+  --chi2-max 100 \
+  --n-live-points 250
+```
+
+Typical dependencies:
+- `bagle` (BAGLE_Microlensing)
+- `joblib`
+- `pymultinest` (+ MultiNest runtime), `dynesty`, `ultranest` (optional when scipy fallback is used)
+- `matplotlib` (for the diagnostic plot)
+- `scipy` (for fallback optimization path)
 
 ## Test Configuration
 
@@ -149,7 +261,7 @@ The test observatory (`smoke.observatory`) is configured with:
 For each test case, the following outputs are generated:
 
 ### 1. Summary Reports (`.out`)
-Located in `smoke_test/output/{std,croin,fish}/smoke_{std,croin,fish}/`
+Located in `smoke_test/output/{std,croin,fish,general}/smoke_{std,croin,fish,general}/`
 
 Contains run statistics, parameter values, and execution timing.
 
@@ -159,9 +271,13 @@ ASCII tables with columns including:
 - `measured_relative_flux`: Photometric flux (relative to baseline)
 - `measured_relative_flux_error`: Photometric error
 - `true_relative_flux`: True simulated flux
-- Astrometric centroids in pixel coordinates
-- Astrometric shifts in milliarcseconds (N/E)
-- Sky positions in RA/Dec (degrees)
+- Astrometric centroids in **observer-centric ecliptic EN** milliarcseconds
+- Sky positions in ICRS `RA/Dec` (degrees) generated from ecliptic EN via declared transform
+- Explicit frame/convention headers:
+  - `#Astrometry_Frame`
+  - `#Astrometry_EventToEcl`
+  - `#Astrometry_Transform`
+  - `#Astrometry_BAGLE`
 - Astrometric errors
 - Parallax information
 - Source and lens positions
@@ -185,7 +301,7 @@ The smoke test passes when:
 
 ### "Missing executable" error
 - Ensure you've built the project: `cmake --build build`
-- Check that executables exist in `build/bin/`
+- Check that executables exist in `bin/`
 
 ### "Missing ESPL.tbl" error
 - Copy the VBMicrolensing ESPL table: `cp VBMicrolensing/ESPL.tbl src/`
@@ -223,12 +339,13 @@ Typical execution times (MacBook Pro, M1):
 - **gulls_std**: ~10 seconds
 - **gulls_croin**: ~10 seconds  
 - **gullsFish**: ~10 seconds
-- **Total** (all three): ~30 seconds
+- **gulls_general**: similar to gulls_std (varies)
+- **Total** (all): varies with selected cases
 
 ## Contributing
 
 When modifying the smoke test:
 1. Keep simulation parameters minimal for fast execution
-2. Ensure all three executables are tested
+2. Ensure all executables are tested
 3. Verify plots are generated correctly
 4. Update this README if you add new features or change behavior

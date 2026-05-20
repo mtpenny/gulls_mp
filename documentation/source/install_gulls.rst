@@ -35,11 +35,11 @@ production science runs.**
    For production use, **you must replace these files with the licensed Numerical Recipes 
    implementations:**
 
-   - ``src/classes/random.cpp`` - Replace with Numerical Recipes: ``ran1``, ``ran2``, ``gasdev``, ``gammln``, ``gammp``, ``gammq``, ``randint``, ``poisson``
+   - ``src/classes/random.cpp`` - Replace with Numerical Recipes-compatible implementations of ``ran1``, ``ran2``, ``ran3``, ``gasdev``, ``gammln``, and ``poisson``
    - ``src/classes/zroots2.cpp`` - Replace with Numerical Recipes: ``zroots``
-   - Corresponding header files in ``src/headers/``
+   - Optionally replace the corresponding ``random.h`` and ``zroots2.h`` headers in ``src/headers/`` if your licensed source package provides them
 
-The validation tool (``scripts/validate_inputs.py``) will warn you if GSL fallbacks are detected.
+The random-backend guard is implemented in separate repo-owned ``random_backend`` files, so licensed ``random.cpp``/``random.h`` drop-ins do not need to define Gulls-specific guard functions. The validation tool (``scripts/validate_inputs.py``) will warn you if GSL fallbacks are detected.
 
 **Installation Methods**
 
@@ -79,8 +79,8 @@ Method 1: CMake (Recommended)
 
       cd /path/to/gulls/
       cmake -S . -B build
-      # for production builds, remember to replace the random and zroots2 stubs 
-      # with Numerical Recipes files before building!
+      # for production builds, replace the random and zroots2 stubs
+      # with licensed Numerical Recipes files before building.
       cmake --build build --parallel
 
    The executables will be in the ``bin/`` directory:
@@ -132,7 +132,7 @@ Method 2: Legacy Makefile (Alternative)
 
    .. important::
 
-      For production builds, remember to replace the random and zroots2 stubs with Numerical Recipes files before building.
+      For production builds, replace the random and zroots2 stubs with licensed Numerical Recipes files before building.
 
 2. **Set Environment Variables**:
 

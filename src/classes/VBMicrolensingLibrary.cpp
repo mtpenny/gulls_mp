@@ -390,7 +390,7 @@ VBMicrolensing::VBMicrolensing() {
 	Quad2000[2] = -0.3977772982704228;
 	North2000[1] = 0.3977772982704228;
 	North2000[2] = 0.9174820003578725;
-	t0old = 0.;
+	t0old = t0parold = 0.;
 	Tol = 1.e-2;
 	RelTol = 0;
 	suntable = false;
@@ -418,7 +418,6 @@ VBMicrolensing::VBMicrolensing() {
 	good = Jacs = m = 0;
 	pmza = pyaza = ppmy = 0;
 	pmza_mp = pyaza_mp = ppmy_mp = 0;
-	dist_mp = 0;
 	nrootsmp_mp = 0;
 	y_mp = 0;
 	init = 0;
@@ -573,7 +572,6 @@ VBMicrolensing::~VBMicrolensing() {
 		}
 		free(zr_mp);
 		free(nrootsmp_mp);
-		free(dist_mp);
 	}
 
 	delete s_offset;
@@ -3428,6 +3426,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 				return std::numeric_limits<double>::quiet_NaN();
 			}
 			first->nim = Images->length;
+			if(Images->length>max_num_images) max_num_images=Images->length;
 			delete Images;
 			Images = nullptr;
 		}
@@ -3457,6 +3456,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		}
 		totNPS += NPS;
 		scan->nim = Images->length;
+		if(Images->length>max_num_images) max_num_images=Images->length;
 		delete Images;
 		Images = nullptr;
 		scr2 = sscr2 = 1;
@@ -3539,6 +3539,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 #ifdef _PRINT_ERRORS_DARK
 			printf("\n%d", Images->length);
 #endif
+			if(Images->length>max_num_images) max_num_images=Images->length;
 			delete Images;
 			Images = nullptr;
 
@@ -3606,7 +3607,10 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 
 		c = 0;
 
+		max_num_images=0;
+
 		Mag0 = MultiMag0(y1s, y2s, &Images);
+		max_num_images = Images->length;
 		delete Images;
 		rho2 = rho * rho;
 		corrquad *= 6 * (rho2 + 1.e-4 * Tol);
@@ -3769,6 +3773,9 @@ int VBMicrolensing::froot(VBcomplex zi) {
 	// iter2 is the number of consecutive oscillations
 	// iter is the number of iterations
 	while ((abs2(epsbase) > rootaccuracy) && (abs2(epsn) > 1.e-28) && (Lnew > 1.e-29) && (iter2 < 9) && (iter < maxiter)) {
+		if (ShouldCheck(iter + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("froot");
+		}
 		zo2 = zo; // Stores z of two steps before.
 		zo = z; // Stores z of previous step.
 		Lold = Lnew; // Stores previous value of lens eq.
@@ -3909,8 +3916,7 @@ int VBMicrolensing::froot(VBcomplex zi) {
 		iter++;
 	}
 	newtonstep += iter;
-	err = 3.163e-15 / Jac;
-	err *= err;
+	err = 1.e-29 * (fabs(Jac) + 1 / (Jac * Jac)); // Matches upstream v5.4 error model near small lenses and critical curves.
 	err += abs2(epsbase);
 	zf = z;
 	Jacf = Jac;
@@ -3975,7 +3981,7 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 	static VBcomplex S2, S2c, S3, S3c, vec, newseed0;
 	static double ob2, dJ2, cq, Jac, imul, phi;
 	static VBcomplex newseedtrial[6] = { VBcomplex(1,0.5),VBcomplex(1,-0.5), 0.5, 0.75, 2., 4., };
-	static int imass, iphi, nsafe;
+	static int imass, iphi, nsafe, timeout_iter;
 
 	yc = conj(y);
 	initroot();
@@ -3990,7 +3996,11 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 		checkroot(theta);
 	}
 
+	timeout_iter = 0;
 	while (ngood > ngoodold) {
+		if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("NewImages");
+		}
 		lennewseeds = 0;
 		for (int i = ngoodold; i < ngood; i++) {
 			vec = VBcomplex(2, 1 + sqrt(errs[i]) / abs(grads[i]));
@@ -4039,7 +4049,11 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 	imul = 1.;
 	iphi = imass = nsafe = 0;
 
+	timeout_iter = 0;
 	while (nminus - nplus + 1 != n) {
+		if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("NewImages");
+		}
 
 		phi = iphi * 2.61799; // 5*M_PI/6.
 		z = imul * sqrt(m[imass]) * VBcomplex(cos(phi), sin(phi)) + a[imass];
@@ -5265,8 +5279,8 @@ void VBMicrolensing::ComputeCentroids(double* pr, double t, double* c1s, double*
 	c1 = c1prov;            // Now centroid coordinates are in North-East system, but still relative to lens
 
 	// Lens centroid in the sky
-	c1l[0] = muL1 * (t +lighttravel - t0_par - lighttravel0) + paiL * (Ehel[0] - Et0[0]); // Note that Ehel is in South-West system
-	c2l[0] = muL2 * (t +lighttravel - t0_par - lighttravel0) + paiL * (Ehel[1] - Et0[1]);
+	c1l[0] = muL1 * (t + lighttravel - t0_par - lighttravel0par) + paiL * (Ehel[0] - Et0[0]); // Note that Ehel is in South-West system
+	c2l[0] = muL2 * (t + lighttravel - t0_par - lighttravel0par) + paiL * (Ehel[1] - Et0[1]);
 	// Image centroid is finally composed with lens centroid
 	c1s[0] = c1 + c1l[0];
 	c2s[0] = c2 + c2l[0];
@@ -5296,7 +5310,7 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 	alpha = 0;
 	iastro = 5;
 	dPosAng = 0;
-	t0old = 1.e200;
+		t0old = t0parold = 1.e200;
 	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
@@ -5304,7 +5318,7 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 			CheckTimeout("PSPLAstroLightCurve");
 		}
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u1 = u0 + pai1 * Et[1] - pai2 * Et[0];
 		u = sqrt(tn * tn + u1 * u1);
 
@@ -5343,7 +5357,7 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 	alpha = 0;
 	iastro = 6;
 	dPosAng = 0;
-	t0old = 1.e200;
+		t0old = t0parold = 1.e200;
 	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
@@ -5351,7 +5365,7 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 			CheckTimeout("ESPLAstroLightCurve");
 		}
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] +lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u1 = u0 + pai1 * Et[1] - pai2 * Et[0];
 		u = sqrt(tn * tn + u1 * u1);
 
@@ -5390,7 +5404,7 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 	iastro = 9;
 	double salpha = sin(pr[3]), calpha = cos(pr[3]);
 	dPosAng = 0;
-	t0old = 1.e200;
+		t0old = t0parold = 1.e200;
 	parallaxextrapolation = 0;
 
 	for (int i = 0; i < np; i++) {
@@ -5398,7 +5412,7 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 			CheckTimeout("BinaryAstroLightCurve");
 		}
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] + lighttravel - t0_par) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
 
 		y1s[i] = u * salpha - tn * calpha;
@@ -5441,7 +5455,7 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 	double salpha = sin(pr[3]), calpha = cos(pr[3]);
 	double w, phi0, inc, phi, Cinc, Sinc, Cphi, Sphi, Cphi0, Sphi0, pphi0, COm, SOm, s_true;
 	double w13, w123, den, den0;
-	t0old = 1.e200;
+		t0old = t0parold = 1.e200;
 	parallaxextrapolation = 0;
 
 	w13 = w1 * w1 + w3 * w3;
@@ -5474,14 +5488,14 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 		}
 		ComputeParallax(ts[i], t0);
 
-		phi = (ts[i] + lighttravel - t0_par - lighttravel0) * w + phi0;
+		phi = (ts[i] + lighttravel - t0 - lighttravel0) * w + phi0;
 		Cphi = cos(phi);
 		Sphi = sin(phi);
 		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
 		seps[i] = s_true * den; // projected separation at time ts[i]
 
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
-		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		y1s[i] = (Cphi * (u * SOm - tn * COm) + Cinc * Sphi * (u * COm + tn * SOm)) / den;
 		y2s[i] = (-Cphi * (u * COm + tn * SOm) - Cinc * Sphi * (tn * COm - u * SOm)) / den;
 		mags[i] = BinaryMag2(seps[i], q, y1s[i], y2s[i], rho);
@@ -5525,7 +5539,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 	double wt2, smix, sqsmix, e, h, snu, co1EE0, co2EE0, cosE, sinE, co1tperi, tperi, EE0, M, a, St, psi, dM, conu, n;
 	double arm1, arm2;
 	double X[3], Y[3], Z[3], r[2], x[2];
-	t0old = 1.e200;
+		t0old = t0parold = 1.e200;
 	parallaxextrapolation = 0;
 
 	smix = 1 + szs * szs;
@@ -5567,7 +5581,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 	EE0 *= (snu > 0) ? 1 : -1;
 	sinE = sqrt(1 - cosE * cosE) * ((snu > 0) ? 1 : -1);
 	co1tperi = e * sinE;
-	tperi = t0_par - (EE0 - co1tperi) / n;
+	tperi = t0 - (EE0 - co1tperi) / n;
 
 	for (int i = 0; i < np; i++) {
 		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
@@ -5599,7 +5613,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 		St = sqrt(x[0] * x[0] + x[1] * x[1]);
 		psi = atan2(x[1], x[0]);// +((ar > 1) ? 0 : M_PI);
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
-		tn = (ts[i] + lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		y1s[i] = -tn * cos(alpha + psi) + u * sin(alpha + psi);
 		y2s[i] = -u * cos(alpha + psi) - tn * sin(alpha + psi);
 		seps[i] = St;
@@ -5644,7 +5658,7 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 	pai2 = pr[8];
 	iastro = 12;
 	dPosAng = 0;
-	t0old = 1.e200;
+		t0old = t0parold = 1.e200;
 	parallaxextrapolation = 0;
 
 	s[2] = -(s[0] * w[0] + s[1] * w[1]) / w[2]; // Impose velocity orthogonal to position
@@ -5712,11 +5726,11 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 		paiuB = pai1 * Et[1] - pai2 * Et[0]; // Parallax correction referred to tB
 
 		// Position of barycenter
-		tnB = (ts[i] + lighttravel - t0) * vt0B - t0B + paitB * cos(alpha) - paiuB * sin(alpha);
-		uB = u0B + vuB * (ts[i]+ lighttravel - t0) + paitB * sin(alpha) + paiuB * cos(alpha);
+		tnB = (ts[i] + lighttravel - t0 - lighttravel0) * vt0B - t0B + paitB * cos(alpha) - paiuB * sin(alpha);
+		uB = u0B + vuB * (ts[i] + lighttravel - t0 - lighttravel0) + paitB * sin(alpha) + paiuB * cos(alpha);
 
 		// Position of relative particle
-		phi = wtot * (ts[i] + lighttravel - t0) + phi0;
+		phi = wtot * (ts[i] + lighttravel - t0 - lighttravel0) + phi0;
 		xt = (Om[0] * cos(phi) + Y[0] * sin(phi));
 		xu = (Om[1] * cos(phi) + Y[1] * sin(phi));
 
@@ -5795,7 +5809,7 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 	double salpha = sin(pr[3]), calpha = cos(pr[3]);
 	double w, phi0, inc, phi, Cinc, Sinc, Cphi, Sphi, Cphi0, Sphi0, pphi0, COm, SOm, s_true;
 	double w13, w123, den, den0;
-	t0old = 1.e200;
+	t0old = t0parold = 1.e200;
 
 	w13 = w1 * w1 + w3 * w3;
 	w123 = sqrt(w13 + w2 * w2);
@@ -5887,7 +5901,7 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 		ComputeParallax(ts[i], t0);
 
 		// Binary lens calculation
-		phi = (ts[i] + lighttravel - t0) * w + phi0;
+		phi = (ts[i] + lighttravel - t0 - lighttravel0) * w + phi0;
 		Cphi = cos(phi);
 		Sphi = sin(phi);
 		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
@@ -5898,11 +5912,11 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 		paiuB = pai1 * Et[1] - pai2 * Et[0]; // Parallax correction referred to tB
 
 		// Position of barycenter
-		tnB = (ts[i] + lighttravel - t0) * vt0B - t0B + paitB * cos(alphas) - paiuB * sin(alphas);
-		uB = u0B + vuB * (ts[i] + lighttravel - t0) + paitB * sin(alphas) + paiuB * cos(alphas);
+		tnB = (ts[i] + lighttravel - t0 - lighttravel0) * vt0B - t0B + paitB * cos(alphas) - paiuB * sin(alphas);
+		uB = u0B + vuB * (ts[i] + lighttravel - t0 - lighttravel0) + paitB * sin(alphas) + paiuB * cos(alphas);
 
 		// Position of relative particle
-		phi = wstot * (ts[i]+lighttravel - t0) + phis0;
+		phi = wstot * (ts[i] + lighttravel - t0 - lighttravel0) + phis0;
 		xt = (Om[0] * cos(phi) + Y[0] * sin(phi));
 		xu = (Om[1] * cos(phi) + Y[1] * sin(phi));
 
@@ -5993,7 +6007,7 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 			CheckTimeout("TripleAstroLightCurve");
 		}
 		ComputeParallax(ts[i], t0);
-		tn = (ts[i] +lighttravel - t0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 		u = u0 + pai1 * Et[1] - pai2 * Et[0];
 		y1s[i] = u * salpha - tn * calpha;
 		y2s[i] = -u * calpha - tn * salpha;
@@ -7330,34 +7344,34 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 		if (!suntable) {
 			LoadSunTable(Suntablefile);
 		}
-		if (t0_par != t0old) {
-			t0old = t0_par;
+		if (t0_par != t0parold) {
+			t0parold = t0_par;
 			ty = (t0_par - startEar) / stepEar;
 			ic = (int)floor(ty);
 			ty -= ic;
 			for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
 				if (t_in_HJD) {
-					double told = t, tnew;
+					double told = t0_par, tnew;
 					int timeout_iter = 0;
-					lighttravel0 = 0;
-					for (int i = 0; i < 3; i++) lighttravel0 += Ear[i] * Obj[i];
-					lighttravel0 *= au_c;
-					tnew = t0_par - lighttravel0;
+					lighttravel0par = 0;
+					for (int i = 0; i < 3; i++) lighttravel0par += Ear[i] * Obj[i];
+					lighttravel0par *= au_c;
+					tnew = t0_par - lighttravel0par;
 					while (fabs(told - tnew) > 1.e-8) {
 						if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 							CheckTimeout("ComputeParallax");
 						}
 						told = tnew;
-					ty = (told - startEar) / stepEar;
-					ic = (int)floor(ty);
-					ty -= ic;
-					for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
-					lighttravel0 = 0;
-					for (int i = 0; i < 3; i++) lighttravel0 += Ear[i] * Obj[i];
-					lighttravel0 *= au_c;
-					tnew = t0_par - lighttravel0;
+						ty = (told - startEar) / stepEar;
+						ic = (int)floor(ty);
+						ty -= ic;
+						for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
+						lighttravel0par = 0;
+						for (int i = 0; i < 3; i++) lighttravel0par += Ear[i] * Obj[i];
+						lighttravel0par *= au_c;
+						tnew = t0_par - lighttravel0par;
+					}
 				}
-			}
 			for (int i = 0; i < 3; i++) {
 				if (ty > 0.5) {
 					vEar[i] = ((posEar[ic+2][i]- posEar[ic+1][i]) * (ty-0.5) + (posEar[ic+1][i] - posEar[ic][i]) * (1.5-ty)) / stepEar;
@@ -7381,15 +7395,33 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 			Et0[0] = Et0[1] = vt0[0] = vt0[1] = 0;
-			lighttravel0 = 0;
+			lighttravel0par = 0;
 			for (int i = 0; i < 3; i++) {
 				Et0[0] += Ear[i] * rad[i];           // Earth position projected along South at time t0_par
 				Et0[1] += Ear[i] * tang[i];          // Earth position projected along West at time t0_par
-				lighttravel0 += Ear[i] * Obj[i];
+				lighttravel0par += Ear[i] * Obj[i];
 				vt0[0] += vEar[i] * rad[i];          // Earth velocity projected along South at time t0_par
 				vt0[1] += vEar[i] * tang[i];		// Earth velocity projected along West at time t0_par
 			}
-			lighttravel0 *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
+			lighttravel0par *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
+		}
+
+		if (t0_par_fixed == 0) {
+			lighttravel0 = lighttravel0par;
+		}
+		else {
+			lighttravel0 = 0;
+			if (!t_in_HJD && t0 != t0old) {
+				t0old = t0;
+				ty = (t0 - startEar) / stepEar;
+				ic = (int)floor(ty);
+				ty -= ic;
+				for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
+				for (int i = 0; i < 3; i++) {
+					lighttravel0 += Ear[i] * Obj[i];
+				}
+				lighttravel0 *= au_c;
+			}
 		}
 		ty = (t - startEar) / stepEar;
 		ic = (int)floor(ty);
@@ -7427,14 +7459,14 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			Ehel[0] += Ear[i] * rad[i]; // Ehel is the heliocentric position of Earth along South and West at time t
 			Ehel[1] += Ear[i] * tang[i];
 		}
-		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t+lighttravel - t0_par-lighttravel0); // Earth shift along South wrt extrapolation from t0_par
-		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t+lighttravel - t0_par-lighttravel0); // Earth shift along West wrt extrapolation from t0_par
+		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t + lighttravel - t0_par - lighttravel0par); // Earth shift along South wrt extrapolation from t0_par
+		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t + lighttravel - t0_par - lighttravel0par); // Earth shift along West wrt extrapolation from t0_par
 
 	}
 	else {
 		// Calculation with Kepler equation
-		if (t0_par != t0old) {
-			t0old = t0_par;
+		if (t0_par != t0parold) {
+			t0parold = t0_par;
 			ty = (t0_par - 1545) / 36525.0;
 
 			a = a0 + adot * ty;
@@ -7499,15 +7531,69 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 			Et0[0] = Et0[1] = vt0[0] = vt0[1] = 0;
-			lighttravel0 = 0;
+			lighttravel0par = 0;
 			for (int i = 0; i < 3; i++) {
 				Et0[0] += Ear[i] * rad[i];           // Earth position projected along South at time t0_par
 				Et0[1] += Ear[i] * tang[i];          // Earth position projected along West at time t0_par
-				lighttravel0 += Ear[i] * Obj[i];
+				lighttravel0par += Ear[i] * Obj[i];
 				vt0[0] += vEar[i] * rad[i];          // Earth velocity projected along South at time t0_par
 				vt0[1] += vEar[i] * tang[i];		// Earth velocity projected along West at time t0_par
 			}
-			lighttravel0 *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
+			lighttravel0par *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
+		}
+
+		if (t0_par_fixed == 0) {
+			lighttravel0 = lighttravel0par;
+		}
+		else {
+			lighttravel0 = 0;
+			if (!t_in_HJD && t0 != t0old) {
+				t0old = t0;
+				ty = (t0 - 1545) / 36525.0;
+
+				a = a0 + adot * ty;
+				e = e0 + edot * ty;
+				inc = (inc0 + incdot * ty) * deg;
+				L = (L0 + Ldot * ty) * deg;
+				om = (om0 + omdot * ty) * deg;
+
+				M = L - om;
+				M -= floor((M + M_PI) / (2 * M_PI)) * 2 * M_PI;
+
+				EE = M + e * sin(M);
+				dE = 1;
+				dLtof = 0;
+				int timeout_iter = 0;
+				while (fabs(dE) > 1.e-8) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("ComputeParallax");
+					}
+					if (t_in_HJD) {
+						x1 = a * (cos(EE) - e);
+						y1 = a * sqrt(1 - e * e) * sin(EE);
+						Ear[0] = x1 * cos(om) - y1 * sin(om);
+						Ear[1] = x1 * sin(om) * cos(inc) + y1 * cos(om) * cos(inc);
+						Ear[2] = x1 * sin(om) * sin(inc) + y1 * cos(om) * sin(inc);
+						dLtof = 0;
+						for (int i = 0; i < 3; i++) dLtof -= Ear[i] * Obj[i];
+						dLtof *= dtflight;
+					}
+					dM = M + dLtof - (EE - e * sin(EE));
+					dE = dM / (1 - e * cos(EE));
+					EE += dE;
+				}
+				x1 = a * (cos(EE) - e);
+				y1 = a * sqrt(1 - e * e) * sin(EE);
+				Ear[0] = x1 * cos(om) - y1 * sin(om);
+				Ear[1] = x1 * sin(om) * cos(inc) + y1 * cos(om) * cos(inc);
+				Ear[2] = x1 * sin(om) * sin(inc) + y1 * cos(om) * sin(inc);
+
+				lighttravel0 = 0;
+				for (int i = 0; i < 3; i++) {
+					lighttravel0 += Ear[i] * Obj[i];
+				}
+				lighttravel0 *= au_c;
+			}
 		}
 
 		ty = (t - 1545) / 36525.0;
@@ -7563,8 +7649,8 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			lighttravel += Ear[i] * Obj[i];
 		}
 		lighttravel *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
-		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t + lighttravel - t0_par - lighttravel0); // Earth shift along South wrt extrapolation from t0_par
-		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t + lighttravel - t0_par - lighttravel0); // Earth shift along West wrt extrapolation from t0_par
+		Et[0] = Ehel[0] - Et0[0] - vt0[0] * (t + lighttravel - t0_par - lighttravel0par); // Earth shift along South wrt extrapolation from t0_par
+		Et[1] = Ehel[1] - Et0[1] - vt0[1] * (t + lighttravel - t0_par - lighttravel0par); // Earth shift along West wrt extrapolation from t0_par
 
 	}
 
@@ -8011,8 +8097,6 @@ void VBMicrolensing::change_n(int nn) {
 		zr_mp = NULL;
 		free(nrootsmp_mp);
 		nrootsmp_mp = NULL;
-		free(dist_mp);
-		dist_mp = NULL;
 	}
 
 	n = nn;
@@ -8184,7 +8268,6 @@ void VBMicrolensing::change_n_mp(int nn) {
 		}
 		free(zr_mp);
 		free(nrootsmp_mp);
-		free(dist_mp);
 	}
 
 	n = nn;
@@ -8227,8 +8310,6 @@ void VBMicrolensing::change_n_mp(int nn) {
 			ppmy_mp[j][i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1 + 1));
 		}
 	}
-	dist_mp = (double*)malloc(sizeof(double) * n);
-
 	zr_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int j = 0; j < n; j++) {
 		zr_mp[j] = (VBcomplex*)malloc(sizeof(VBcomplex) * nroots);
@@ -8604,7 +8685,7 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);
 
 	static VBcomplex poly2[MAXM];
-	static int l, j, i, k, ind, degreenew, croots, m;
+	static int l, j, i, k, ind, degreenew, croots, m, attempts;
 	static double dif0, br;
 	static bool success;
 	static VBcomplex coef, prev, przr;
@@ -8635,6 +8716,9 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 		}
 
 		br = false;
+		attempts = 0;
+
+	Retry_Laguerre:
 		//copy poly coefs
 			for (j = 0; j <= degree; j++) {
 				if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
@@ -8645,8 +8729,18 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 		//Don't do Lagierre's for small degree polybnomials
 		if (l != n - 1) {
 			if (degree <= 1) {
-				if (degree == 1) zr_mp[l][0] = -poly[l][0] / poly[l][1];
-				nrootsmp_mp[l] = 1;
+				nrootsmp_mp[l] = degree;
+				if (degree == 1) {
+					zr_mp[l][0] = -poly[l][0] / poly[l][1];
+					dif0 = abs2(zr_mp[l][0]);
+					for (i = 1; i < n; i++) {
+						if (abs2(zr_mp[l][0] - a_mp[l][i]) < dif0) {
+							zr_mp[l][0] = VBcomplex(0, 0);
+							nrootsmp_mp[l] = 0;
+							break;
+						}
+					}
+				}
 				break;
 			}
 				//Do Laguerre for degree >=3
@@ -8664,7 +8758,15 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				dif0 = abs2(zr_mp[l][m - 1]);
 				for (i = 1; i < n; i++) {
 					if (abs2(zr_mp[l][m - 1] - a_mp[l][i]) < dif0) {
-						dist_mp[l] = abs2(zr_mp[l][m - 1] - a_mp[l][i]);
+						if (m == degree && attempts < 10) {
+							attempts++;
+							nrootsmp_mp[l] = 0;
+							double shift = 1.0e-4;
+							double r_real = ((double)rand() / RAND_MAX - 0.5) * shift;
+							double r_imag = ((double)rand() / RAND_MAX - 0.5) * shift;
+							zr_mp[l][m - 1] = VBcomplex(r_real, r_imag);
+							goto Retry_Laguerre;
+						}
 						zr_mp[l][m - 1] = VBcomplex(0, 0);
 						br = true;
 						nrootsmp_mp[l]--;
@@ -8692,7 +8794,6 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 				if (abs2(zr_mp[l][1] - a_mp[l][i]) < abs2(zr_mp[l][1])) {
 					zr_mp[l][1] = zr_mp[l][0];
 					zr_mp[l][0] = VBcomplex(0, 0);
-					dist_mp[l] = abs2(zr_mp[l][1] - a_mp[l][i]);
 					nrootsmp_mp[l]--;
 					break;
 				}
@@ -8742,8 +8843,10 @@ void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, in
 			}
 
 			if (degreenew <= 1) {
-				if (degreenew == 1) zr_mp[l][0] = -poly2[0] / poly2[1];
-				nrootsmp_mp[l] = 1;
+				if (degreenew == 1) {
+					zr_mp[l][0] = -poly2[0] / poly2[1];
+				}
+				nrootsmp_mp[l] = degreenew;
 
 				break;
 			}

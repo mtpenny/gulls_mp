@@ -41,7 +41,7 @@ cat $fieldlist | while read f; do
     if [ $(grep "^$f " $srcdir/$srclist | wc -l) -eq 1 ] && [ $(grep "^$f " $lensdir/$lenslist | wc -l) -eq 1 ] && [ $(grep "^$f " $sfdir/$sflist | wc -l) -eq 5 ]; then
 	echo $f $l $b
 	echo $gullsbin/$executable -i $paramfile -s $subrun -f $f
-	$gullsbin/$executable -i $paramfile -s $subrun -f $f > $finaldir/$runname/${runname}_${subrun}_${f}.gullsstdout -d 2>&1
+	$VALGRIND $gullsbin/$executable -i $paramfile -s $subrun -f $f > $finaldir/$runname/${runname}_${subrun}_${f}.gullsstdout -d -d 2>&1
 	(cd $outputdir && tar -czf $finaldir/$runname/${runname}_${subrun}_${f}.fits.tar.gz $runname/${runname}_${subrun}_${f}_*.*.fits)
 	rm $outputdir/$runname/${runname}_${subrun}_${f}_*.*.fits
 	(cd $outputdir && tar -czf $finaldir/$runname/${runname}_${subrun}_${f}.lc.tar.gz $runname/${runname}_${subrun}_${f}_*.*.lc)

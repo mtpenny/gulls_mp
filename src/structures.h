@@ -161,6 +161,9 @@ struct filekeywords{
   int multiple_lenses;
   int num_lens_max;
 
+  int astrometry_on;  // Enable astrometry calculations/output
+  double astrometry_error_floor_mas; // Systematic astrometric floor (mas)
+
   int skip_magnification;
   
   long* seed;
@@ -297,10 +300,11 @@ struct event{
   vector<int> scompanions, lcompanions;
   vector<double> scomp_rs, scomp_s, scomp_alpha, scomp_phase, scomp_q;
   vector<double> scomp_a, scomp_e, scomp_I, scomp_L0, scomp_w, scomp_O, scomp_dL; //orbital elements
-  vector<vector<double> > scomp_fsofs1;
+  vector<vector<double> > scomp_fsofs1;  // flux of the companion relative to the primary at each epoch, for each filter, for the sources
   vector<double> lcomp_s, lcomp_q, lcomp_phase;
   vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL, lcomp_mass, lcomp_period; //orbital elements
-  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0;
+  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0, p_x0, p_y0, p_z0, p_dsdt, p_dalphadt, p_dxdt, p_dydt, p_dzdt;
+  vector<double> m0; // magnitude zero point for the event, such that baeline flux = 1.0, for each filter
   int moons;
   int circumbinary;
   int distantbinary;
@@ -313,8 +317,11 @@ struct event{
   //microlensing paramters
   double tref; //Reference time for parallax
   double u0, alpha, t0, tcroin, ucroin, rcroin, tE_h, tE_r, rE, thE, piE, piEN, piEE, rs, murel, murel_l, murel_b, vt, gamma;
+  propermotionframe pm_lens;
+  propermotionframe pm_source;
   //weights
   //double t0croin, rcroin, u0croin;
+  double umin;
   double u0max, t0range, weight_scale, raww, w;
   double l, b, ra, dec; //positions
   //vector<double> smag, lmag; //source and lens magnitudes
@@ -350,9 +357,9 @@ struct event{
   vector<int> flatlc;
   vector<double> flatchi2;
   double Amax;  //maximum measured magnification
-  double umin; //minimum value of u in the lightcurve
   int peakpoint; //the epoch number of the peak point
   int outputthis;
+  vector<int> nimageflag;
 
   //parallax
   //parallax pllx[MAX_NUM_OBSERVATORIES];
@@ -393,19 +400,40 @@ struct event{
   vector<double> xs2; //source position
   vector<double> ys2;
   vector<vector<double> > xsrc, ysrc, mu_src;
+  vector<double> upeak, tpeak;
+  vector<vector<int> > nimages;
   vector<double> xl1; //lens 1 position
   vector<double> yl1;
   vector<double> xl2; //lens 2 position
   vector<double> yl2;
   vector<vector<double> > xlens, ylens;
-  vector<double> xc; //x centroid
-  vector<double> xctrue; //x centroid no noise
-  vector<double> xcerr; //x centroid
-  vector<double> xctrueerr; //x centroid error no noise
-  vector<double> yc; //y centroid
-  vector<double> yctrue; //y centroid no noise
-  vector<double> ycerr; //y centroid error
-  vector<double> yctrueerr; //x centroid error no noise
+
+  // Astrometry stage diagnostics (event frame, theta_E)
+  // omLightcurveGenerator.cpp
+  vector<double> xc_srcs_only;  // blended apparent source centroid (without lens light contribution), in theta E units
+  vector<double> yc_srcs_only;
+  vector<double> xc_src_lens;  // blended apparent source centroid (with lens light contribution), in theta E units
+  vector<double> yc_src_lens;
+  vector<vector<double> > astrox1_raw;  // raw vbm frame outputs (per source), in theta E units
+  vector<vector<double> > astrox2_raw;
+  vector<vector<double> > astrox_raw;  // vbm frame outputs converted to event_frame astrometric shifts (per source), in theta E units
+  vector<vector<double> > astroy_raw;
+  vector<double> src_flux_total; // total source flux (for calculating blended centroid), in units of the unmagnified source flux
+  // photometry.cpp
+  vector<double> lambda_noiseless_deg; // absolute blended apparent source centroid in ecliptic coordinates, in degrees
+  vector<double> beta_noiseless_deg;
+
+  // Public sky astrometry products (degrees / mas)
+  // photometry.cpp
+  vector<double> ra_noiseless_deg;  // absolute blended apparent source centroid in RA/Dec, in degrees
+  vector<double> dec_noiseless_deg;
+  vector<double> ra_measured_deg;  // added measurement noise, in the tangent plane, in degrees
+  vector<double> dec_measured_deg;  // added measurement noise in degrees
+  vector<double> sigma_ast_mas;  // symmetric tangent plane astrometric error (1-sigma), in mas
+  vector<double> ra_err_deg;  // RA error component in degrees on the celestial sphere
+  vector<double> dec_err_deg;  //dec error component in degrees
+  // omLightcurveGenerator.cpp
+  string VBM_function;
   
 
   vector<double> data; //generic data to be output
