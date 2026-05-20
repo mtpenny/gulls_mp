@@ -27,7 +27,7 @@ fsm = header[header.iloc[:,0]=='#fs:'].squeeze(axis=0)[1:].astype(float)
 event = header[header.iloc[:,0]=='#Event:'].squeeze(axis=0)[1:].astype(float)
 planet = header[header.iloc[:,0]=='#Planet:'].squeeze(axis=0)[1:].astype(float)
 source = header[header.iloc[:,0]=='#Obssrcmag:'].squeeze(axis=0)[1:].astype(float)
-lens = header[header.iloc[:,0]=='#Obslensmag:'].squeeze(axis=0)[1:].astype(float)
+#lens = header[header.iloc[:,0]=='#Obslensmag:'].squeeze(axis=0)[1:].astype(float)
 
 #This is the number of the reference observatory
 match=int(sys.argv[2])
@@ -82,9 +82,10 @@ for ii,i in enumerate(displayobs):
     sigmi = 2.5/np.log(10) * sigmu/(fs0*mu+1-fs0) * fs0
 
 
+    mask = (sigmi>0)
 
     #Plot with errorbars
-    plt.errorbar(d['Simulation_time'],mi,yerr=sigmi,fmt='o',ms=4,
+    plt.errorbar(d.loc[mask,'Simulation_time'],mi[mask],yerr=sigmi[mask],fmt='o',ms=4,
                  label=maglabels[i],color='C%d' % (ii))
     
 plt.xlabel('Time (days)')

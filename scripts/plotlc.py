@@ -20,15 +20,18 @@ def mag(F,ms,fs):
 def magerr(F,e,ms,fs):
     return 2.5/np.log(10)*e/F
 
-data = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment='#')
+plt.rc('font', size=36, family='Times')
+plt.rc('axes', linewidth=6)
 
-fsm = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=4,index_col=False)
+data = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment='#')
+
+fsm = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment=None,engine='python',nrows=4,index_col=False)
 
 
-event = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=8)
-planet = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=7)
-source = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=2)
-lens = pd.read_csv(sys.argv[1],sep='\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=5)
+event = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=8)
+planet = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=7)
+source = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=2)
+lens = pd.read_csv(sys.argv[1],sep=r'\s+',header=None,comment=None,engine='python',nrows=1,index_col=False,skiprows=5)
 
 #This is the number of the reference observatory
 match=int(sys.argv[2])
@@ -54,6 +57,11 @@ else:
 
 plt.figure(figsize=(15,10))
 
+plt.gca().tick_params(axis="y",direction="in",length=10,width=6,top=True)
+plt.gca().tick_params(axis="y",direction="in",length=10,width=6,bottom=True)
+plt.gca().tick_params(axis="x",direction="in",length=10,width=6,left=True)
+plt.gca().tick_params(axis="x",direction="in",length=10,width=6,right=True)
+
 #Find the baseline magnitude and source flux ratio for the reference observatory
 fs0 = fsm.iloc[0,match+1]
 m0 = fsm.iloc[-1,match+1] + 2.5*np.log10(fs0)
@@ -77,12 +85,13 @@ for ii,i in enumerate(displayobs):
     mitrue = m0 - 2.5*np.log10(fs0*mutrue+1-fs0)
     sigmi = 2.5/np.log(10) * sigmu/(fs0*mu+1-fs0) * fs0
 
-
+    mask = (sigmi>0)
 
     #Plot with errorbars
-    plt.errorbar(d.iloc[:,0],mi,yerr=sigmi,fmt='o',ms=2,color='C%d' % (ii))
+    plt.errorbar(d.loc[mask,0],mi[mask],yerr=sigmi[mask],fmt='o',markersize=8,color='C%d' % (ii),lw=4)
     
-
+plt.xlabel('Time [days]')
+plt.ylabel(r'$z$ magnitude')
 
 #Plot the model lightcurves
 #if dispobs>0 plot the display observatory/ies lighcurves, else plot the
@@ -109,7 +118,7 @@ for i in [match]: #(dispobs,match)[dispobs==0]:
     #print(mitrue)
 
     #Plot with lines
-    plt.plot(d.iloc[:,0],mitrue,'-',color='k',alpha=0.5,zorder=10)
+    plt.plot(d.loc[:,0],mitrue,'-',color='k',alpha=0.5,zorder=10,lw=3)
     plt.plot(d.iloc[:,0],mifit,'--',color='C%d' % (i),alpha=0.5,zorder=11)
 
 
@@ -117,5 +126,5 @@ for i in [match]: #(dispobs,match)[dispobs==0]:
 plt.gca().invert_yaxis()
 
 
-
+plt.tight_layout()
 plt.show()
