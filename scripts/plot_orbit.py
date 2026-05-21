@@ -46,6 +46,9 @@ if outdata['LensCompanions']>0:
     keys = list(filter(re.compile(f'^Lens_.+').match,list(outdata.keys())))
     print(keys)
     print(outdata[keys].to_list())
+
+
+print("rE = ",outdata['rE'])
     
 
 
