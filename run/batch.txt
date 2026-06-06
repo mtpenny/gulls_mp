@@ -1,0 +1,14 @@
+#Single data challenge runs
+sbatch --export=subrun=9,HOME=$HOME ~/gulls_fz/run/sub_rmdcsingle.sh
+
+#General data challenge runs
+sbatch --export=subrun=0,HOME=$HOME,paramfile=RMDC26_multitest2.prm ~/gulls_mp/run/sub_gulls_slurm.sh
+
+#Moons
+sbatch --export=GULLS_BASE_DIR=/project/penny/gullsInputFiles-Ali/,subrun=201,HOME=$HOME,paramfile=RMDC26_SPMA03111.prm,fields=pad_overguide ~/gulls_mp/run/sub_gulls_slurm.sh
+
+#Planet generation - moons
+python ~/gulls-planets/multiplanet_draw_planet_arrays.py --max-planets 1 --moon-probability 1 --rundes RMDC26_moons --sources-file /project/penny/gulls/planets/binary_gulls_surot2d_H2024_V2.sources
+
+#Planet generation - multis
+python ~/gulls-planets/multiplanet_draw_planet_arrays.py --max-planets 2 --moon-probability 0 --rundes RMDC26_multis --sources-file /project/penny/gulls/planets/binary_gulls_surot2d_H2024_V2.sources
