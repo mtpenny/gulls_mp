@@ -454,15 +454,18 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "parallax_shift_x" << " " << "parallax_shift_y" << " " << "parallax_shift_z" << " ";
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "vbm_astrox1_source" << i << "_thE" << " " << "vbm_astrox2_source" << i << "_thE" << " ";
+      string srcstr = (i==0?"":to_string(i+1));
+      lcfile << "vbm_astrox1_Source" << srcstr << "_thE" << " " << "vbm_astrox2_Source" << srcstr << "_thE" << " ";
     }
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "lenses_source" << i << "_x_thE" << " " << "lenses_source" << i << "_y_thE" << " ";
+      string srcstr = (i==0?"":to_string(i+1));
+      lcfile << "lenses_Source" << srcstr << "_x_thE" << " " << "lenses_Source" << srcstr << "_y_thE" << " ";
     }
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " " << "source" << i << "_relative_flux" << " " << "source" << i << "_nimages" << " ";  // mu is magnification
+      string srcstr = (i==0?"":to_string(i+1));
+      lcfile << "Source" << srcstr << "_x_thE" << " " << "Source" << srcstr << "_y_thE" << " " << "Source" << srcstr << "_mu" << " " << "Source" << srcstr << "_relative_flux" << " " << "Source" << srcstr << "_nimages" << " ";  // mu is magnification
     }
   for(int i=0;i<Event->nlens;i++)
     {
