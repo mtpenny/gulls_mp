@@ -462,7 +462,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     }
   for(int i=0;i<Event->nsrc;i++)
     {
-      lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " " << "source" << i << "_nimages" << " ";  // mu is magnification
+      lcfile << "source" << i << "_x_thE" << " " << "source" << i << "_y_thE" << " " << "source" << i << "_mu" << " " << "source" << i << "_relative_flux" << " " << "source" << i << "_nimages" << " ";  // mu is magnification
     }
   for(int i=0;i<Event->nlens;i++)
     {
@@ -579,10 +579,13 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
 	  cout << "xlens size " << Event->xlens.size() << " " << Event->xlens[0].size() << endl;
 	  cout << "ylens size " << Event->ylens.size() << " " << Event->ylens[0].size() << endl;
 	}
-	  
+
       for(int s=0;s<Event->nsrc;s++)
 	{
-	  lcfile << Event->xsrc[s][i] << " " << Event->ysrc[s][i] << " " << Event->mu_src[s][i] << " " << Event->nimages[s][i] << " ";// << flush;
+	  double srcrel;
+	  srcrel = Event->fs[obsidx] * Event->mu_src[s][i];
+	  if(s>0) srcrel *= Event->scomp_fsofs1[s-1][World[obsidx].filter];
+	  lcfile << Event->xsrc[s][i] << " " << Event->ysrc[s][i] << " " << Event->mu_src[s][i] << " " << srcrel << " " << Event->nimages[s][i] << " ";// << flush;
 	}
       lcfile << flush;
       for(int l=0;l<Event->nlens;l++)

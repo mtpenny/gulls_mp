@@ -47,11 +47,18 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 	}
 
       //did we detect it?
-      if((!Event->flag_needFS[obsgroup] && Event->PSPL[obsgroup].chisq>Paramfile->minChiSquared)
-	 || (Event->flag_needFS[obsgroup] && Event->FSPL[obsgroup].chisq>Paramfile->minChiSquared))
+      double chi2;
+
+      if(Paramfile->outputOnDet==2) chi2 = Event->flatchi2[obsgroup];
+      else
 	{
-	  Event->detected=1;
+	  if(Event->flag_needFS[obsgroup])
+	    chi2 = Event->FSPL[obsgroup].chisq;
+	  else
+	    chi2 = Event->PSPL[obsgroup].chisq;
 	}
+	  
+      if(chi2 > Paramfile->minChiSquared) Event->detected=1;
     
-    }
+    } //for each obsgroup
 }
