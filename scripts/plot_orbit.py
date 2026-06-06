@@ -32,7 +32,7 @@ for i in range(int(outdata['NPlanets'])):
     print(keys)
     print(i,outdata[keys].to_list())
 
-if outdata['LensCompanions']>0:
+if 'LensCompanions' in outdata.keys() and outdata['LensCompanions']>0:
     keys = list(filter(re.compile('Lens.*ID').match,list(outdata.keys())))
     print(keys)
     print(outdata[keys].to_list())
@@ -42,8 +42,8 @@ keys = list(filter(re.compile(f'^Lens_.+').match,list(outdata.keys())))
 print(keys)
 print(outdata[keys].to_list())
 
-if outdata['LensCompanions']>0:
-    keys = list(filter(re.compile(f'^Lens_.+').match,list(outdata.keys())))
+if 'LensCompanions' in outdata.keys() and outdata['LensCompanions']>0:
+    keys = list(filter(re.compile(f'^Lens2_.+').match,list(outdata.keys())))
     print(keys)
     print(outdata[keys].to_list())
 
@@ -73,7 +73,7 @@ for k in ['Lens_Mass']:
 nlens = pd.Series(list(data.columns)).str.contains(r'^lens\d+_x_thE$').sum()
 #print(pd.Series(list(data.columns)).str.contains(r'^lens\d+_x_thE$'))
 print(f"nlens = {nlens}")
-nsrc = pd.Series(list(data.columns)).str.contains(r'^source\d+_x_thE$').sum()
+nsrc = pd.Series(list(data.columns)).str.contains(r'^Source\d*_x_thE$').sum()
 #print(pd.Series(list(data.columns)).str.contains(r'^source\d+_x_thE$'))
 print(f"nsrc = {nsrc}")
 
@@ -103,7 +103,10 @@ if len(sys.argv)==4:
 for i in range(nlens):
     ax[0].plot(data[f"lens{i}_x_thE"],data[f"lens{i}_y_thE"],'o',ms=ms,label=f'L{i}')
 for i in range(nsrc):
-    ax[0].plot(data[f"source{i}_x_thE"],data[f"source{i}_y_thE"],'o',ms=ms,label=f'S{i}')
+    srcstr=""
+    if i>0:
+        srcstr=i+1
+    ax[0].plot(data[f"Source{srcstr}_x_thE"],data[f"Source{srcstr}_y_thE"],'o',ms=ms,label=f'S{i}')
 
 if len(sys.argv)==4:
     tmin=float(sys.argv[2])
@@ -113,7 +116,10 @@ if len(sys.argv)==4:
     for i in range(nlens):
         ax[0].plot(tdata[f"lens{i}_x_thE"],tdata[f"lens{i}_y_thE"],'o',ms=ms*3,label=f'L{i}')
     for i in range(nsrc):
-        ax[0].plot(tdata[f"source{i}_x_thE"],tdata[f"source{i}_y_thE"],'o',ms=ms*3,label=f'S{i}')
+        srcstr=""
+        if i>0:
+            srcstr=i+1
+        ax[0].plot(tdata[f"Source{srcstr}_x_thE"],tdata[f"Source{srcstr}_y_thE"],'o',ms=ms*3,label=f'S{i}')
 
 
 ax[0].set_aspect('equal')
