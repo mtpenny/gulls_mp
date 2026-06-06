@@ -76,7 +76,6 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"SKIP_MAGNIFICATION","0"},
     {"ASTROMETRY_ON","0"},
     {"ASTROMETRIC_SYS_FLOOR","0.0"},
-    {"ASTROMETRY_ERROR_FLOOR_MAS","0.0"},
     {"NUM_LENS_MAX","3"}
   };
 
@@ -255,12 +254,6 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->skip_magnification = stoi(pfile["SKIP_MAGNIFICATION"]);
   Paramfile->astrometry_on = stoi(pfile["ASTROMETRY_ON"]);
   Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRIC_SYS_FLOOR"]);
-  if(pfile.find("ASTROMETRY_ERROR_FLOOR_MAS") != pfile.end()
-     && pfile["ASTROMETRY_ERROR_FLOOR_MAS"].size() > 0
-     && pfile["ASTROMETRY_ERROR_FLOOR_MAS"] != "0.0")
-    {
-      Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRY_ERROR_FLOOR_MAS"]);
-    }
   Paramfile->num_lens_max = stoi(pfile["NUM_LENS_MAX"]);
   
   //Obsgroups
