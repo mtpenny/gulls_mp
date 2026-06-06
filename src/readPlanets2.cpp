@@ -7,7 +7,7 @@
 #include "readPlanets.h"
 #include "split.h"
 
-int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets)
+int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets, string instance, int choosefield)
 {
 
   //There is expected to be one planet file per subrun and per field with the filename format
@@ -42,9 +42,18 @@ int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets)
   pf.open(fname.c_str());
   if(!pf)
     {
-      cerr << "ERROR READING PLANETS FILE: " << fname << endl;
-      exit(1);
-      return 0;
+      cerr << "PLANETS FILE: " << fname << " does not exist, trying alternative" << endl;
+      //try adding a subrun number directory at the beginning
+      fname = Paramfile->planetdir + instance + "/" + Paramfile->planetroot;
+      if(choosefield>=0) fname += to_string(Paramfile->choosefield) + string(".");
+      fname += instance;
+
+      pf.open(fname.c_str());
+      if(!pf)
+	{
+	  cerr << "ERROR READING PLANETS FILE: " << fname << endl;
+	  return 0;
+	}
     }
 
   int headerSet=0;
