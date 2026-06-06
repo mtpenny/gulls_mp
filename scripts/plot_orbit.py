@@ -32,7 +32,7 @@ for i in range(int(outdata['NPlanets'])):
     print(keys)
     print(i,outdata[keys].to_list())
 
-if outdata['LensCompanions']>0:
+if 'LensCompanions' in outdata.keys() and outdata['LensCompanions']>0:
     keys = list(filter(re.compile('Lens.*ID').match,list(outdata.keys())))
     print(keys)
     print(outdata[keys].to_list())
@@ -42,7 +42,7 @@ keys = list(filter(re.compile(f'^Lens_.+').match,list(outdata.keys())))
 print(keys)
 print(outdata[keys].to_list())
 
-if outdata['LensCompanions']>0:
+if 'LensCompanions' in outdata.keys() and outdata['LensCompanions']>0:
     keys = list(filter(re.compile(f'^Lens2_.+').match,list(outdata.keys())))
     print(keys)
     print(outdata[keys].to_list())
