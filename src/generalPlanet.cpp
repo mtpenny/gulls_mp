@@ -252,6 +252,11 @@ void getPlanetvals(struct event* Event, struct obsfilekeywords World[], struct f
       //Event->lcomp_phase.push_back(360.0*ran2(idum));
     }
 
+  while((Event->t0>518.0 && Event->t0<1281.0) || Event->t0>1799.0)
+    {
+      Event->t0 = double(Paramfile->NUM_SIM_DAYS)*ran2(Paramfile->seed);
+    }
+
   Paramfile->parameterization=0;
   Event->tref=Event->t0;
   Event->nplanets = nplanets - skipped_planets;
