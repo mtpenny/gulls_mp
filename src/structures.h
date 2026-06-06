@@ -303,7 +303,7 @@ struct event{
   vector<vector<double> > scomp_fsofs1;  // flux of the companion relative to the primary at each epoch, for each filter, for the sources
   vector<double> lcomp_s, lcomp_q, lcomp_phase;
   vector<double> lcomp_a, lcomp_e, lcomp_I, lcomp_L0, lcomp_w, lcomp_O, lcomp_dL, lcomp_mass, lcomp_period; //orbital elements
-  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0;
+  vector<double> p_mass, p_a, p_e, p_I, p_L0, p_w, p_O, p_dL, p_orbtype, p_period, p_q, p_s0, p_x0, p_y0, p_z0, p_dsdt, p_dalphadt, p_dxdt, p_dydt, p_dzdt;
   vector<double> m0; // magnitude zero point for the event, such that baeline flux = 1.0, for each filter
   int moons;
   int circumbinary;

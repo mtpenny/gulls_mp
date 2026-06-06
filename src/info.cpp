@@ -54,7 +54,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 
   //source data - +6+1 = 8
   ofile << "NSource ";
-  ofile << "SourceID" << " ";
+  ofile << "Source_gulls_ID" << " ";
   for(int i=0;i<Sources->datakey.size();i++)
     {
       ofile << "Source_" << Sources->datakey[i] << " ";
@@ -62,7 +62,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_sources)
     {
       ofile << "SourceCompanions ";
-      ofile << "Source2ID ";
+      ofile << "Source2_gulls_ID ";
       for(int i=0;i<Sources->datakey.size();i++)
 	{
 	  ofile << "Source2_" << Sources->datakey[i] << " ";
@@ -76,7 +76,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
 
   //lens data - +10+1 = 15
   ofile << "NLens NPlanets ";
-  ofile << "LensID" << " ";
+  ofile << "Lens_gulls_ID" << " ";
   for(int i=0;i<Lenses->datakey.size();i++)
     {
       ofile << "Lens_" << Lenses->datakey[i] << " ";
@@ -84,7 +84,7 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
   if(Paramfile->multiple_lenses)
     {
       ofile << "LensCompanions ";
-      ofile << "Lens2_ID ";
+      ofile << "Lens2_gulls_ID ";
       for(int i=0;i<Lenses->datakey.size();i++)
 	{
 	  ofile << "Lens2_" << Lenses->datakey[i] << " ";
@@ -115,7 +115,15 @@ void writeHeader(struct filekeywords* Paramfile, struct event *Event, struct slc
       ofile << "Planet_" << i << "_O ";
       ofile << "Planet_" << i << "_dL ";
       ofile << "Planet_" << i << "_q ";
-      ofile << "Planet_" << i << "_s0 "; 
+      ofile << "Planet_" << i << "_s0 ";
+      ofile << "Planet_" << i << "_x0 ";
+      ofile << "Planet_" << i << "_y0 ";
+      ofile << "Planet_" << i << "_z0 ";
+      ofile << "Planet_" << i << "_dsdt ";
+      ofile << "Planet_" << i << "_dalphadt ";
+      ofile << "Planet_" << i << "_dxdt ";
+      ofile << "Planet_" << i << "_dydt ";
+      ofile << "Planet_" << i << "_dzdt "; 
       ofile << "Planet_" << i << "_orbtype ";
     }
     
@@ -362,9 +370,17 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	  ofile << Event->p_dL[i] << " ";
 	  ofile << Event->p_q[i] << " ";
 	  ofile << Event->p_s0[i] << " ";
+	  ofile << Event->p_x0[i] << " ";
+	  ofile << Event->p_y0[i] << " ";
+	  ofile << Event->p_z0[i] << " ";
+	  ofile << Event->p_dsdt[i] << " ";
+	  ofile << Event->p_dalphadt[i] << " ";
+	  ofile << Event->p_dxdt[i] << " ";
+	  ofile << Event->p_dydt[i] << " ";
+	  ofile << Event->p_dzdt[i] << " ";
 	  ofile << Event->p_orbtype[i] << " ";
 	}
-      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
+      else ofile << "NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN ";
 	    
     }
 

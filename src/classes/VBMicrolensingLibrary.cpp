@@ -638,7 +638,7 @@ double VBMicrolensing::ESPLMag(double u, double RSv) {
 
 		fr = -10.857362047581296 * log(0.01 * RSv);
 		if (fr > __rsize_ESPL - 1) fr = __rsize_ESPL - 1.000001;
-		if (fr < 0) printf("Source too large!");
+		if (fr < 0) printf("Source too large! __rsize_ESPL=%g fr=%g RSv=%g",__rsize_ESPL,fr,RSv);
 		ir = (int)floor(fr);
 		fr -= ir;
 		cr = 1 - fr;

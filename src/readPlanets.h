@@ -6,5 +6,5 @@
 
 using namespace std;
 
-int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets);
+int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets, string instance, int choosefield);
 

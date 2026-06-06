@@ -27,7 +27,9 @@ source ~/gulls_mp/scripts/gullsPreamble.sh
 
 date
 
-export GULLS_BASE_DIR=/project/penny/gulls/
+if [[ -z "$GULLS_BASE_DIR" ]]; then
+    export GULLS_BASE_DIR=/project/penny/gulls/
+fi
 
 if [ -z ${fields+x} ]; then
     fields=gbtdsfields;

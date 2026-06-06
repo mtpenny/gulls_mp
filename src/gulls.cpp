@@ -7,6 +7,7 @@
 #include<exception>
 #include<sys/timeb.h>
 #include "VBMicrolensingLibrary.h"
+#include "random_backend.h"
 
 using namespace std;
 
@@ -341,7 +342,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 
   //Read in the planets
   if(Paramfile.verbosity) {printf("readPlanets\n"); fflush(stdout);}
-  if(readPlanets(&Paramfile, &Planets)==0)
+  if(readPlanets(&Paramfile, &Planets, instance, field)==0)
     {
       sprintf(str,"Error reading planets. Exiting.");
       fmtline(str,WIDTH,"FATAL");

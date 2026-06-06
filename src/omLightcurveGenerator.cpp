@@ -155,8 +155,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   double antipode_ra = c.fold(Event->ra + PI,0,twoPi); //Used for computing orbits
   double antipode_dec = c.fold(-Event->dec,-PI,PI);
       
-  vector<double> s_delta(3,0.0); //Offset of the chosen lens from its center of mass at tref
-  vector<double> l_delta(3,0.0); //Offset of the chosen source from its center of mass at tref
+  vector<double> s_delta(3,0.0); //Offset of the chosen source from its center of mass at tref
+  vector<double> l_delta(3,0.0); //Offset of the chosen lens from its center of mass at tref
 
   int sn = Event->source;
   int sc = -1;
@@ -184,10 +184,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       if(Paramfile->verbosity>=1) cout << "Multiple source event, nsrc=" << nsrc << endl;
 
       s_elements.resize(nsrc);
-      for(int i=0;i<nsrc;i++)
-	{
-	  s_elements[i].resize(nsrc-1);
-	}
+      for(int i=0;i<nsrc;i++) s_elements[i].resize(nsrc-1);
 
       sc = Event->scompanions[0];
 	  
@@ -219,7 +216,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       vector<double> xp;      
       for(int j=0;j<int(s_elements[0].size());j++)
 	{
-	  s_elements[0][j].viewfrom(Event->tref,antipode_ra,antipode_dec,&xp);
+	  s_elements[0][j].viewfrom(Event->tref+Paramfile->simulation_zerotime,antipode_ra,antipode_dec,&xp);
 	  s_delta[0] += xp[0]; s_delta[1] += xp[1]; s_delta[2] += xp[2];
 	}
       
@@ -309,6 +306,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
   else
     {
       //We have to sort through multiple scenarios
+      //Add binary star orbital info to those arrays
       if(Paramfile->multiple_lenses && Event->lcompanions.size()>0)
 	{
 	  //We have planets/moons and a binary star
@@ -327,6 +325,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->p_dL.push_back(Event->lcomp_dL[i]);
 	      Event->p_q.push_back(Event->lcomp_q[i]);
 	      Event->p_s0.push_back(0.0);
+	      Event->p_x0.push_back(0.0);
+	      Event->p_y0.push_back(0.0);
+	      Event->p_z0.push_back(0.0);
+	      Event->p_dsdt.push_back(0.0);
+	      Event->p_dalphadt.push_back(0.0);
+	      Event->p_dxdt.push_back(0.0);
+	      Event->p_dydt.push_back(0.0);
+	      Event->p_dzdt.push_back(0.0);
 	      Event->p_orbtype.push_back(-1); //to represent a binary star
 	    }
 	}
@@ -347,6 +353,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
 
       int barycenters = 0;
+      //Count the moons
       for(auto oc : Event->p_orbtype)
 	{
 	  if(oc==3) Event->moons++;
@@ -360,6 +367,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       //Single star + planet(s)
       //Single star + planet(s) + moon(s)
 
+      //Classify cases with binary stars as circumbinary, distant binary, or mixed
       if(Paramfile->multiple_lenses && Event->lcompanions.size()>0)
 	{
 	  //Figure out the type of binary star system we have
@@ -398,6 +406,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       double msysmoons;
 
+
+      //Handle moons if there are any
       if(Event->moons>0)
 	{
 	  double mbary = Event->p_mass[0]; //ratio of the planet+moons system relative to the planet (for now)
@@ -448,14 +458,15 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       double mbary=Lenses->data[ln][Lenses->MASS];
       double q,m;
       int planet_moon=0;
-      
+
+      //Loop through all the other bodies in order of orbit size and add orbital elements for the additional objects and the reflex orbit of the first star
       for(auto idx : orbsize_order)
 	{
 	  if(Event->p_orbtype[idx]==3) continue; //ignore the moons, they are orbiting the planet and motion is accounted for in planet barycenter, we'll shift them when we shift the planet
-	  
+
+      	  //if there are moons, there is only one planet
 	  if(Event->moons>0 && Event->p_orbtype[idx]!=-1)
 	    {
-	      //if there are moons, there is only one planet
 	      m = msysmoons; //use the mass of the planet moon system
 	      planet_moon=1; //modify the moon system with the reflex orbit
 	    }
@@ -474,7 +485,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  mbary += m;
 	  Event->p_period[idx] = sqrt(cube(acomb)/mbary);
 	  Event->p_dL[idx] = 360.0/Event->p_period[idx];
-		  	    
+
+      	  //additional objects (idx is 0 indexed companion count, but the element array is zero indexed on all bodies)
 	  l_elements[idx+1].push_back(orbitalElements(a1, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
 	  //reflex motion of the main star
 	  if(Paramfile->verbosity>1) cout << "Star reflex" << endl;
@@ -504,10 +516,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  break; 
 		}
 
-	      if(Event->p_orbtype[jdx]!=3)
+	      if(Event->p_orbtype[jdx]!=3) //not a moon
 		{
 		  if(Paramfile->verbosity>1 && Event->p_orbtype[jdx]!=3) cout << "Planet reflex jdx=" << jdx << " with planet idx=" << idx << " +a=" << Event->p_a[idx] << endl;
-		  
+
+		  //add reflex motion to the interior planets
 		  l_elements[jdx+1].push_back(orbitalElements(-a2, Event->p_e[idx], Event->p_I[idx], Event->p_L0[idx], Event->p_w[idx], Event->p_O[idx], Event->p_dL[idx]));
 	      
 		  if(jdx==1)
@@ -524,7 +537,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 			}
 		    }
 		  
-	      //skip if it is a moon whose planet hasn't been reached yet
+		  //skip if it is a moon whose planet hasn't been reached yet
 		}
 		
 	    }		      
@@ -574,6 +587,72 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	}
     }
 
+  //Set up the origin for t0,u0. For all cases this will be relative to the first lens at time t_ref
+
+  //Compute the origin shift relative to the center of mass of the lens - normalization by rEsrc will be done later
+
+  const double toff = 1.0/(24.0*60.0); // one minute, in days
+  
+  if(nlens>=2)
+    {
+      vector<double> xp; //orbit contribution to vector
+      vector<double> rp(3,0.0); //total position vector at time tref
+      vector<double> rp1(3,0.0); //total position vector at time tref+delta
+      vector<double> primary_rp(3,0.0); //primary lens position at tref, in AU
+      vector<double> primary_rp1(3,0.0); //primary lens position at tref+delta, in AU
+      for(int i=0;i<int(l_elements.size());i++)  // loop { star reflex orbits, planet orbits, moon orbits }
+	{
+	  rp.assign(3,0.0);  // Codex is insisting this needs to be here, but I get it. -A
+	  rp1.assign(3,0.0);
+	  for(int j=0;j<int(l_elements[i].size());j++)  // loop over orbital contributions for this lens object; each contribution has { a, e, I, L0, w, O, dL }
+	    {
+	      l_elements[i][j].viewfrom(Event->tref+Paramfile->simulation_zerotime,antipode_ra,antipode_dec,&xp);
+	      rp[0] += xp[0]; rp[1] += xp[1]; rp[2] += xp[2];
+	      l_elements[i][j].viewfrom(Event->tref+Paramfile->simulation_zerotime+toff,antipode_ra,antipode_dec,&xp);
+	      rp1[0] += xp[0]; rp1[1] += xp[1]; rp1[2] += xp[2];
+	      
+	    }
+
+	  if(i==0)
+	    {
+	      primary_rp = rp;
+	      primary_rp1 = rp1;
+	      l_delta[0] = rp[0]/Event->rE;
+	      l_delta[1] = rp[1]/Event->rE;
+	      l_delta[2] = rp[2]/Event->rE;
+	    }
+	  
+	  // converting from physical units (AU) to Einstein radius units, and applying the origin shift for the lens-system barycenter.
+	  rp[0] = (rp[0]-primary_rp[0])/Event->rE;
+	  rp[1] = (rp[1]-primary_rp[1])/Event->rE;
+	  rp[2] = (rp[2]-primary_rp[2])/Event->rE;
+	  rp1[0] = (rp1[0]-primary_rp1[0])/Event->rE;
+	  rp1[1] = (rp1[1]-primary_rp1[1])/Event->rE;
+	  rp1[2] = (rp1[2]-primary_rp1[2])/Event->rE;
+
+	  if(i>0)
+	    {
+	      Event->p_s0[i-1] = qAdd(rp[0],rp[1]);  // is p meant to be in AU here?
+	      Event->p_x0[i-1] = rp[0];
+	      Event->p_y0[i-1] = rp[1];
+	      Event->p_z0[i-1] = rp[2];
+	      double s1 = qAdd(rp1[0],rp1[1]);
+	      Event->p_dsdt[i-1] = (s1-Event->p_s0[i-1])/toff;
+	      Event->p_dalphadt[i-1] = (atan2(rp1[1],rp1[0])-atan2(rp[1],rp[0]))/toff;
+	      Event->p_dxdt[i-1] = (rp1[0]-rp[0])/toff;
+	      Event->p_dydt[i-1] = (rp1[1]-rp[1])/toff;
+	      Event->p_dzdt[i-1] = (rp1[2]-rp[2])/toff;
+	      
+	      //p_dalphadt, p_dxdt, p_dydt;
+	    }
+	  
+
+	}
+    }
+  
+
+  
+
   double time_elapsed=0;
   bool warned_single_lens_nonzero_origin = false;
 
@@ -590,42 +669,65 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
   if(nlens>Paramfile->num_lens_max)
     {
-      bad_scenario+=iPow(2,0);
+      bad_scenario |= iPow(2,0);
       cout << "Too many lenses, nlens=" << nlens << endl;
     }
   if(Event->mixedbinary>0)
     {
-      bad_scenario+=iPow(2,1);
+      bad_scenario |= iPow(2,1);
       cout << "Mixed binary, will skip" << endl;
     }
   else if(Event->circumbinary>0)
     {
-      double e = Event->p_e[nlens-2];
-      double mu_hw = Event->p_q[nlens-2];
-      if(mu_hw>1) mu_hw = 1.0/mu_hw;
+      double e = Event->p_e.back(); //eccentricity of the binary star
+      double mu_hw = 1.0/(1 + Event->p_q.back()); //Defined as the ratio of the smallest to the total mass of the binary. 
+      if(mu_hw>0.5) mu_hw = 1.0 - mu_hw;
       double acrit = 1.60 + 5.10*e - 2.22*sqr(e) + 4.12*mu_hw - 4.27*e*mu_hw
 	- 5.09*sqr(mu_hw) + 4.61*sqr(e*mu_hw); //Holman & Wiegert (1999)
       //cout << "circum binary acrit = " << acrit << " " << Event->p_a[0] << " " << Event->p_a[nlens-2]*acrit << endl;
-      cout << "circum binary e=" << e << " mu_hw=" << mu_hw << " acrit=" << acrit << " a0=" << Event->p_a[0] << " ab=" << Event->p_a[nlens-2] << " a[n-1]*acrit" << Event->p_a[nlens-2]*acrit << " nlens=" << nlens << " p_e.size=" << Event->p_e.size() << endl;
-      if(Event->p_a[0]<Event->p_a[nlens-2]*acrit) bad_scenario+=iPow(2,2);
-      else
+      for(int i=0;i<Event->nplanets;i++)
 	{
-	  double period_ratio = Event->p_period[0]/Event->p_period[nlens-2];
-	  double prround = round(period_ratio);
-	  if(prround<=9 && (fmod(period_ratio,prround)<0.02 || fmod(period_ratio,prround)>0.98))
-	    bad_scenario+=iPow(2,3);
+	  if(Event->p_mass[i]>0 && Event->p_orbtype[i]!=3) //has mass and is not a moon
+	    {
+	      cout << "circum binary e=" << e << " mu_hw=" << mu_hw << " acrit=" << acrit << " ap=" << Event->p_a[i] << " ab=" << Event->p_a.back() << " ab*acrit" << Event->p_a.back()*acrit << " nlens=" << nlens << endl;
+	      if(Event->p_a[i]<Event->p_a.back()*acrit)
+		{
+		  bad_scenario |= iPow(2,2);
+		  cout << "bad scenario, planet " << i << ", a<acrit" << Event->p_a[i] << "<" << Event->p_a.back()*acrit << endl;
+		}
+	      else
+		{
+		  double period_ratio = Event->p_period[i]/Event->p_period.back();
+		  double prround = round(period_ratio);
+		  if(prround<=9 && (fmod(period_ratio,prround)<0.02 || fmod(period_ratio,prround)>0.98))
+		    {
+		      bad_scenario |= iPow(2,3);
+		      cout << "bad scenario, planet " << i << ", period ratio " << period_ratio << endl;
+		    }
+		}
+	    }
 	}
     }
   else if(Event->distantbinary>0)
     {
-      double e = Event->p_e[nlens-2];
-      double mu_hw = Event->p_q[nlens-2];
-      if(mu_hw>1) mu_hw = 1.0/mu_hw;
+      double e = Event->p_e.back();
+      double mu_hw = 1.0 - 1.0/(1 + Event->p_q.back()); //Defined as the ratio of the companion to the total mass of the binary.
       double acrit = 0.464 - 0.380*mu_hw - 0.631*e + 0.586*mu_hw*e
 	+ 0.150*sqr(e) - 0.198*mu_hw*sqrt(e); //Holman & Wiegert (1999)
-      cout << "distant binary e=" << e << " mu_hw=" << mu_hw << " acrit=" << acrit << " a0=" << Event->p_a[0] << " ab=" << Event->p_a[nlens-2] << " a[n-1]*acrit=" << Event->p_a[nlens-2]*acrit << " nlens=" << nlens << " p_e.size=" << Event->p_e.size() << endl;
 
-      if(Event->p_a[0]>Event->p_a[nlens-2]*acrit) bad_scenario+=iPow(2,4);
+      for(int i=0;i<Event->nplanets;i++)
+	{
+	  if(Event->p_mass[i]>0 && Event->p_orbtype[i]!=3) //has mass and is not a moon
+	    {
+	      cout << "distant binary e=" << e << " mu_hw=" << mu_hw << " acrit=" << acrit << " ap=" << Event->p_a[i] << " ab=" << Event->p_a.back() << " ab*acrit=" << Event->p_a.back()*acrit << " nlens=" << nlens << endl;
+
+	      if(Event->p_a[i]>Event->p_a.back()*acrit)
+		{
+		  bad_scenario |= iPow(2,4);
+		  cout << "bad scenario, planet " << i << "ap>acrit*ab: " << Event->p_a[i] << ">" << Event->p_a.back()*acrit << endl;
+		}
+	    }
+	}
     }
   
   if(Paramfile->verbosity>=1)
@@ -644,6 +746,14 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	  cout << " mass=" << Event->p_mass[i] << " ";
 	  cout << " q=" << Event->p_q[i] << " ";
 	  cout << " s0=" << Event->p_s0[i] << " ";
+	  cout << " x0=" << Event->p_x0[i] << " ";
+	  cout << " y0=" << Event->p_y0[i] << " ";
+	  cout << " z0=" << Event->p_z0[i] << " ";
+	  cout << " dsdt=" << Event->p_dsdt[i] << " ";
+	  cout << " dalphadt=" << Event->p_dalphadt[i] << " ";
+	  cout << " dxdt=" << Event->p_dxdt[i] << " ";
+	  cout << " dydt=" << Event->p_dydt[i] << " ";
+	  cout << " dzdt=" << Event->p_dzdt[i] << " ";
 	  cout << " orbtype=" << Event->p_orbtype[i] << " ";
 	  cout << endl;
 	}
@@ -711,6 +821,10 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       double xs0 = uu * sina + tt * cosa;
       double ys0 = -uu * cosa + tt * sina;
 
+      //Shift from CoM origin to lens1@tref origin
+      xs0 += l_delta[0]; //already in units of Einstein ring
+      ys0 += l_delta[1];
+
       vector<double> xs(nsrc,0.0); //source position in the plane of the sky, ecliptic sky coordinates in AU
       vector<double> ys(nsrc,0.0); // AU is a strange unit. Aren't these angles on the sky? -A
       vector<double> ds(nsrc,0.0); //source distance
@@ -726,7 +840,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
-	      xs[i] /= rEsrc; ys[i] /= rEsrc; ds[i] /= rEsrc;  // now they are angles? -A
+	      xs[i] /= rEsrc; ys[i] /= rEsrc; ds[i] /= rEsrc;  // now they are angles? -A MP: unitless relative to the Einstein radius
 	      //Rotation needed here?
 	      
 	      xs[i] += xs0; ys[i] += ys0;
@@ -757,7 +871,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  if(Paramfile->verbosity>=3 || idx==0) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][shiftedidx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
 		  xl[i] += xp[0]; yl[i] += xp[1]; dl[i] += xp[2];
 		}
-	      xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
+	      //This shift of origin away from the center of mass has been moved to the source position
+	      //xl[i] -= l_delta[0]; yl[i] -= l_delta[1]; dl[i] -= l_delta[2];
 
 
 	      xl[i] /= Event->rE; yl[i] /= Event->rE; dl[i] /= Event->rE;
@@ -765,7 +880,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      //rotations needed here?
 	      lens_parameters[3*i+0] = xl[i];
 	      lens_parameters[3*i+1] = yl[i];
-	      Event->xlens[i][idx] = xl[i];  // is this lens parallax? -A
+	      Event->xlens[i][idx] = xl[i];  // is this lens parallax? -A MP: No, this is in the center of mass frame
 	      Event->ylens[i][idx] = yl[i];
 	    }
 
@@ -774,7 +889,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       else
 	{
 	  xl[0] = 0.0; yl[0] = 0.0;
-	  Event->xlens[0][idx] = 0.0; Event->ylens[0][idx] = 0.0; // how come this doesn't need parallax? -A
+	  Event->xlens[0][idx] = 0.0; Event->ylens[0][idx] = 0.0; // how come this doesn't need parallax? -A MP: again, center of mass frame
 	}
 
       
@@ -844,7 +959,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->astrox_raw[is][idx] = astro_x[is];
 	      Event->astroy_raw[is][idx] = astro_y[is];
 	    } 
-		// I feel like we are missing the blending, but lets let her cook.
+	  // I feel like we are missing the blending, but lets let her cook.
 	}
       else if(nlens==2)  //binary lens
 	{
@@ -874,11 +989,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      else rho = Event->scomp_rs[is-1];  // or companion-source angular radius from scomp_rs (does not include the primary).
 	      //rotate coordintates to binary axis
 
-		  // Shift to COM
+	      // Shift to COM
 	      //Binary mag works from the center of mass, so translate source to CoM, then rotate
 	      double xs_com_ecl = xs[is] + l_delta[0];  // is this to COM or from?
 	      double ys_com_ecl = ys[is] + l_delta[1];  // VBM is COM centered, but what was the event frame centered on?
-		  // it must have lens 1 for this to make sense.
+	      // it must have lens 1 for this to make sense.
 
 	      // rotate from event -> VBM frame
 	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;
@@ -900,7 +1015,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  double cy_bin = Event->vbm->astrox2;
 		  astro_x[is] = cr_inv*cx_bin - sr_inv*cy_bin;
 		  astro_y[is] = sr_inv*cx_bin + cr_inv*cy_bin;
-		  // do we need to shift back to lens 1 as the origin?
+		  // do we need to shift back to lens 1 as the origin? MP: I don't think so, it is the center of mass that is an inertial frame
 		}
 	      else
 		{
@@ -908,7 +1023,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		  astro_y[is] = ys[is];
 		}
 	      if(Paramfile->astrometry_on && used_vbm_astrometry) // if we aren't calculating the magnification, we aren't 
-		  // calculating the astrometric shift, so they stay zero (I think. Provided they are initialized as such).
+		// calculating the astrometric shift, so they stay zero (I think. Provided they are initialized as such).
 		{
 		  Event->astrox1_raw[is][idx] = Event->vbm->astrox1;
 		  Event->astrox2_raw[is][idx] = Event->vbm->astrox2;
@@ -917,7 +1032,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      Event->astroy_raw[is][idx] = astro_y[is];
 	    }
 	}
-      else
+      else //We're using multi-body lensing
 	{	 
 	  for(int is=0;is<nsrc;is++)
 	    {
@@ -980,11 +1095,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      if(lens_mass_frac <= 0.0) continue;
 		      double u_lens = qAdd(xs[is]-lens_parameters[i*3+0],ys[is]-lens_parameters[i*3+1])/sqrt(lens_mass_frac);
 		      if(u_lens<u_min)
-			    {
-			      u_min=u_lens;
-			      fallback_lens_idx = i;
-			      fallback_lens_weight = lens_mass_frac;
-			  }
+			{
+			  u_min=u_lens;
+			  fallback_lens_idx = i;
+			  fallback_lens_weight = lens_mass_frac;
+			}
 		    }
 
 		  VBMicrolensing* astrometry_vbm = nullptr;
@@ -1002,7 +1117,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      // If the source is far from all lenses, approximate the system as the single
 		      // component lens chosen by the fallback metric (minimum source-lens separation
 		      // in component Einstein-radius units; the most influential lenser). ESPLMag2 works in 
-			  // that lens's natural Einstein-radius units, so convert both u and rho before calling VBM.
+		      // that lens's natural Einstein-radius units, so convert both u and rho before calling VBM.
 		      const double rho_lens = (fallback_lens_weight > 0.0 ? rho/sqrt(fallback_lens_weight) : rho);
 		      mu[is] = Event->vbm->ESPLMag2(u_min, rho_lens);
 		      Event->VBM_function = "ESPLMag2";
@@ -1050,7 +1165,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 		      Event->astrox1_raw[is][idx] = astrometry_vbm->astrox1;
 		      Event->astrox2_raw[is][idx] = astrometry_vbm->astrox2;
 		    }
-			}
+		}
 
 	      else mu[is] = 1.0;
 	      Event->astrox_raw[is][idx] = astro_x[is];

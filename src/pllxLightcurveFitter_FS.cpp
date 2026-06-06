@@ -365,7 +365,7 @@ double my_f_FS (const gsl_vector *v, void *params)
 
 		  u = qAdd(uu,tt);
 
-		  if(EventL->rs<2.0e-4)
+		  if(rs<2.0e-4||rs>100.0)
 		    muVisibility(&mu,  rs, u, ld1);
 		  else
 		    mu = EventL->vbm->ESPLMag2(u, rs);
