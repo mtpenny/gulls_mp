@@ -400,8 +400,8 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   lcfile << endl;
   lcfile << "#Astrometry_Contract: version=v2 model_frame=absolute event_true_unit=thetaE noise_frame=ecliptic_tangent event_axes=xN_yE event_to_ecliptic_mapping=E_from_y,N_from_x" << endl;
   lcfile << "#Astrometry_Columns:"
-   << " event_x_thetaE=blended_sources_lenses_x_thetaE"
-   << " event_y_thetaE=blended_sources_lenses_y_thetaE"
+   << " event_x_thetaE=blended_sources_lensed_x_thetaE"
+   << " event_y_thetaE=blended_sources_lensed_y_thetaE"
    << " ecliptic_lambda_noiseless_deg=ecliptic_lambda_noiseless_deg"
    << " ecliptic_beta_noiseless_deg=ecliptic_beta_noiseless_deg"
    << " sky_ra_noiseless_deg=true_RA_deg"
@@ -444,7 +444,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
     "true_relative_flux_error" << " " << "observatory_code" << " " <<
     "saturation_flag" << " " << "best_single_lens_fit" << " " <<
     "blended_sources_only_x_thetaE" << " " << "blended_sources_only_y_thetaE" << " " <<
-    "blended_sources_lenses_x_thetaE" << " " << "blended_sources_lenses_y_thetaE" << " " <<
+    "blended_sources_lensed_x_thetaE" << " " << "blended_sources_lensed_y_thetaE" << " " <<
     "ecliptic_lambda_noiseless_deg" << " " << "ecliptic_beta_noiseless_deg" << " " <<
     "true_RA_deg" << " " << "true_Dec_deg" << " " <<
     "measured_RA_deg" << " " << "measured_Dec_deg" << " " <<
@@ -460,7 +460,7 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   for(int i=0;i<Event->nsrc;i++)
     {
       string srcstr = (i==0?"":to_string(i+1));
-      lcfile << "lenses_Source" << srcstr << "_x_thE" << " " << "lenses_Source" << srcstr << "_y_thE" << " ";
+      lcfile << "lensed_Source" << srcstr << "_x_thE" << " " << "lensed_Source" << srcstr << "_y_thE" << " ";
     }
   for(int i=0;i<Event->nsrc;i++)
     {
