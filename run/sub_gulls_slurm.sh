@@ -1,14 +1,16 @@
 #!/bin/bash
 #SBATCH -N 1               # request one node
 #SBATCH -n 20
-#SBATCH -t 6:00:00	        # request two hours
+#SBATCH -t 3:00:00	        # request two hours
 #SBATCH -p workq          # in single partition (queue)
-#SBATCH -A hpc_roman03
+#SBATCH -A hpc_roman04
 
 #SBATCH -o slurm-%j.out-%N # optional, name of the stdout, using the job number (%j) and the hostname of the node (%N)
 #SBATCH -e slurm-%j.err-%N # optional, name of the stderr, using job and hostname values
 
 # Set some handy environment variables.
+
+module load parallel/20220522/intel-2021.5.0
 
 jobn=0
 #subrun=2
