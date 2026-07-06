@@ -93,13 +93,21 @@ if not os.path.exists('fm'):
 if not os.path.exists('logs'):
     os.mkdir('logs')
 
+
+outfiledir='./'
 if args.in_raw:
-    os.chdir(paramfile['FINAL_DIR'] + paramfile['RUN_NAME'] + '/raw/')
-else:
-    outfiledir = paramfile['OUTPUT_DIR'] + paramfile['RUN_NAME'] + '/'
-    if not os.path.isdir(outfiledir):
-        outfiledir = paramfile['FINAL_DIR'] + paramfile['RUN_NAME'] + '/'
+    outfiledir = paramfile['FINAL_DIR'] + paramfile['RUN_NAME'] + '/raw/'
     os.chdir(outfiledir)
+else:
+    outfiledir = paramfile['FINAL_DIR'] + paramfile['RUN_NAME'] + '/'
+    if not os.path.isdir(outfiledir):
+        print(f"{outfiledir} does not exist, will try something else")
+        outfiledir = paramfile['OUTPUT_DIR'] + paramfile['RUN_NAME'] + '/'   
+    os.chdir(outfiledir)
+
+print(f"Looking for .out files in {outfiledir}")
+
+    
 
 #Files for processing
 procfiles = {}
@@ -145,8 +153,12 @@ if not args.recut:
             try:
                 data = pd.read_csv(f.name,usecols=['Field','SubRun','raw_weight'],
                                    dtype={'Field':int,'raw_weight':float},
-                                   sep='\s+') #.to_numpy()
+                                   sep='\s+',engine='c') #.to_numpy()
             except:
+                print(f"Skipping {f.name} due to read_csv exception")
+                continue
+
+            if not data.shape[0]>=1:
                 print(f"Skipping {f.name} with no data")
                 continue
         
@@ -186,7 +198,7 @@ if not args.recut:
 
             #Read the file a second time
             try:
-                data = pd.read_csv(f,sep='\s+')
+                data = pd.read_csv(f,sep='\s+',dtype=float,engine='c')
             except:
                 print("Skipping {f} with no data")
                 continue

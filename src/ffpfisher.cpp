@@ -103,10 +103,11 @@ void fisherMatrix(struct filekeywords* Paramfile, struct event *Event, struct ob
       //dmudrho=0;
       
       // 0 = t0  1 = tE  2 = u0  3 = rs  4 = piE 5 = phi_pi 6 = F0  7 = fs
+      //now  0 = t0  1 = logtE  2 = u0  3 = logrs  4 = piEN 5 = piEE 6 = F0  7 = fs
       Event->dF[idx] = fs[obsidx] * dmudu * tt/u * (-1.0/tE);
-      Event->dF[idx+Event->nepochs] = fs[obsidx] * dmudu * tt/u * (-tau/tE);
+      Event->dF[idx+Event->nepochs] = fs[obsidx] * dmudu * tt/u * (-tau/tE) * tE*log(10);
       Event->dF[idx+2*Event->nepochs] = fs[obsidx] * dmudu * uu/u;
-      Event->dF[idx+3*Event->nepochs] = fs[obsidx] * dmudrho;
+      Event->dF[idx+3*Event->nepochs] = fs[obsidx] * dmudrho * rs*log(10);
       if(pllx)
 	{
 	  //piE,phi_piE
@@ -129,14 +130,14 @@ void fisherMatrix(struct filekeywords* Paramfile, struct event *Event, struct ob
   //For the linear flux parameters we can work analytically
   int F0idx, fsidx;
 
-  //Now calculate dF/dF0 and dF/dfs
+  //Now calculate dF/dF0 and dF/dlogfs
   for(idx=0;idx<Event->nepochs;idx++)
     {
       obsidx = Event->obsidx[idx];
       F0idx = (Nparams+obsidx*2)*Event->nepochs+idx;
       fsidx = F0idx + Event->nepochs;
       Event->dF[F0idx]=Event->Atrue[idx];
-      Event->dF[fsidx]=(Event->Atrue[idx]-1)/fs[obsidx]; 
+      Event->dF[fsidx]=(Event->Atrue[idx]-1)/fs[obsidx] * fs[obsidx]*log(10); 
     }     
   
   delete[] fs;

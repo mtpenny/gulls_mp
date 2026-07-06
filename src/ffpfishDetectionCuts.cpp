@@ -5,8 +5,11 @@
 
 #include<iostream>
 #include<sstream>
+#include<string>
 
 #define DEBUGVAR 0
+
+using namespace std;
 
 void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct obsfilekeywords World[], struct slcat *Sources, struct slcat *Lenses)
 {
@@ -54,23 +57,52 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 	}
       //give tempss value to the obsgroupdata
       Event->obsgroupoutput[obsgroup] = tempss.str();
-	  
+
       //Write out the header columns too
-      stringstream mdhss;
-      mdhss << "ObsGroup_" <<  obsgroup << "_sigma_t0 ";
-      mdhss << "ObsGroup_" <<  obsgroup << "_sigma_tE ";
-      mdhss << "ObsGroup_" <<  obsgroup << "_sigma_u0 ";
-      mdhss << "ObsGroup_" <<  obsgroup << "_sigma_rho ";
+      vector<string> fmheaders;
+      fmheaders.push_back("t0"); fmheaders.push_back("logtE"); fmheaders.push_back("u0");
+      fmheaders.push_back("logrho");
+      
       if(pllx)
 	{
-	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_piEN ";
-	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_piEE ";
+	  fmheaders.push_back("piEN");
+	  fmheaders.push_back("piEE");
 	}
       for(int obs=0;obs<nobs;obs++)
 	{
-	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_F0_" << obs << " ";
-	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_fs_" << obs << " ";
+	  stringstream tmphdr;
+	  tmphdr << "F0" << obs;
+	  fmheaders.push_back(tmphdr.str());
+	  tmphdr.str(string());
+	  tmphdr << "logfs" << obs;
+	  fmheaders.push_back(tmphdr.str());
+	  tmphdr.str(string());
 	}
+
+      stringstream mdhss;
+      
+      for(int j=0;j<nparams;j++)
+	{
+	  for(int i=0;i<=j;i++)
+	    {
+	      mdhss << "ObsGroup_" << obsgroup << "_cov_" << fmheaders[i] << "_" << fmheaders[j] << " ";
+	    }
+	}
+	  
+      // mdhss << "ObsGroup_" <<  obsgroup << "_sigma_ ";
+      // mdhss << "ObsGroup_" <<  obsgroup << "_sigma_logtE ";
+      // mdhss << "ObsGroup_" <<  obsgroup << "_sigma_u0 ";
+      // mdhss << "ObsGroup_" <<  obsgroup << "_sigma_logrho ";
+      // if(pllx)
+      // 	{
+      // 	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_piEN ";
+      // 	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_piEE ";
+      // 	}
+      // for(int obs=0;obs<nobs;obs++)
+      // 	{
+      // 	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_F0_" << obs << " ";
+      // 	  mdhss << "ObsGroup_" <<  obsgroup << "_sigma_logfs_" << obs << " ";
+      // 	}
 
       Event->obsgroupoutputheader[obsgroup] = mdhss.str();
       
@@ -233,20 +265,20 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 	  if(!Event->outputthis) fmfname=string("");
 		  
 	  ss.str(string("")); 
-	  ss << "t0\ttE\tu0\trs\t";
+	  ss << "t0\tlogtE\tu0\tlogrs\t";
 	  if(pllx) ss << "piEN\tpiEE\t";
-	  ss << "{F0\tfs}";
+	  ss << "{F0\tlogfs}";
 	  header = ss.str();
 		  
 	  ss.str(string(""));
 	  //ss.precision(16);
-	  ss << Event->t0 << "\t" << Event->tE_r  << "\t" << Event->u0 << "\t" 
-	     << Event->rs << "\t";
+	  ss << Event->t0 << "\t" << log10(Event->tE_r)  << "\t" << Event->u0 << "\t" 
+	     << log10(Event->rs) << "\t";
 	  if(pllx) ss << Event->piEN << "\t" << Event->piEE << "\t";	  
 	  for(grpidx=0;grpidx<nobs;grpidx++)
 	    {
 	      obsidx = Event->obsgroups[obsgroup][grpidx];
-	      ss << 1.0 << "\t" << Event->fs[obsidx] << "\t";
+	      ss << 1.0 << "\t" << log10(Event->fs[obsidx]) << "\t";
 	    }
 	  values = ss.str();
 		  
@@ -302,7 +334,7 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 	      cout << "Computing fisher inversion for group " << obsgroup << " with " << nparams << " params and " << nepochs << " datapoints" << endl;
 	    }
 
-	  gsl_matrix* cov = gsl_matrix_alloc(1,1);
+	  gsl_matrix* cov = gsl_matrix_alloc(nparams,nparams);
 	  fisherInversion(dF, err, nparams, nepochs, fmfname, header, values, 
 			  &cov);
 
@@ -376,7 +408,7 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 			}
 		      
 
-		      //vector<double> mdcov = mderrors(fmfname, Event->obsgroups[obsgroup][obs1], Event->obsgroups[obsgroup][obs2], k2alpha, 1, Event, Sources, Lenses);
+		      //vector<double> mdcov = mderrors(fmfname, Event->obsgroup[obsgroup][obs1], Event->obsgroups[obsgroup][obs2], k2alpha, 1, Event, Sources, Lenses);
 		      vector<double> mdcov;
 		      if(goodfilter)
 			{
@@ -414,16 +446,20 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 
 	  // 76-85
 	  // ALL SIGMAS ARE OUTPUT XXX  sigt0 sigte sigu0 sigrs sigpien sigpiee {sigF0 sigfs}
-	  for(int i=0;i<nparams;i++)
+	  for(int j=0;j<nparams;j++)
 	    {
-	      mdss << sqrt(gsl_matrix_get(cov,i,i)) << " ";
+	      for(int i=0;i<=j;i++)
+		{
+		  mdss << gsl_matrix_get(cov,i,j) << " ";
+		  if(Paramfile->verbosity>0) cout << "cov(" << i << "," << j << ")=" << sqrt(gsl_matrix_get(cov,i,j)) << " ";
 		  
-	    }	  
+		}
+	    }
+	  if(Paramfile->verbosity>0) cout << endl;
 
 
 	  //Old way, should still work
 	  //mdss << bestmdcov[0] << " " << bestmdcov[1] << " " << bestmdcov[2]  << " " << bestfilters[0] << " " << bestfilters[1] << " " << bestmdcov[3] << " " << bestmdcov[4] << " " << bestmdcov[5] << " " << bestmdcov[6] << " " << sqrt(gsl_matrix_get(cov,3,3))/Event->rs/ln10 << " " << sqrt(gsl_matrix_get(cov,4,4))/abs(Event->piEN)/ln10 << " " << sqrt(gsl_matrix_get(cov,5,5))/abs(Event->piEE)/ln10 << " " << piEdir[0] << " " << piEdir[1] << " " << piEdir[2] << " ";
-
 	  
 	  Event->obsgroupoutput[obsgroup] = mdss.str();
 

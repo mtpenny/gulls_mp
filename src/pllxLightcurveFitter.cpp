@@ -129,8 +129,10 @@ int lightcurveFitter(struct filekeywords* Paramfile, struct obsfilekeywords Worl
       ss = gsl_vector_alloc (3);
     }
 
-  gsl_vector_set (x, 0, Event->upeak[0]);
-  gsl_vector_set (x, 1, Event->tpeak[0]);
+  //gsl_vector_set (x, 0, Event->upeak[0]);
+  //gsl_vector_set (x, 1, Event->tpeak[0]);
+  gsl_vector_set (x, 0, Event->u0);
+  gsl_vector_set (x, 0, Event->t0);
   gsl_vector_set (x, 2, Event->tE_r);
 
 
