@@ -346,12 +346,13 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
     }
 
-  int pdatacount=0;
+  //int pdatacount=0;
+  
   for(auto pdata : Planets->data[Event->id])
     {
       ofile << pdata << " ";
-      int planetid=pdata;
-      pdatacount++;
+      //int planetid=pdata;
+      //pdatacount++;
     }
 
 
