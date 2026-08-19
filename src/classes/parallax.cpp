@@ -83,7 +83,7 @@ void parallax::print_uninit()
 
 
 
-int parallax::compute_NEshifts()
+int parallax::compute_NEshifts(int idx)
 {
   if(debug) cout << __FUNCTION__ << endl;
   testinit(string(__FUNCTION__),status,NESHIFTS);
@@ -96,7 +96,16 @@ int parallax::compute_NEshifts()
   ushift = vector<double>(epochs.size());
   sslocation = vector<vector<double> >(epochs.size(),vector<double>(3,0));
 
-  for(int i=0;i<int(epochs.size());i++)
+  int imin = 0;
+  int imax = int(epochs.size());
+
+  if(idx>=0)
+    {
+      imin=idx;
+      imax=idx+1;
+    }
+  
+  for(int i=imin;i<imax;i++)
     {
       //compute the shift relative to the reference frame
       //x = vector<double>(3,0);
@@ -129,7 +138,7 @@ int parallax::compute_NEshifts()
 
 
 
-int parallax::compute_tushifts()
+int parallax::compute_tushifts(int idx)
 {
   if(debug) cout << __FUNCTION__ << endl;
   testinit(string(__FUNCTION__),status,TUSHIFTS);
@@ -141,7 +150,16 @@ int parallax::compute_tushifts()
 
   //cout << "epochs.size() " << epochs.size() << endl;
 
-  for(int i=0;i<int(epochs.size());i++)
+  int imin = 0;
+  int imax = int(epochs.size());
+
+  if(idx>=0)
+    {
+      imin=idx;
+      imax=idx+1;
+    }
+  
+  for(int i=imin;i<imax;i++)
     {
       //Convert the shift in the observer plane to a shift in the 
       //source position
