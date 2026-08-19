@@ -434,102 +434,102 @@ class image
   //image manipulation functions
 
   //add a star at a random position
-  inline void addstar(double mag)
+  inline void addstar_random_pos(double mag)
   {    
-    addstar(-psf.Nkern*psf.Nsub, (Xpix+psf.Nkern)*psf.Nsub, 
+    addstar_random_pos(-psf.Nkern*psf.Nsub, (Xpix+psf.Nkern)*psf.Nsub, 
 	    -psf.Nkern*psf.Nsub, (Ypix+psf.Nkern)*psf.Nsub, mag);
   };
-  int addstar(double mag, starlist* sl);
+  int addstar_random_pos(double mag, starlist* sl);
 
 
   //add a star at a random position in the specified range
-  inline void addstar(int xmin, int xmax, int ymin, int ymax, double mag)
+  inline void addstar_random_pos(int xmin, int xmax, int ymin, int ymax, double mag)
   {
-    addstar(randint(xmin,xmax,seed),randint(ymin,ymax,seed),mag);
+    addstar_specific_pos(randint(xmin,xmax,seed),randint(ymin,ymax,seed),mag);
   }
 
-  inline int addstar(int xmin, int xmax, int ymin, int ymax, double mag, starlist* sl)
+  inline int addstar_random_pos(int xmin, int xmax, int ymin, int ymax, double mag, starlist* sl)
   {
     int x = randint(xmin,xmax,seed);
     int y = randint(ymin,ymax,seed);
-    return addstar(x,y,mag,sl);
+    return addstar_specific_pos(x,y,mag,sl);
   }
 
 
 
   //add a star at a special position
-  inline void addstar(int code, double mag, bool sub=false, bool fullpsf=false) 
+  inline void addstar_specific_pos(int code, double mag, bool sub=false, bool fullpsf=false) 
   {
     int x,y;
     xycode(code,&x,&y);
-    addstar(x,y,mag,sub,fullpsf);
+    addstar_specific_pos(x,y,mag,sub,fullpsf);
   }
-  inline int addstar(int code, double mag, starlist* sl)
+  inline int addstar_specific_pos(int code, double mag, starlist* sl)
   {
     int x,y;
     xycode(code,&x,&y);
-    return addstar(x,y,mag,sl);
+    return addstar_specific_pos(x,y,mag,sl);
   }
 
   //add a star at a given position
-  bool addstar(int x, int y, double mag, bool sub=false, bool fullpsf=false);
-  inline int addstar(int x, int y, double mag, starlist* sl)
+  bool addstar_specific_pos(int x, int y, double mag, bool sub=false, bool fullpsf=false);
+  inline int addstar_specific_pos(int x, int y, double mag, starlist* sl)
   {
-    int added = addstar(x,y,mag);
+    int added = addstar_specific_pos(x,y,mag);
     if(added)
       {
-		sl->x.push_back(x);
-		sl->y.push_back(y);
-		sl->mag.push_back(mag);
-		sl->nstars++;
+	sl->x.push_back(x);
+	sl->y.push_back(y);
+	sl->mag.push_back(mag);
+	sl->nstars++;
       }
     return added;
   }
 
   //add star at general position
-  void freeaddstar(double x, double y, double mag, bool sub=false);
-  inline int freeaddstar(double x, double y, double mag, freestarlist* sl)
+  void freeaddstar_specific_pos(double x, double y, double mag, bool sub=false);
+  inline int freeaddstar_specific_pos(double x, double y, double mag, freestarlist* sl)
   {
     sl->x.push_back(x);
     sl->y.push_back(y);
     sl->mag.push_back(mag);
     sl->nstars++;
-    freeaddstar(x,y,mag);
+    freeaddstar_specific_pos(x,y,mag);
     return sl->x.size()-1;
   }
 
-  inline void freeaddstar(double mag)
+  inline void freeaddstar_random_pos(double mag)
   {    
-    freeaddstar(-psf.Nkern*psf.Nsub, (Xpix+psf.Nkern)*psf.Nsub, 
+    freeaddstar_random_pos(-psf.Nkern*psf.Nsub, (Xpix+psf.Nkern)*psf.Nsub, 
 	    -psf.Nkern*psf.Nsub, (Ypix+psf.Nkern)*psf.Nsub, mag);
   };
-  int freeaddstar(double mag, starlist* sl);
+  int freeaddstar_random_pos(double mag, starlist* sl);
 
 
   //add a star at a random position in the specified range
-  inline void freeaddstar(double xmin, double xmax, double ymin, double ymax, double mag)
+  inline void freeaddstar_random_pos(double xmin, double xmax, double ymin, double ymax, double mag)
   {
-    freeaddstar(xmin+(xmax-xmin)*ran2(seed),ymin+(ymax-ymin)*ran2(seed),mag);
+    freeaddstar_specific_pos(xmin+(xmax-xmin)*ran2(seed),ymin+(ymax-ymin)*ran2(seed),mag);
   }
 
-  inline void freeaddstar(double xmin, double xmax, double ymin, double ymax, double mag, freestarlist* sl)
+  inline void freeaddstar_random_pos(double xmin, double xmax, double ymin, double ymax, double mag, freestarlist* sl)
   {
     double x = xmin+(xmax-xmin)*ran2(seed);
     double y = ymin+(ymax-ymin)*ran2(seed);
-    freeaddstar(x,y,mag,sl);
+    freeaddstar_specific_pos(x,y,mag,sl);
   }
 
 
   //subtract a star at a given position
   inline void substar(int x, int y, double mag)
   {
-    addstar(x,y,mag,true);
+    addstar_specific_pos(x,y,mag,true);
   };
 
   //subtract a star at a given position
   inline void freesubstar(double x, double y, double mag)
   {
-    freeaddstar(x,y,mag,true);
+    freeaddstar_specific_pos(x,y,mag,true);
   };
 
   //subtract a star at a special position
@@ -591,7 +591,7 @@ class image
   {
     for(int i=0;i<int(sl->x.size());i++)
       {
-	addstar(sl->x[i],sl->y[i],sl->mag[i]);
+	addstar_specific_pos(sl->x[i],sl->y[i],sl->mag[i]);
       }
   }
 
