@@ -211,11 +211,11 @@ add_gulls_executable(gulls_croin.x
   "${SRC_DIR}/croinPlanet.cpp"
 )
 
-add_gulls_executable(gullsFish.x
-  "${SRC_DIR}/pllxLightcurveGenerator.cpp"
+add_general_executable(gullsFish.x
+  "${SRC_DIR}/pllxLightcurveGenerator_singleSource.cpp"
   "${SRC_DIR}/fisherDetCuts.cpp"
   "${SRC_DIR}/fisher.cpp"
-  "${SRC_DIR}/croinPlanet.cpp"
+  "${SRC_DIR}/generalPlanet.cpp"
   "${CLASSES_DIR}/fisherinversion.cpp"
 )
 
