@@ -67,10 +67,11 @@ static double deriv_wrapper(double x, void* p)
 
   double tE = pow(10, logtE);
   double q = pow(10, logq);
-  double a = pow(10, logs);
+  double s = pow(10, logs);
   double rs = pow(10, logrs); 
   double m1 = 1.0 / (1.0 + q);
-  double origin = (1.0 - m1) * (-a);
+  //double origin = (1.0 - m1) * (-s);
+  double a1 = -q*s/(1+q);
 
   double cr = cos(-rot);
   double sr = sin(-rot);
@@ -98,8 +99,8 @@ static double deriv_wrapper(double x, void* p)
   //double xs = tt * cosa - uu * sina + origin;
   //double ys = tt * sina + uu * cosa;
 
-  double xl1 = origin * cos(rot+pi);
-  double yl1 = origin * q/(1.0+q) * sin(rot+pi);
+  double xl1 = a1 * cos(rot+pi);
+  double yl1 = a1 * sin(rot+pi);
 
   double xs0 = uu * sina + tt * cosa + xl1;
   double ys0 = -uu * cosa + tt * sina + yl1;
@@ -111,9 +112,9 @@ static double deriv_wrapper(double x, void* p)
   double limb_gamma=Paramfile->LD_GAMMA;
   Event->vbm->a1=limb_gamma;
 
-  double amp=Event->vbm->BinaryMag2(a, q, xsi, ysi, rs);
+  double amp=Event->vbm->BinaryMag2(s, q, xsi, ysi, rs);
 
-  cout << Event->id << " " << param << " " << x << " " << xl1 << " " << yl1 << " " << xs0 << " " << ys0 << " " << xsi << " " << ysi << " " << rot << " " << alpha << " " << origin << " " << t0 << " " << tE << " " << u0 << " " << a << " " << q << " " << rs << " " << piEN << " " << piEE << " " << amp << endl;
+  cout << Event->id << " " << param << " " << x << " " << xl1 << " " << yl1 << " " << xs0 << " " << ys0 << " " << xsi << " " << ysi << " " << rot << " " << alpha << " " << a1 << " " << t0 << " " << tE << " " << u0 << " " << s << " " << q << " " << rs << " " << piEN << " " << piEE << " " << amp << endl;
 
   return amp;
 }

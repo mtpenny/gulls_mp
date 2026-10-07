@@ -821,7 +821,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
       double xs0 = uu * sina + tt * cosa;
       double ys0 = -uu * cosa + tt * sina;
 
-      //Shift from CoM origin to lens1@tref origin
+      //Shift from lens1@tref origin to CoM origin
       xs0 += l_delta[0]; //already in units of Einstein ring
       ys0 += l_delta[1];
 
