@@ -831,12 +831,15 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       if(nsrc>1)
 	{
+	  double epoch_time=Event->jdtimes[obsidx][shiftedidx];
+	  if(Paramfile->sourceOrbitalMotion==0) epoch_time = Event->tref+Paramfile->simulation_zerotime; //Turn off orbital motion by setting the time to tref
+	  
 	  for(int i=0;i<nsrc;i++)  // loop through source companions
 	    {
 	      vector<double> xp;
 	      for(int j=0;j<int(s_elements[i].size());j++)
 		{
-		  s_elements[i][j].viewfrom(Event->jdtimes[obsidx][shiftedidx],antipode_ra,antipode_dec,&xp);
+		  s_elements[i][j].viewfrom(epoch_time,antipode_ra,antipode_dec,&xp);
 		  xs[i] += xp[0]; ys[i] += xp[1]; ds[i] += xp[2];
 		}
 	      xs[i] -= s_delta[0]; ys[i] -= s_delta[1]; ds[i] -= s_delta[2];
@@ -861,13 +864,18 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
       if(nlens>1)
 	{
+
+	  double epoch_time=Event->jdtimes[obsidx][shiftedidx];
+	  if(Paramfile->lensOrbitalMotion==0) epoch_time = Event->tref+Paramfile->simulation_zerotime; //Turn off orbital motion by setting the time to tref
+	  
 	  for(int i=0;i<nlens;i++)
 	    {
-	      vector<double> xp;      
+	      vector<double> xp;
+	      
 	      for(int j=0;j<int(l_elements[i].size());j++)
 		{
 		  if(Paramfile->verbosity>=3 || idx==0) l_elements[i][j].print_elements();
-		  l_elements[i][j].viewfrom(Event->jdtimes[obsidx][shiftedidx],antipode_ra,antipode_dec,&xp);
+		  l_elements[i][j].viewfrom(epoch_time,antipode_ra,antipode_dec,&xp);
 		  if(Paramfile->verbosity>=3 || idx==0) cout << setprecision(16) << i << " " << j << " " << Event->jdtimes[obsidx][shiftedidx] << " " << xp[0] << " " << xp[1] << " " << xp[2] << endl;
 		  xl[i] += xp[0]; yl[i] += xp[1]; dl[i] += xp[2];
 		}

@@ -77,7 +77,9 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"ASTROMETRY_ON","0"},
     {"ASTROMETRIC_SYS_FLOOR","0.0"},
     {"ASTROMETRY_ERROR_FLOOR_MAS","0.0"},
-    {"NUM_LENS_MAX","3"}
+    {"NUM_LENS_MAX","3"},
+    {"SOURCE_ORBITAL_MOTION","1"},
+    {"LENS_ORBITAL_MOTION","1"}
   };
 
   //For testing which parameters are at their default values
@@ -262,6 +264,8 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
       Paramfile->astrometry_error_floor_mas = stod(pfile["ASTROMETRY_ERROR_FLOOR_MAS"]);
     }
   Paramfile->num_lens_max = stoi(pfile["NUM_LENS_MAX"]);
+  Paramfile->sourceOrbitalMotion = stoi(pfile["SOURCE_ORBITAL_MOTION"]);
+  Paramfile->lensOrbitalMotion = stoi(pfile["LENS_ORBITAL_MOTION"]);
   
   //Obsgroups
   Paramfile->obsgroupstr = pfile["OBS_GROUPS"];

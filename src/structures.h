@@ -160,6 +160,8 @@ struct filekeywords{
   int multiple_sources;
   int multiple_lenses;
   int num_lens_max;
+  int sourceOrbitalMotion;
+  int lensOrbitalMotion;
 
   int astrometry_on;  // Enable astrometry calculations/output
   double astrometry_error_floor_mas; // Systematic astrometric floor (mas)
