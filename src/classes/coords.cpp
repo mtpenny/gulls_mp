@@ -183,8 +183,8 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
 
   vector<double> ad;
   lb2ad(l,b,&ad);
-  double a=ad[0];
-  double d=ad[1];
+  double a=ad[0]; 
+  //double d=ad[1];
   double ca=ad[2]; double sa=ad[3];
   double cd=ad[4]; double sd=ad[5];
 
@@ -231,7 +231,7 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
   const double angp = 3.3660329196547267;
   const double cdngp = 0.889988087459482;
   const double sdngp = 0.4559837762;
-
+  
   double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
   double C2 = cdngp*sin(a - angp);
   double cb = qAdd(C1,C2);
@@ -269,7 +269,7 @@ void coords::muad2lb(double a, double d, double mua, double mud, double* mul, do
   const double angp = 3.3660329196547267;
   const double cdngp = 0.889988087459482;
   const double sdngp = 0.4559837762;
-
+  
   double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
   double C2 = cdngp*sin(a - angp);
   double cb = qAdd(C1,C2);
@@ -290,7 +290,7 @@ void coords::mulb2ad(double l, double b, double mul, double mub, double* mua, do
 
   const double cdngp = 0.889988087459482;
   const double sdngp = 0.4559837762;
-
+  
   double C1 = cb*sdngp - sb*cdngp*sl;
   double C2 = -cdngp*cl;
   double cd = qAdd(C1,C2);

@@ -140,7 +140,7 @@ void eq2gal(double in_coord1, double in_coord2, char dir, double *out_coord1, do
 
   double b[3];
   double ans[] = {0.0, 0.0, 0.0};
-
+  
   gsl_matrix_view Mat = gsl_matrix_view_array(a, 3, 3);
 
   b[0] = cos(in_coord1)*cos(in_coord2);
@@ -148,7 +148,7 @@ void eq2gal(double in_coord1, double in_coord2, char dir, double *out_coord1, do
   b[2] = sin(in_coord2);
 
   gsl_vector_view Pos = gsl_vector_view_array(b, 3);
-
+  
   gsl_vector_view RPos = gsl_vector_view_array(ans, 3);
 
 
@@ -168,10 +168,10 @@ void eq2gal(double in_coord1, double in_coord2, char dir, double *out_coord1, do
 
   /*  printf ("[%g %g %g]\n", ans[0], ans[1], ans[2]); */
 
-
+     
   /* % convert to long & lat */
   /* RPos = RPos'; */
-
+  
   *out_coord1 = atan2(ans[1],ans[0]);
   *out_coord2 = atan(ans[2]/sqrt(ans[0]*ans[0] + ans[1]*ans[1]));
  
