@@ -708,7 +708,7 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
       World[obsidx].im.addbg();
 
       //add the baseline source
-      World[obsidx].im.addstar(Event->xsub[obsidx], Event->ysub[obsidx], mag);
+      World[obsidx].im.addstar_specific_pos(Event->xsub[obsidx], Event->ysub[obsidx], mag);
       World[obsidx].im.reset_detector();
       World[obsidx].im.expose(World[obsidx].exptime[0], 
 			      World[obsidx].nstack[0]);
@@ -739,7 +739,7 @@ void outputImages(struct event *Event, struct obsfilekeywords World[], struct sl
       World[obsidx].im.addbg();
 
       //add the peak source
-      World[obsidx].im.addstar(Event->xsub[obsidx], Event->ysub[obsidx], 
+      World[obsidx].im.addstar_specific_pos(Event->xsub[obsidx], Event->ysub[obsidx], 
 				   mag-2.5*log10(Event->Amax));
       World[obsidx].im.reset_detector();
       World[obsidx].im.expose(World[obsidx].exptime[0], 

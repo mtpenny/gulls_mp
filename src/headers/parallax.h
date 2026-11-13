@@ -149,8 +149,8 @@ class parallax{
   //void initialize();
   //void fit_reinit();
   void print_uninit();
-  int compute_NEshifts();
-  int compute_tushifts();
+  int compute_NEshifts(int idx=-1);
+  int compute_tushifts(int idx=-1);
   int compute_tushifts(vector<int>* indices);
   int setup_reference_frame(double tref_, vector<orbitalElements>* oref_); //private
   //void compute_directions();

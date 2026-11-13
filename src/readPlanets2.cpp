@@ -42,7 +42,7 @@ int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets, stri
   pf.open(fname.c_str());
   if(!pf)
     {
-      cerr << "PLANETS FILE: " << fname << " does not exist, trying alternative" << endl;
+      cout << "PLANETS FILE: " << fname << " does not exist, trying alternative" << endl;
       //try adding a subrun number directory at the beginning
       fname = Paramfile->planetdir + instance + "/" + Paramfile->planetroot;
       if(choosefield>=0) fname += to_string(Paramfile->choosefield) + string(".");
@@ -51,10 +51,11 @@ int readPlanets(struct filekeywords *Paramfile, struct planetdata *Planets, stri
       pf.open(fname.c_str());
       if(!pf)
 	{
-	  cerr << "ERROR READING PLANETS FILE: " << fname << endl;
+	  cout << "ERROR READING PLANETS FILE: " << fname << endl;
 	  return 0;
 	}
     }
+  cout << "Planets file opened successfully" << endl;
 
   int headerSet=0;
 

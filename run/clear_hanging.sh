@@ -9,7 +9,7 @@ echo 1 > clear_hanging.lock
 sleep 600
 while true; do
 
-    onemin=$(date --date="20 seconds ago" +%s);
+    onemin=$(date --date="120 seconds ago" +%s);
     nrunning=$(ps aux | grep gulls_general | wc -l)
     date >> clear_hanging.lock
     if [ $nrunning -eq 1 ]; then
@@ -34,6 +34,6 @@ while true; do
     if [ $anykilled -gt 0 ]; then
 	sleep 600
     else
-	sleep 25
+	sleep 100
     fi
 done

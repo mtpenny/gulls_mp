@@ -123,6 +123,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
     for(obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
        idxshift.push_back(Event->nepochsvec[obsidx]);
 
+    cout << "Lighcurve calculations at each epoch beginning" << endl;
+
     //Calculate the lightcurve
     for (int idx = 0; idx < Event->nepochs; ++idx)
       {
@@ -259,7 +261,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      }
 	    return;
 	  }
-	Event->lcerror=0;
-      backupGenerator(Paramfile, Event, World, Sources, Lenses, logfile_ptr);
+	//Event->lcerror=0;
+	//backupGenerator(Paramfile, Event, World, Sources, Lenses, logfile_ptr);
     }
 }

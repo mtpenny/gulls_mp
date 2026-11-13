@@ -100,7 +100,7 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	  
 	  //add the star
 	  ampmag = Sources->mags[sn][filter]-2.5*log10(Event->Atrue[idx]);
-	  World[obsidx].im.addstar(Event->xsub[obsidx], Event->ysub[obsidx], 
+	  World[obsidx].im.addstar_specific_pos(Event->xsub[obsidx], Event->ysub[obsidx], 
 				   ampmag);
 
 	  //do photometry
@@ -128,142 +128,142 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	      Event->Aerr[idx] = phot[7]/baseline;
 	    }
 
-		  if(World[obsidx].photcode%2==0) //ideal photometry
-		    {
-		      Event->Aobs[idx] = Event->Atrue[idx];
-		      Event->Aerr[idx] = Event->Atrueerr[idx];
-		    }
+	  if(World[obsidx].photcode%2==0) //ideal photometry
+	    {
+	      Event->Aobs[idx] = Event->Atrue[idx];
+	      Event->Aerr[idx] = Event->Atrueerr[idx];
+	    }
 	  
 	  //subtract the star
 	  World[obsidx].im.substar(Event->xsub[obsidx], Event->ysub[obsidx], 
 				   ampmag);
 	  //subtract the background
 	  World[obsidx].im.subbg();
-		}
+	}
 
-	      if(Paramfile->astrometry_on)
-		{
-		  const double dt_year = (shiftedidx >= 0 && shiftedidx < int(Event->pllx[obsidx].epochs.size())) // check that the shifted index is within the bounds of the pllx epochs vector for this observatory
-		    ? ((Event->pllx[obsidx].epochs[shiftedidx] - Event->pllx[obsidx].tref) / DAYINYR) // if the shifted index is out of bounds, fall back to using the unshifted epoch for this index (which may also be out of bounds, but at least won't be negative)
-		    : ((Event->epoch[idx] - Event->tref) / DAYINYR);  // convert the epoch to years relative to the pllx reference epoch (tref) for this observatory, which is used for the proper motion and parallax calculations. Use the shifted index to access the pllx epochs if it's within bounds, otherwise use the unshifted index.
-		  // The event-frame centroid is already relative to the lens, so the absolute
-		  // sky-frame anchoring needs the lens's own reference-frame proper motion, not
-		  // the relative source-lens proper motion.
-		  const double pm_lam_mas = Event->pm_lens.mulam_r * dt_year;
-		  const double pm_beta_mas = Event->pm_lens.mubet_r * dt_year;
+      if(Paramfile->astrometry_on)
+	{
+	  const double dt_year = (shiftedidx >= 0 && shiftedidx < int(Event->pllx[obsidx].epochs.size())) // check that the shifted index is within the bounds of the pllx epochs vector for this observatory
+	    ? ((Event->pllx[obsidx].epochs[shiftedidx] - Event->pllx[obsidx].tref) / DAYINYR) // if the shifted index is out of bounds, fall back to using the unshifted epoch for this index (which may also be out of bounds, but at least won't be negative)
+	    : ((Event->epoch[idx] - Event->tref) / DAYINYR);  // convert the epoch to years relative to the pllx reference epoch (tref) for this observatory, which is used for the proper motion and parallax calculations. Use the shifted index to access the pllx epochs if it's within bounds, otherwise use the unshifted index.
+	  // The event-frame centroid is already relative to the lens, so the absolute
+	  // sky-frame anchoring needs the lens's own reference-frame proper motion, not
+	  // the relative source-lens proper motion.
+	  const double pm_lam_mas = Event->pm_lens.mulam_r * dt_year;
+	  const double pm_beta_mas = Event->pm_lens.mubet_r * dt_year;
 
-		  const double cx_srcs_thE = Event->xc_srcs_only[idx];  // blended apparent source centroid (without lens light contribution)
-		  const double cy_srcs_thE = Event->yc_srcs_only[idx];  // in ecliptic coordinates, in theta E units, from omLightcurveGenerator.cpp
-		  const double fstotofs1 = Event->src_flux_total[idx];  // the is the per epoch sum of the magnified source fluxes, divided by fs1
+	  const double cx_srcs_thE = Event->xc_srcs_only[idx];  // blended apparent source centroid (without lens light contribution)
+	  const double cy_srcs_thE = Event->yc_srcs_only[idx];  // in ecliptic coordinates, in theta E units, from omLightcurveGenerator.cpp
+	  const double fstotofs1 = Event->src_flux_total[idx];  // the is the per epoch sum of the magnified source fluxes, divided by fs1
 
-		  // Event->scomp_fsofs1[is-1][filt]
-		  // Event->baselineFlux[obsidx]
+	  // Event->scomp_fsofs1[is-1][filt]
+	  // Event->baselineFlux[obsidx]
 
-		  // Calculating the realtive lens fluxes
-		  // -2.5log10(Ftot/Fs1) = mag1 - magtot
-		  // -2.5log10(Fs1/1) = mag1 - m0
-		  // => m0 = mag1 + 2.5log10(Fs1)
-		  // where mag1 is the magnitude of the primary source, and m0 is the magnitude zero point for the event,
-		  // in a source 1 flux normalized system.
-		  const double m0 = Sources->mags[sn][filter] + 2.5*log10(1.0); // zp for a system where the baseline flux of source 1 is 1.0, in the current epochs band
-		  // ml - m0 = -2.5log10(Fl/1) => Fl = 10^(-0.4*(ml-m0))
-		  const double fl1ofs1 = pow(10.0, -0.4*(Lenses->mags[ln][filter]-m0));  // lens 1 flux relative to source 1 flux in the current band
-		  double fl2ofs1 = 0.0;  // lens 2 flux relative to source 1 flux, if there's a luminous companion to the lens
-		  //check if there is a lens companion
-		  if (Paramfile->multiple_lenses && lc >= 0 && lc < int(Lenses->mags.size()))
-		    {
-		      fl2ofs1 = pow(10.0, -0.4*(Lenses->mags[lc][filter]-m0));  // lens 2 flux relative to source 1 flux, if there's a luminous companion to the lens
-		    }
-		  // there's never 3 luminous lenses in the current implementation
+	  // Calculating the realtive lens fluxes
+	  // -2.5log10(Ftot/Fs1) = mag1 - magtot
+	  // -2.5log10(Fs1/1) = mag1 - m0
+	  // => m0 = mag1 + 2.5log10(Fs1)
+	  // where mag1 is the magnitude of the primary source, and m0 is the magnitude zero point for the event,
+	  // in a source 1 flux normalized system.
+	  const double m0 = Sources->mags[sn][filter] + 2.5*log10(1.0); // zp for a system where the baseline flux of source 1 is 1.0, in the current epochs band
+	  // ml - m0 = -2.5log10(Fl/1) => Fl = 10^(-0.4*(ml-m0))
+	  const double fl1ofs1 = pow(10.0, -0.4*(Lenses->mags[ln][filter]-m0));  // lens 1 flux relative to source 1 flux in the current band
+	  double fl2ofs1 = 0.0;  // lens 2 flux relative to source 1 flux, if there's a luminous companion to the lens
+	  //check if there is a lens companion
+	  if (Paramfile->multiple_lenses && lc >= 0 && lc < int(Lenses->mags.size()))
+	    {
+	      fl2ofs1 = pow(10.0, -0.4*(Lenses->mags[lc][filter]-m0));  // lens 2 flux relative to source 1 flux, if there's a luminous companion to the lens
+	    }
+	  // there's never 3 luminous lenses in the current implementation
 
-		  double cx_blend_thE = cx_srcs_thE; // start with the source centroid, and then add the lens light contribution if there is any luminous lens and if the lens is within the image (i.e. has defined xlens and ylens values) for this epoch
-		  double cy_blend_thE = cy_srcs_thE;
-		  double flux_sum = fstotofs1;  // start with the total source flux, and then add the lens flux if there is a luminous lens
+	  double cx_blend_thE = cx_srcs_thE; // start with the source centroid, and then add the lens light contribution if there is any luminous lens and if the lens is within the image (i.e. has defined xlens and ylens values) for this epoch
+	  double cy_blend_thE = cy_srcs_thE;
+	  double flux_sum = fstotofs1;  // start with the total source flux, and then add the lens flux if there is a luminous lens
 
           // flux weighted addition of the lens 1 centroid
-		  if(fl1ofs1 > 0.0 && Event->xlens.size() > 0 && Event->ylens.size() > 0
-		     && Event->xlens[0].size() > size_t(idx) && Event->ylens[0].size() > size_t(idx)) // check that the lens has defined positions for this epoch before trying to use them
-		    {
-		      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[0][idx]*fl1ofs1) / (flux_sum + fl1ofs1);
-		      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[0][idx]*fl1ofs1) / (flux_sum + fl1ofs1);
-		      flux_sum += fl1ofs1;
-		    }
+	  if(fl1ofs1 > 0.0 && Event->xlens.size() > 0 && Event->ylens.size() > 0
+	     && Event->xlens[0].size() > size_t(idx) && Event->ylens[0].size() > size_t(idx)) // check that the lens has defined positions for this epoch before trying to use them
+	    {
+	      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[0][idx]*fl1ofs1) / (flux_sum + fl1ofs1);
+	      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[0][idx]*fl1ofs1) / (flux_sum + fl1ofs1);
+	      flux_sum += fl1ofs1;
+	    }
 
-		  // flux weighted addition of the lens 2 centroid, if there's a luminous companion to the lens
-		  if(fl2ofs1 > 0.0 && Event->xlens.size() > 1 && Event->ylens.size() > 1
-		     && Event->xlens[1].size() > size_t(idx) && Event->ylens[1].size() > size_t(idx))  // check that the second lens has defined positions for this epoch before trying to use them
-		    {
-		      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
-		      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
-		      flux_sum += fl2ofs1;
-		    }
+	  // flux weighted addition of the lens 2 centroid, if there's a luminous companion to the lens
+	  if(fl2ofs1 > 0.0 && Event->xlens.size() > 1 && Event->ylens.size() > 1
+	     && Event->xlens[1].size() > size_t(idx) && Event->ylens[1].size() > size_t(idx))  // check that the second lens has defined positions for this epoch before trying to use them
+	    {
+	      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
+	      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
+	      flux_sum += fl2ofs1;
+	    }
 
-		  Event->xc_src_lens[idx] = cx_blend_thE;  // save the blended centroid with lens contribution in theta E units, in the event structure
-		  Event->yc_src_lens[idx] = cy_blend_thE;  // so that we can output it in the lightcurve file, and also use it for diagnostics
+	  Event->xc_src_lens[idx] = cx_blend_thE;  // save the blended centroid with lens contribution in theta E units, in the event structure
+	  Event->yc_src_lens[idx] = cy_blend_thE;  // so that we can output it in the lightcurve file, and also use it for diagnostics
 
 
-		  // Converting into the observable frame
+	  // Converting into the observable frame
 
-		  // Convert to mas
-		  // Event-frame convention is x=N, y=E, so map to ecliptic EN here.
-		  double de_mas = cy_blend_thE * thE_mas;
-		  double dn_mas = cx_blend_thE * thE_mas;
+	  // Convert to mas
+	  // Event-frame convention is x=N, y=E, so map to ecliptic EN here.
+	  double de_mas = cy_blend_thE * thE_mas;
+	  double dn_mas = cx_blend_thE * thE_mas;
 
-		  // move to absolute position in rad
-		  double e0 = lambda0;
-		  double n0 = beta0;
+	  // move to absolute position in rad
+	  double e0 = lambda0;
+	  double n0 = beta0;
 
-		  // collect shifts in mas
-		  double de_lens_pllx = 0.0;  // ecliptic-east lens parallax shift in mas
-		  double dn_lens_pllx = 0.0;  // ecliptic-north lens parallax shift in mas
-		  const double lens_dist_kpc = Lenses->data[ln][Lenses->DIST];
-		  if(shiftedidx >= 0
-		     && shiftedidx < int(Event->pllx[obsidx].Eshift.size())
-		     && shiftedidx < int(Event->pllx[obsidx].Nshift.size()))
-		    {
-		      // Eshift/Nshift are the observer baseline components in the event line-of-sight
-		      // north/east basis, in AU, relative to the reference frame. With D_L in kpc,
-		      // 1 AU / 1 kpc = 1 mas, so dividing by D_L gives the lens parallax shift in mas.
-		      // The apparent lens motion is opposite to the observer's transverse displacement.
-		      de_lens_pllx = -Event->pllx[obsidx].Eshift[shiftedidx] / lens_dist_kpc;
-		      dn_lens_pllx = -Event->pllx[obsidx].Nshift[shiftedidx] / lens_dist_kpc;
-		    }
-		  de_mas += pm_lam_mas + de_lens_pllx;
-		  dn_mas += pm_beta_mas + dn_lens_pllx;
-		  double de_rad = de_mas * mas_to_rad;
-		  double dn_rad = dn_mas * mas_to_rad;
-		  double dlam_rad = de_rad / safe_cos_beta0;
-		  double dbet_rad = dn_rad;
+	  // collect shifts in mas
+	  double de_lens_pllx = 0.0;  // ecliptic-east lens parallax shift in mas
+	  double dn_lens_pllx = 0.0;  // ecliptic-north lens parallax shift in mas
+	  const double lens_dist_kpc = Lenses->data[ln][Lenses->DIST];
+	  if(shiftedidx >= 0
+	     && shiftedidx < int(Event->pllx[obsidx].Eshift.size())
+	     && shiftedidx < int(Event->pllx[obsidx].Nshift.size()))
+	    {
+	      // Eshift/Nshift are the observer baseline components in the event line-of-sight
+	      // north/east basis, in AU, relative to the reference frame. With D_L in kpc,
+	      // 1 AU / 1 kpc = 1 mas, so dividing by D_L gives the lens parallax shift in mas.
+	      // The apparent lens motion is opposite to the observer's transverse displacement.
+	      de_lens_pllx = -Event->pllx[obsidx].Eshift[shiftedidx] / lens_dist_kpc;
+	      dn_lens_pllx = -Event->pllx[obsidx].Nshift[shiftedidx] / lens_dist_kpc;
+	    }
+	  de_mas += pm_lam_mas + de_lens_pllx;
+	  dn_mas += pm_beta_mas + dn_lens_pllx;
+	  double de_rad = de_mas * mas_to_rad;
+	  double dn_rad = dn_mas * mas_to_rad;
+	  double dlam_rad = de_rad / safe_cos_beta0;
+	  double dbet_rad = dn_rad;
 
-		  double lambda_noiseless = e0 + dlam_rad;  // absolute blended apparent source centroid in ecliptic longitude, in radians
-		  double beta_noiseless = n0 + dbet_rad;  // absolute blended apparent
+	  double lambda_noiseless = e0 + dlam_rad;  // absolute blended apparent source centroid in ecliptic longitude, in radians
+	  double beta_noiseless = n0 + dbet_rad;  // absolute blended apparent
 
-		  double ra_noiseless = 0.0;
-		  double dec_noiseless = 0.0;
-		  c.ecl2ad(lambda_noiseless, beta_noiseless, &ra_noiseless, &dec_noiseless);
-		  Event->ra_noiseless_deg[idx] = ra_noiseless * TO_DEG;
-		  Event->dec_noiseless_deg[idx] = dec_noiseless * TO_DEG;
-		  Event->lambda_noiseless_deg[idx] = lambda_noiseless * TO_DEG;
-		  Event->beta_noiseless_deg[idx] = beta_noiseless * TO_DEG;
+	  double ra_noiseless = 0.0;
+	  double dec_noiseless = 0.0;
+	  c.ecl2ad(lambda_noiseless, beta_noiseless, &ra_noiseless, &dec_noiseless);
+	  Event->ra_noiseless_deg[idx] = ra_noiseless * TO_DEG;
+	  Event->dec_noiseless_deg[idx] = dec_noiseless * TO_DEG;
+	  Event->lambda_noiseless_deg[idx] = lambda_noiseless * TO_DEG;
+	  Event->beta_noiseless_deg[idx] = beta_noiseless * TO_DEG;
 
-		  double sigma_phot = 0.0;
-		  if(std::isfinite(Event->Aobs[idx]) && std::isfinite(Event->Aerr[idx]) && fabs(Event->Aobs[idx]) > 1.0e-12)
-		    sigma_phot = fabs(Event->Aerr[idx]/Event->Aobs[idx]);
-		  const double sigma_ast_psf_mas = sigma_phot * (World[obsidx].im.fwhm * 1000.0) * inv_sqrt_ln256;
-		  const double sigma_ast_mas = sqrt(sigma_ast_psf_mas*sigma_ast_psf_mas + floor_mas*floor_mas);
-		  Event->sigma_ast_mas[idx] = sigma_ast_mas;
+	  double sigma_phot = 0.0;
+	  if(std::isfinite(Event->Aobs[idx]) && std::isfinite(Event->Aerr[idx]) && fabs(Event->Aobs[idx]) > 1.0e-12)
+	    sigma_phot = fabs(Event->Aerr[idx]/Event->Aobs[idx]);
+	  const double sigma_ast_psf_mas = sigma_phot * (World[obsidx].im.fwhm * 1000.0) * inv_sqrt_ln256;
+	  const double sigma_ast_mas = sqrt(sigma_ast_psf_mas*sigma_ast_psf_mas + floor_mas*floor_mas);
+	  Event->sigma_ast_mas[idx] = sigma_ast_mas;
 
-		  const double noise_ra_mas = sigma_ast_mas * gasdev(Paramfile->seed);
-		  const double noise_dec_mas = sigma_ast_mas * gasdev(Paramfile->seed);
-		  Event->ra_measured_deg[idx] = ra_noiseless * TO_DEG + noise_ra_mas * mas_to_deg / safe_cos_dec0;
-		  Event->dec_measured_deg[idx] = dec_noiseless * TO_DEG + noise_dec_mas * mas_to_deg;
-		  Event->ra_err_deg[idx] = sigma_ast_mas * mas_to_deg / safe_cos_dec0;
-		  Event->dec_err_deg[idx] = sigma_ast_mas * mas_to_deg;
-		}
+	  const double noise_ra_mas = sigma_ast_mas * gasdev(Paramfile->seed);
+	  const double noise_dec_mas = sigma_ast_mas * gasdev(Paramfile->seed);
+	  Event->ra_measured_deg[idx] = ra_noiseless * TO_DEG + noise_ra_mas * mas_to_deg / safe_cos_dec0;
+	  Event->dec_measured_deg[idx] = dec_noiseless * TO_DEG + noise_dec_mas * mas_to_deg;
+	  Event->ra_err_deg[idx] = sigma_ast_mas * mas_to_deg / safe_cos_dec0;
+	  Event->dec_err_deg[idx] = sigma_ast_mas * mas_to_deg;
+	}
 
-	      //Test for saturation
-	      Event->nosat[idx] = !satflag; //nosat is the oposite of satflag
-	      if(Event->allsat && !satflag) Event->allsat = 0;
+      //Test for saturation
+      Event->nosat[idx] = !satflag; //nosat is the oposite of satflag
+      if(Event->allsat && !satflag) Event->allsat = 0;
       if(Event->allsatobs[obsidx] && !satflag) Event->allsatobs[obsidx] = 0;
   
     }

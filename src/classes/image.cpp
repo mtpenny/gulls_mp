@@ -924,7 +924,7 @@ void image::setup_fast_photometry(int _xsub, int _ysub, int x, int y, double mag
   
 
   //add the source, lather rinse repeat
-  addstar(_xsub, _ysub, magnitude, false, true);
+  addstar_specific_pos(_xsub, _ysub, magnitude, false, true);
   reset_detector();
   ideal_expose(texp_,nstack_);
   //write_fits(string("sfp_star.fits"), true);
@@ -954,7 +954,7 @@ void image::setup_fast_photometry(int _xsub, int _ysub, int x, int y, double mag
 
   //Subtract the source again
   //substar(_xsub, _ysub, magnitude);
-  addstar(_xsub, _ysub, magnitude, true, true);
+  addstar_specific_pos(_xsub, _ysub, magnitude, true, true);
   //write_truefits(string("sfp_trueend.fits"), true);
 
   fast_src=0;   //the photons provided by the unmagnified source
@@ -1867,7 +1867,7 @@ int image::popstar(starlist* from, starlist* to)
   return to->x.size()-1;
 }
 
-bool image::addstar(int x, int y, double mag, bool sub, bool fullpsf)
+bool image::addstar_specific_pos(int x, int y, double mag, bool sub, bool fullpsf)
 {
   //add a star at a given position to the true image - x and y are sub-pixel
   //integer grid positions
@@ -2088,14 +2088,14 @@ int image::addfield(double solid_angle, vector<double>* mags, starlist* sl)
     {
       for(int i=0;i<nstars;i++)
 	{
-	  addstar(xmin,xmax,ymin,ymax,(*mags)[randint(0,ncatm1,seed)]);
+	  addstar_random_pos(xmin,xmax,ymin,ymax,(*mags)[randint(0,ncatm1,seed)]);
 	}
     }
   else
     {
       for(int i=0;i<nstars;i++)
 	{
-	  addstar(xmin,xmax,ymin,ymax,(*mags)[randint(0,ncatm1,seed)],sl);
+	  addstar_random_pos(xmin,xmax,ymin,ymax,(*mags)[randint(0,ncatm1,seed)],sl);
 	}
     }
 
@@ -2150,9 +2150,9 @@ int image::addfield(vector<double>* mag, vector<double>* density, starlist* sl)
       for(int i=0; i<nstars; i++)
 	{
 	  if(sl==NULL)
-	    addstar(xmin,xmax,ymin,ymax,mag0 + dmag*ran2(seed));
+	    addstar_random_pos(xmin,xmax,ymin,ymax,mag0 + dmag*ran2(seed));
 	  else
-	    addstar(xmin,xmax,ymin,ymax,mag0 + dmag*ran2(seed),sl);
+	    addstar_random_pos(xmin,xmax,ymin,ymax,mag0 + dmag*ran2(seed),sl);
 
 	  nadded++;
 	}
@@ -2178,7 +2178,7 @@ double image::sub_pixel_test(string filename, bool writefits)
   set_image_properties((psf.Nsub+3)*(psf.Nkern*2+3), 
 		       (psf.Nsub+3)*(psf.Nkern*2+3));
 
-  //addstar(SUBIMAGE_CENTER,zeromag);
+  //addstar_specific_pos(SUBIMAGE_CENTER,zeromag);
 
   for(int j=0; j<psf.Nsub; j++)
     {
@@ -2186,7 +2186,7 @@ double image::sub_pixel_test(string filename, bool writefits)
       for(int i=0; i<psf.Nsub; i++)
 	{
 	  int xp=(2*psf.Nkern*(i+2)+3*i)*psf.Nsub + i;
-	  addstar(xp,yp,zeromag);
+	  addstar_specific_pos(xp,yp,zeromag);
 	  ideal_photometry(2*psf.Nkern*(i+2)+3*i, 2*psf.Nkern*(j+2)+3*j, 1, 1, &nc, &err, &sat, false);
 	  //cout << i << " " << j << " " << nc << " " << err << endl;
 	  
@@ -2950,7 +2950,7 @@ void image::subimage(image* target, image* ref)
    
 }
 
-void image::freeaddstar(double x, double y, double mag, bool sub)
+void image::freeaddstar_specific_pos(double x, double y, double mag, bool sub)
 {
   //add a star at a given position to the true image - x and y are sub-pixel
   //grid positions that will be interpolated 

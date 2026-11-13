@@ -100,7 +100,7 @@ int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords W
       //Event->FSPL[obsgroup].pllx.push_back(Event->pllx[i]);
     }
 
-  if(DEBUGVAR) printf("lightcurveFitterFS: nepochs = %d\n",Event->nepochs);
+  if(Paramfile->verbosity>0) printf("lightcurveFitterFS: nepochs = %d\n",Event->nepochs);
   
 
   if(Paramfile->pllxMultiplyer!=0)
@@ -122,8 +122,10 @@ int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords W
       ss = gsl_vector_alloc (4);
     }
       
-  gsl_vector_set (x, 0, Event->upeak[0]);
-  gsl_vector_set (x, 1, Event->tpeak[0]);
+  //gsl_vector_set (x, 0, Event->upeak[0]);
+  //gsl_vector_set (x, 1, Event->tpeak[0]);
+  gsl_vector_set (x, 0, Event->u0);
+  gsl_vector_set (x, 1, Event->t0);
   gsl_vector_set (x, 2, Event->tE_r);
   gsl_vector_set (x, 3, Event->rs);
 
@@ -171,7 +173,7 @@ int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords W
       size = gsl_multimin_fminimizer_size (s);
       status = gsl_multimin_test_size (size, 1e-3);
            
-      if(DEBUGVAR)
+      if(Paramfile->verbosity>1)
 	{
 	  if(Paramfile->pllxMultiplyer!=0)
 	    {
@@ -225,7 +227,7 @@ int lightcurveFitter_FS(struct filekeywords* Paramfile, struct obsfilekeywords W
   double u, mu, Amp;
   int jdx;
 
-  if(DEBUGVAR)
+  if(Paramfile->verbosity>3)
     {
       /* Output the best lightcurve */
 
