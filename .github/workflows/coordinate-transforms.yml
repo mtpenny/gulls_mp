@@ -1,0 +1,23 @@
+name: Coordinate transforms
+
+on:
+  push:
+    branches: [general]
+  pull_request:
+    branches: [general, dev, main]
+
+jobs:
+  astropy-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lightweight C++ and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++ libgsl-dev
+          python -m pip install -r src/testing/requirements_coordinates.txt
+      - name: Compare production transforms with Astropy
+        run: python src/testing/test_coordinate_transforms_astropy.py

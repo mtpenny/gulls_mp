@@ -1041,10 +1041,11 @@ int bandcode(char band)
 //in degrees
 void gal2eclip(double l, double b, double* lambda, double* beta)
 {
-  const double sinbetaNGP = 0.497125407;
-  const double cosbetaNGP = 0.867678702;
-  const double l1=6.38;
-  const double lambda0=270.02;
+  // Match the J2000 Galactic-to-ecliptic rotation used by coords.
+  const double sinbetaNGP = 0.49714719165482646;
+  const double cosbetaNGP = 0.8676662203094058;
+  const double l1=6.383986261242654;
+  const double lambda0=270.0232236980114;
  
   double sinb=sin(b*TO_RAD);
   double cosb=cos(b*TO_RAD);
@@ -1073,8 +1074,9 @@ void gal2eclip(double l, double b, double* lambda, double* beta)
 //in degrees
 void eq2eclip(double ra, double dec, double* lambda, double* beta)
 {
-  const double sineps = 0.397772494;
-  const double coseps = 0.917484083;
+  // Use the same fixed J2000 obliquity as coords::ad2ecl.
+  const double sineps = 0.39777696911260596;
+  const double coseps = 0.9174821430652419;
  
   double sindec = sin(dec*TO_RAD);
   double cosdec = cos(dec*TO_RAD);

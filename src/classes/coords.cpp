@@ -17,19 +17,24 @@ void coords::ad2lb(double a, double d, double* l, double* b)
 void coords::ad2lb(double a, double d, vector<double>* lb)
 {
   double cl, sl, cb, sb, cd, sd, ca, sa;
+  double xgal, ygal;
   lb->resize(6);
 
   ca=cos(a); sa=sin(a);
   cd=cos(d); sd=sin(d);
 
+  xgal = T[0][0]*cd*ca + T[0][1]*cd*sa + T[0][2]*sd;
+  ygal = T[1][0]*cd*ca + T[1][1]*cd*sa + T[1][2]*sd;
   sb = T[2][0]*cd*ca + T[2][1]*cd*sa + T[2][2]*sd;
-  cb = sqrt(1.0-sb*sb);
+  // On a b=89.9 deg near-pole round trip, sqrt(1-sb*sb) loses 1.33 mas
+  // with this rounded published matrix; hypot(xgal,ygal) keeps it below 0.01 mas.
+  cb = hypot(xgal, ygal);
   (*lb)[1] = atan2(sb,cb);
   //(*lb)[1] = asin(sb);
   //cb = cos((*lb)[1]);
 
-  cl = (T[0][0]*cd*ca + T[0][1]*cd*sa + T[0][2]*sd)/cb;
-  sl = (T[1][0]*cd*ca + T[1][1]*cd*sa + T[1][2]*sd)/cb;
+  cl = xgal/cb;
+  sl = ygal/cb;
   (*lb)[0] = atan2(sl,cl);
   if((*lb)[0]<0){(*lb)[0]+=twoPi;}
   if((*lb)[0]>twoPi){(*lb)[0]-=twoPi;}
@@ -47,19 +52,24 @@ void coords::lb2ad(double l, double b, double* a, double* d)
 void coords::lb2ad(double l, double b, vector<double>* ad)
 {
   double cl, sl, cb, sb, cd, sd, ca, sa;
+  double xeq, yeq;
   ad->resize(6);
 
   cl=cos(l); sl=sin(l);
   cb=cos(b); sb=sin(b);
 
+  xeq = iT[0][0]*cb*cl + iT[0][1]*cb*sl + iT[0][2]*sb;
+  yeq = iT[1][0]*cb*cl + iT[1][1]*cb*sl + iT[1][2]*sb;
   sd = iT[2][0]*cb*cl + iT[2][1]*cb*sl + iT[2][2]*sb;
-  cd = sqrt(1.0-sd*sd);
+  // The rounded matrix's norm error makes sqrt(1-sd*sd) miss the pole by
+  // 0.93 arcsec; use its projected norm instead.
+  cd = hypot(xeq, yeq);
   (*ad)[1] = atan2(sd,cd);
   //(*ad)[1] = asin(sd);
   //cd = cos((*ad)[1]);
 
-  ca = (iT[0][0]*cb*cl + iT[0][1]*cb*sl + iT[0][2]*sb)/cd;
-  sa = (iT[1][0]*cb*cl + iT[1][1]*cb*sl + iT[1][2]*sb)/cd;
+  ca = xeq/cd;
+  sa = yeq/cd;
   (*ad)[0] = atan2(sa,ca);
   if((*ad)[0]<0){(*ad)[0]+=twoPi;}
 
@@ -218,9 +228,9 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
 
 
   //convert ad prop motion to lb prop motion
-  const double angp = 3.36603341419411;
-  const double cdngp = 0.889987402175713;
-  const double sdngp = 0.455985113757595;
+  const double angp = 3.3660329196547267;
+  const double cdngp = 0.889988087459482;
+  const double sdngp = 0.4559837762;
   
   double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
   double C2 = cdngp*sin(a - angp);
@@ -256,9 +266,9 @@ void coords::muad2lb(double a, double d, double mua, double mud, double* mul, do
   //double ca=cos(a); double sa=sin(a);
   double cd=cos(d); double sd=sin(d);
 
-  const double angp = 3.36603341419411;
-  const double cdngp = 0.889987402175713;
-  const double sdngp = 0.455985113757595;
+  const double angp = 3.3660329196547267;
+  const double cdngp = 0.889988087459482;
+  const double sdngp = 0.4559837762;
   
   double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
   double C2 = cdngp*sin(a - angp);
@@ -274,12 +284,12 @@ void coords::mulb2ad(double l, double b, double mul, double mub, double* mua, do
   //convert ad prop motion to ad prop motion (Based on refs within
   //Poleski (2013)
 
-  double l0 = 0.574770433;
+  double l0 = 0.5747704329557325;
   double cl=cos(l-l0); double sl=sin(l-l0);
   double cb=cos(b); double sb=sin(b);
 
-  const double cdngp = 0.889987402175713;
-  const double sdngp = 0.455985113757595;
+  const double cdngp = 0.889988087459482;
+  const double sdngp = 0.4559837762;
   
   double C1 = cb*sdngp - sb*cdngp*sl;
   double C2 = -cdngp*cl;

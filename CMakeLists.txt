@@ -277,3 +277,17 @@ target_link_libraries(generateMoffatPSF
   PRIVATE
     gulls_core
 )
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_galactic_coords
+    "${SRC_DIR}/testing/test_galactic_coords.cpp"
+    "${SRC_DIR}/astroFns.cpp"
+    "${CLASSES_DIR}/coords.cpp"
+    "${CLASSES_DIR}/parallax.cpp"
+    "${CLASSES_DIR}/ephem.cpp"
+  )
+  target_include_directories(test_galactic_coords PRIVATE "${SRC_DIR}" "${HEADERS_DIR}" "${CLASSES_DIR}")
+  target_link_libraries(test_galactic_coords PRIVATE GSL::gsl GSL::gslcblas)
+  add_test(NAME galactic_coordinate_conventions COMMAND test_galactic_coords)
+endif()
