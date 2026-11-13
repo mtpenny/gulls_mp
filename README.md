@@ -142,6 +142,11 @@ Gulls simulates gravitational microlensing events with:
 | `gulls_croin.x` | Crowding analysis and detection |
 | `gullsFish.x` | Fisher matrix analysis |
 
+`gullsFish.x` requires `LENS_ORBITAL_MOTION=0` because Fisher calculations use
+fixed projected lens geometry at `tref`. The parameter defaults to `1`, so set
+it explicitly in Fisher parameter files. This startup check applies to
+`gullsFish.x`; `gulls_general.x` retains its live lens-orbit behavior.
+
 ## Input Files
 
 Gulls requires several input files specified in your parameter file:

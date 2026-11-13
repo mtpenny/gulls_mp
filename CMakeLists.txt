@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(gulls LANGUAGES CXX Fortran)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -220,6 +222,22 @@ add_general_executable(gullsFish.x
   "${SRC_DIR}/generalPlanet.cpp"
   "${CLASSES_DIR}/fisherinversion.cpp"
 )
+
+if(BUILD_TESTING)
+  add_executable(gulls_fisher_audit_test
+    "${SRC_DIR}/testing/fisher_audit.cpp"
+    "${SRC_DIR}/omLightcurveGenerator.cpp"
+  )
+  target_link_libraries(gulls_fisher_audit_test PRIVATE gulls_core_new)
+  add_test(NAME fisher_audit COMMAND gulls_fisher_audit_test)
+
+  # Keep traversal-order coverage independently runnable from the broader audit.
+  add_executable(gulls_fisher_epoch_order_test
+    "${SRC_DIR}/testing/fisher_epoch_order.cpp"
+  )
+  target_link_libraries(gulls_fisher_epoch_order_test PRIVATE gulls_core_new)
+  add_test(NAME fisher_epoch_order COMMAND gulls_fisher_epoch_order_test)
+endif()
 
 
 

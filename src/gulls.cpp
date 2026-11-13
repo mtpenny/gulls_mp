@@ -184,6 +184,19 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
 
   if(Paramfile.verbosity) {printf("readParamfile\n"); fflush(stdout);}
   readParamfile(input_filename, &Paramfile);
+  string executable_name(argv[0]);
+  const size_t executable_separator = executable_name.find_last_of("/\\");
+  if(executable_separator != string::npos)
+    executable_name.erase(0, executable_separator + 1);
+  // Fisher derivatives use fixed projected lens geometry at tref; general
+  // simulations may still request live orbital motion.
+  if(executable_name == "gullsFish.x" && Paramfile.lensOrbitalMotion != 0)
+    {
+      cerr << "FATAL: gullsFish.x requires LENS_ORBITAL_MOTION=0. "
+           << "Fisher uses fixed projected lens geometry at tref; "
+           << "set LENS_ORBITAL_MOTION=0 to run." << endl;
+      return EXIT_FAILURE;
+    }
   if(gulls_random_is_stub() && !Paramfile.allow_random_stub)
     {
       cerr << "FATAL: Random backend '" << gulls_random_backend_name() << "' is a CI/testing stub." << endl;
