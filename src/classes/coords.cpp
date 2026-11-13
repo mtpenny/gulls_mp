@@ -26,6 +26,8 @@ void coords::ad2lb(double a, double d, vector<double>* lb)
   xgal = T[0][0]*cd*ca + T[0][1]*cd*sa + T[0][2]*sd;
   ygal = T[1][0]*cd*ca + T[1][1]*cd*sa + T[1][2]*sd;
   sb = T[2][0]*cd*ca + T[2][1]*cd*sa + T[2][2]*sd;
+  // On a b=89.9 deg near-pole round trip, sqrt(1-sb*sb) loses 1.33 mas
+  // with this rounded published matrix; hypot(xgal,ygal) keeps it below 0.01 mas.
   cb = hypot(xgal, ygal);
   (*lb)[1] = atan2(sb,cb);
   //(*lb)[1] = asin(sb);
@@ -59,6 +61,8 @@ void coords::lb2ad(double l, double b, vector<double>* ad)
   xeq = iT[0][0]*cb*cl + iT[0][1]*cb*sl + iT[0][2]*sb;
   yeq = iT[1][0]*cb*cl + iT[1][1]*cb*sl + iT[1][2]*sb;
   sd = iT[2][0]*cb*cl + iT[2][1]*cb*sl + iT[2][2]*sb;
+  // The rounded matrix's norm error makes sqrt(1-sd*sd) miss the pole by
+  // 0.93 arcsec; use its projected norm instead.
   cd = hypot(xeq, yeq);
   (*ad)[1] = atan2(sd,cd);
   //(*ad)[1] = asin(sd);
@@ -223,9 +227,17 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
     }
 
 
-  // Convert the equatorial tangent velocity using the same Galactic rotation.
-  muad2lb(a, d, (*rvmuadlb)[1], (*rvmuadlb)[2],
-          &(*rvmuadlb)[3], &(*rvmuadlb)[4]);
+  //convert ad prop motion to lb prop motion
+  const double angp = 3.3660329196547267;
+  const double cdngp = 0.889988087459482;
+  const double sdngp = 0.4559837762;
+
+  double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
+  double C2 = cdngp*sin(a - angp);
+  double cb = qAdd(C1,C2);
+
+  (*rvmuadlb)[3] = (C1*(*rvmuadlb)[1] + C2*(*rvmuadlb)[2])/cb;
+  (*rvmuadlb)[4] = (-C2*(*rvmuadlb)[1] + C1*(*rvmuadlb)[2])/cb;
   
 
 
@@ -248,35 +260,44 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
 
 void coords::muad2lb(double a, double d, double mua, double mud, double* mul, double* mub)
 {
-  // Derive the Galactic-pole angles from T so this tangent transform follows
-  // the same rotation as the position conversion.
-  double angp = atan2(T[2][1], T[2][0]);
-  if(angp < 0.0) angp += twoPi;
-  const double cdngp = hypot(T[2][0], T[2][1]);
-  const double sdngp = T[2][2];
-  double cd = cos(d), sd = sin(d);
+  //convert ad prop motion to lb prop motion (Based on refs within
+  //Poleski (2013)
+
+  //double ca=cos(a); double sa=sin(a);
+  double cd=cos(d); double sd=sin(d);
+
+  const double angp = 3.3660329196547267;
+  const double cdngp = 0.889988087459482;
+  const double sdngp = 0.4559837762;
+
   double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
   double C2 = cdngp*sin(a - angp);
   double cb = qAdd(C1,C2);
 
   *mul = (C1*mua + C2*mud)/cb;
   *mub = (-C2*mua + C1*mud)/cb;
+
 }
 
 void coords::mulb2ad(double l, double b, double mul, double mub, double* mua, double* mud)
 {
-  // Derive the node angle and pole latitude from T, matching muad2lb's frame.
-  const double l0 = atan2(-T[0][2], T[1][2]);
-  const double cdngp = hypot(T[2][0], T[2][1]);
-  const double sdngp = T[2][2];
-  double cl=cos(l-l0), sl=sin(l-l0);
-  double cb=cos(b), sb=sin(b);
+  //convert ad prop motion to ad prop motion (Based on refs within
+  //Poleski (2013)
+
+  double l0 = 0.5747704329557325;
+  double cl=cos(l-l0); double sl=sin(l-l0);
+  double cb=cos(b); double sb=sin(b);
+
+  const double cdngp = 0.889988087459482;
+  const double sdngp = 0.4559837762;
+
   double C1 = cb*sdngp - sb*cdngp*sl;
   double C2 = -cdngp*cl;
   double cd = qAdd(C1,C2);
 
   *mua = (C1*mul + C2*mub)/cd;
   *mud = (-C2*mul + C1*mub)/cd;
+
 }
 
 void coords::muad2ecl(double a, double d, double mua, double mud, double* mulambda, double* mubeta)

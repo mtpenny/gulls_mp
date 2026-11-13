@@ -5,6 +5,8 @@
 #include <ctype.h>
 #include <math.h>
 #include "constdefs.h"
+#include <gsl/gsl_matrix.h>
+
 void jd2date(double JD, int *day, int *month, int *year, double *frac);
 
 void lst(double JD, double EastLong, double *LST);

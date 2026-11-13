@@ -3,7 +3,6 @@
 #include<vector>
 
 #include "constants.h"
-#include "galactic_rotation.h"
 
 using namespace std;
 
@@ -63,10 +62,11 @@ class coords
   
   coords()
     {
-      // Match the rotation used by astroFns::eq2gal for published RA/Dec.
-      for(int i=0;i<3;i++)
-        for(int j=0;j<3;j++)
-          T[i][j]=galactic_rotation::equatorial_to_galactic[i][j];
+	  //Conversion from equatorial to galactic
+      // Match the published J2000 rotation used by eq2gal.
+      T[0][0]=-0.0548755604; T[0][1]=-0.8734370902; T[0][2]=-0.4838350155;
+      T[1][0]= 0.4941094279; T[1][1]=-0.4448296300; T[1][2]= 0.7469822445;
+      T[2][0]=-0.8676661490; T[2][1]=-0.1980763734; T[2][2]= 0.4559837762;
 
 	  //Conversion from equatorial to ecliptic
 	  T_ad_ecl[0][0] = 1.0; T_ad_ecl[0][1] = 0.0; T_ad_ecl[0][2] = 0.0;

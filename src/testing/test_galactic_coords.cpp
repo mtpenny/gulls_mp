@@ -106,7 +106,7 @@ int main()
       const double fk5_sep = separation_mas(a, d, fk5_a, fk5_d);
       max_fk5_separation_mas = std::max(max_fk5_separation_mas, fk5_sep);
       // Allow for the published matrix's 10-decimal coefficients and frame realization.
-      require(fk5_sep < 20.0, "position differs from independent FK5/J2000 reference by over 20 mas");
+      require(fk5_sep < 10.0, "position differs from independent FK5/J2000 reference by over 10 mas");
 
       eq2gal(a, d, 'e', &l_back, &b_back);
       if(l_back < 0.0) l_back += 2.0*test_pi;
@@ -128,6 +128,21 @@ int main()
       check_galactic_derivative(c, l, b, ref.mu_l, ref.mu_b, mua, mud);
     }
 
+  const double galactic_pole_l = 203.123*test_pi/180.0;
+  const double galactic_pole_b = 89.9*test_pi/180.0;
+  double pole_a, pole_d, pole_l_back, pole_b_back;
+  c.lb2ad(galactic_pole_l, galactic_pole_b, &pole_a, &pole_d);
+  c.ad2lb(pole_a, pole_d, &pole_l_back, &pole_b_back);
+  require(separation_mas(galactic_pole_l, galactic_pole_b,
+                         pole_l_back, pole_b_back) < 0.1,
+          "near-Galactic-pole position round trip lost precision");
+
+  const double equatorial_pole_l = 122.93191999727053*test_pi/180.0;
+  const double equatorial_pole_b = 27.128250001902302*test_pi/180.0;
+  c.lb2ad(equatorial_pole_l, equatorial_pole_b, &pole_a, &pole_d);
+  require(std::abs(test_pi/2.0-pole_d)*mas_per_rad < 0.1,
+          "Galactic-to-equatorial conversion missed the equatorial pole");
+
   parallax pllx;
   const auto& event = references[0];
   pllx.set_lb(event.l_deg, event.b_deg);
@@ -136,6 +151,19 @@ int main()
   if(event_table_a < 0.0) event_table_a += 2.0*test_pi;
   require(separation_mas(pllx.a, pllx.d, event_table_a, event_table_d) < 1e-5,
           "parallax::set_lb does not use the published Galactic conversion");
+
+  const double eclip_pole_lambda = 10.0*test_pi/180.0;
+  const double eclip_pole_beta = 89.9*test_pi/180.0;
+  double eclip_pole_a, eclip_pole_d, eclip_pole_mul, eclip_pole_mub;
+  double eclip_pole_mul_back, eclip_pole_mub_back;
+  c.ecl2ad(eclip_pole_lambda, eclip_pole_beta, &eclip_pole_a, &eclip_pole_d);
+  c.muecl2ad(eclip_pole_a, eclip_pole_d, 1.25, -0.75,
+             &eclip_pole_mul, &eclip_pole_mub);
+  c.muad2ecl(eclip_pole_a, eclip_pole_d, eclip_pole_mul, eclip_pole_mub,
+             &eclip_pole_mul_back, &eclip_pole_mub_back);
+  require(std::abs(eclip_pole_mul_back-1.25) < 1e-7 &&
+          std::abs(eclip_pole_mub_back+0.75) < 1e-7,
+          "ecliptic-pole proper-motion inverse failed");
 
   const double equatorial_cases[][4] = {
     {359.999, 12.3, 5.2, -1.1}, {0.001, -45.0, -2.3, 4.4},
