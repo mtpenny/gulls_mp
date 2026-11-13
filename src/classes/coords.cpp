@@ -17,19 +17,22 @@ void coords::ad2lb(double a, double d, double* l, double* b)
 void coords::ad2lb(double a, double d, vector<double>* lb)
 {
   double cl, sl, cb, sb, cd, sd, ca, sa;
+  double xgal, ygal;
   lb->resize(6);
 
   ca=cos(a); sa=sin(a);
   cd=cos(d); sd=sin(d);
 
+  xgal = T[0][0]*cd*ca + T[0][1]*cd*sa + T[0][2]*sd;
+  ygal = T[1][0]*cd*ca + T[1][1]*cd*sa + T[1][2]*sd;
   sb = T[2][0]*cd*ca + T[2][1]*cd*sa + T[2][2]*sd;
-  cb = sqrt(1.0-sb*sb);
+  cb = hypot(xgal, ygal);
   (*lb)[1] = atan2(sb,cb);
   //(*lb)[1] = asin(sb);
   //cb = cos((*lb)[1]);
 
-  cl = (T[0][0]*cd*ca + T[0][1]*cd*sa + T[0][2]*sd)/cb;
-  sl = (T[1][0]*cd*ca + T[1][1]*cd*sa + T[1][2]*sd)/cb;
+  cl = xgal/cb;
+  sl = ygal/cb;
   (*lb)[0] = atan2(sl,cl);
   if((*lb)[0]<0){(*lb)[0]+=twoPi;}
   if((*lb)[0]>twoPi){(*lb)[0]-=twoPi;}
@@ -47,19 +50,22 @@ void coords::lb2ad(double l, double b, double* a, double* d)
 void coords::lb2ad(double l, double b, vector<double>* ad)
 {
   double cl, sl, cb, sb, cd, sd, ca, sa;
+  double xeq, yeq;
   ad->resize(6);
 
   cl=cos(l); sl=sin(l);
   cb=cos(b); sb=sin(b);
 
+  xeq = iT[0][0]*cb*cl + iT[0][1]*cb*sl + iT[0][2]*sb;
+  yeq = iT[1][0]*cb*cl + iT[1][1]*cb*sl + iT[1][2]*sb;
   sd = iT[2][0]*cb*cl + iT[2][1]*cb*sl + iT[2][2]*sb;
-  cd = sqrt(1.0-sd*sd);
+  cd = hypot(xeq, yeq);
   (*ad)[1] = atan2(sd,cd);
   //(*ad)[1] = asin(sd);
   //cd = cos((*ad)[1]);
 
-  ca = (iT[0][0]*cb*cl + iT[0][1]*cb*sl + iT[0][2]*sb)/cd;
-  sa = (iT[1][0]*cb*cl + iT[1][1]*cb*sl + iT[1][2]*sb)/cd;
+  ca = xeq/cd;
+  sa = yeq/cd;
   (*ad)[0] = atan2(sa,ca);
   if((*ad)[0]<0){(*ad)[0]+=twoPi;}
 
@@ -173,8 +179,8 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
 
   vector<double> ad;
   lb2ad(l,b,&ad);
-  double a=ad[0]; 
-  //double d=ad[1];
+  double a=ad[0];
+  double d=ad[1];
   double ca=ad[2]; double sa=ad[3];
   double cd=ad[4]; double sd=ad[5];
 
@@ -217,17 +223,9 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
     }
 
 
-  //convert ad prop motion to lb prop motion
-  const double angp = 3.36603341419411;
-  const double cdngp = 0.889987402175713;
-  const double sdngp = 0.455985113757595;
-  
-  double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
-  double C2 = cdngp*sin(a - angp);
-  double cb = qAdd(C1,C2);
-
-  (*rvmuadlb)[3] = (C1*(*rvmuadlb)[1] + C2*(*rvmuadlb)[2])/cb;
-  (*rvmuadlb)[4] = (-C2*(*rvmuadlb)[1] + C1*(*rvmuadlb)[2])/cb;
+  // Convert the equatorial tangent velocity using the same Galactic rotation.
+  muad2lb(a, d, (*rvmuadlb)[1], (*rvmuadlb)[2],
+          &(*rvmuadlb)[3], &(*rvmuadlb)[4]);
   
 
 
@@ -250,44 +248,35 @@ void coords::uvw2rvmuadlb(double l, double b, double dist, double U, double V, d
 
 void coords::muad2lb(double a, double d, double mua, double mud, double* mul, double* mub)
 {
-  //convert ad prop motion to lb prop motion (Based on refs within
-  //Poleski (2013)
-
-  //double ca=cos(a); double sa=sin(a);
-  double cd=cos(d); double sd=sin(d);
-
-  const double angp = 3.36603341419411;
-  const double cdngp = 0.889987402175713;
-  const double sdngp = 0.455985113757595;
-  
+  // Derive the Galactic-pole angles from T so this tangent transform follows
+  // the same rotation as the position conversion.
+  double angp = atan2(T[2][1], T[2][0]);
+  if(angp < 0.0) angp += twoPi;
+  const double cdngp = hypot(T[2][0], T[2][1]);
+  const double sdngp = T[2][2];
+  double cd = cos(d), sd = sin(d);
   double C1 = sdngp*cd - cdngp*sd*cos(a - angp);
   double C2 = cdngp*sin(a - angp);
   double cb = qAdd(C1,C2);
 
   *mul = (C1*mua + C2*mud)/cb;
   *mub = (-C2*mua + C1*mud)/cb;
-
 }
 
 void coords::mulb2ad(double l, double b, double mul, double mub, double* mua, double* mud)
 {
-  //convert ad prop motion to ad prop motion (Based on refs within
-  //Poleski (2013)
-
-  double l0 = 0.574770433;
-  double cl=cos(l-l0); double sl=sin(l-l0);
-  double cb=cos(b); double sb=sin(b);
-
-  const double cdngp = 0.889987402175713;
-  const double sdngp = 0.455985113757595;
-  
+  // Derive the node angle and pole latitude from T, matching muad2lb's frame.
+  const double l0 = atan2(-T[0][2], T[1][2]);
+  const double cdngp = hypot(T[2][0], T[2][1]);
+  const double sdngp = T[2][2];
+  double cl=cos(l-l0), sl=sin(l-l0);
+  double cb=cos(b), sb=sin(b);
   double C1 = cb*sdngp - sb*cdngp*sl;
   double C2 = -cdngp*cl;
   double cd = qAdd(C1,C2);
 
   *mua = (C1*mul + C2*mub)/cd;
   *mud = (-C2*mul + C1*mub)/cd;
-
 }
 
 void coords::muad2ecl(double a, double d, double mua, double mud, double* mulambda, double* mubeta)

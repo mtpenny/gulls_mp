@@ -5,8 +5,8 @@ This is a repository of all the main astronomy functions
  */
 
 #include "astroFns.h"
-#include <gsl/gsl_blas.h>
 #include "integerPowers.h"
+#include "coords.h"
 
 /*! Compute Local Sidereal Time */
 void lst(double JD, double EastLong, double *LST){
@@ -133,47 +133,23 @@ void eq2gal(double in_coord1, double in_coord2, char dir, double *out_coord1, do
   /*  NOTE: eq2gal.m is WRONG - it has these the wrong way around */
  
 
-  double a[] = {
-    -0.0548755604,+0.4941094279,-0.8676661490,
-    -0.8734370902,-0.4448296300,-0.1980763734,
-    -0.4838350155,+0.7469822445,+0.4559837762};
-
-  double b[3];
-  double ans[] = {0.0, 0.0, 0.0};
-  
-  gsl_matrix_view Mat = gsl_matrix_view_array(a, 3, 3);
-
-  b[0] = cos(in_coord1)*cos(in_coord2);
-  b[1] = sin(in_coord1)*cos(in_coord2);
-  b[2] = sin(in_coord2);
-
-  gsl_vector_view Pos = gsl_vector_view_array(b, 3);
-  
-  gsl_vector_view RPos = gsl_vector_view_array(ans, 3);
-
-
-  /* printf("%f %f %f\n",b[0],b[1],b[2]); */
-
+  coords conversion;
   switch(dir){
   case 'g':
-    gsl_blas_dgemv(CblasNoTrans, 1.0, &Mat.matrix, &Pos.vector, 1.0, &RPos.vector);
+    conversion.lb2ad(in_coord1, in_coord2, out_coord1, out_coord2);
     break;
   case 'e':
-    gsl_blas_dgemv(CblasTrans, 1.0, &Mat.matrix, &Pos.vector, 1.0, &RPos.vector);
+    conversion.ad2lb(in_coord1, in_coord2, out_coord1, out_coord2);
     break;
   default:
     printf("unknown type of conversion\n");
-    break;
+    *out_coord1 = 0.0;
+    *out_coord2 = 0.0;
+    return;
   }
 
-  /*  printf ("[%g %g %g]\n", ans[0], ans[1], ans[2]); */
-
-     
-  /* % convert to long & lat */
-  /* RPos = RPos'; */
-  
-  *out_coord1 = atan2(ans[1],ans[0]);
-  *out_coord2 = atan(ans[2]/sqrt(ans[0]*ans[0] + ans[1]*ans[1]));
+  // Preserve eq2gal's signed longitude range for existing callers.
+  if(*out_coord1 > PI) *out_coord1 -= 2.0*PI;
  
 }
 
