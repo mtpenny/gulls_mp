@@ -21,6 +21,8 @@ CASES: Tuple[CaseDef, ...] = (
     ("croin-binary", "gulls_croin.x", "smoke_croin_binary.prm"),
     ("croin-heavy", "gulls_croin.x", "smoke_croin_heavy.prm"),
     ("fish-single", "gullsFish.x", "smoke_fish.prm"),
+    # Exercise the supported fixed Fisher geometry with a deterministic planet array.
+    ("fish-static-orbit", "gullsFish.x", "smoke_fish_static_orbit.prm"),
     ("fish-binary", "gullsFish.x", "smoke_fish_binary.prm"),
     ("fish-heavy", "gullsFish.x", "smoke_fish_heavy.prm"),
     ("general-single", "gulls_general.x", "smoke_general.prm"),

@@ -20,7 +20,7 @@ LENS_LIST=smoke_heavy.lenses
 LENS_COLOURS=0
 
 PLANET_DIR=smoke_test/assets/planets/
-PLANET_ROOT=smoke.planets.
+PLANET_ROOT=smoke_general.planets.
 
 RATES_FILE=smoke_test/assets/rates/smoke.rates
 
@@ -69,6 +69,7 @@ OBS_GROUP_NAMES=smoke
 ERROR_SCALING=0
 MULTIPLE_SOURCES=0
 MULTIPLE_LENSES=0
+LENS_ORBITAL_MOTION=0
 
 ASTROMETRY_ON=1
 ASTROMETRIC_SYS_FLOOR=0.0

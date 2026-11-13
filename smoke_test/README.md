@@ -120,7 +120,8 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 
 - `--build-bin PATH`: Directory containing executables (default: `bin/`)
 - `--keep-output`: Skip cleaning existing output directories before running
-- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`, `general-1s1l`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
+- `--cases CASE [CASE ...]`: Subset of runs to execute. Accepts either executable names (`gulls_std`, `gulls_croin`, `gullsFish`, `gulls_general`) or case labels (`std-single`, `std-binary`, `std-heavy`, `croin-single`, `croin-binary`, `croin-heavy`, `fish-single`, `fish-static-orbit`, `fish-binary`, `fish-heavy`, `general-single`, `general-binary`, `general-1s1l`). Case-specific run names are appended automatically (for example, `smoke_std_std-heavy`) so the heavy scenarios do not overwrite the baseline outputs.
+
 - `--instance ID`: Instance identifier passed via `-s` flag (default: `0`)
 - `--field N`: Field index passed via `-f` flag (default: `0`; use `-1` for auto-select)
 - `--exec-timeout SECONDS`: Timeout per executable (default: `180`; `<=0` disables)
@@ -136,6 +137,8 @@ python smoke_test/run_smoke_test.py --exec-timeout 120
 - `--bagle-forward-event-id`: With `--bagle-forward-sanity`, force a specific explicit 1s1l `EventID` (otherwise auto-select first explicit 1s1l event)
 - `--bagle-forward-obs-location`: With `--bagle-forward-sanity`, observer location passed to BAGLE (default: `earth`)
 - `--bagle-n-live-points`: With `--bagle-joint-fit-sanity`, BAGLE nested-sampling live points (default: `200`)
+
+`gullsFish.x` parameter files must set `LENS_ORBITAL_MOTION=0`; the default is `1`, which the executable rejects before output setup or event generation. The `fish-static-orbit` case runs Fisher on a small deterministic planet array with the lens geometry held fixed at `tref`. It checks derivative columns on unsaturated epochs and a finite covariance for a detected one-source, one-planet event. Orbital rates in `.out` are generator metadata and do not demonstrate motion during the Fisher run.
 
 ### Examples
 

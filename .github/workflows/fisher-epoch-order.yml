@@ -1,0 +1,43 @@
+name: Fisher epoch-order regression
+
+# Run the focused state-order check on pull requests targeting general.
+on:
+  pull_request:
+    branches: [general]
+    paths:
+      - "CMakeLists.txt"
+      - "src/fisher.cpp"
+      - "src/testing/fisher_epoch_order.cpp"
+      - ".github/workflows/fisher-epoch-order.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  epoch-order:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: false
+          activate-environment: fisher-ci
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        shell: bash -l {0}
+        run: conda install --yes -c conda-forge cmake gsl cfitsio compilers
+
+      - name: Configure
+        shell: bash -l {0}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build the epoch-order test
+        shell: bash -l {0}
+        run: cmake --build build --target gulls_fisher_epoch_order_test --parallel 2
+
+      - name: Run only the epoch-order regression
+        shell: bash -l {0}
+        run: ctest --test-dir build --output-on-failure -R "^fisher_epoch_order$"

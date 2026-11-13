@@ -79,15 +79,19 @@ static double deriv_wrapper(double x, void* p)
   int obsidx = Event->obsidx[idx];
   int shiftedidx = idx - Event->nepochsvec[obsidx];
 
-  Event->pllx[obsidx].provide_observables_NE(piEN, piEE, tE, Event->thE);
-  double phi_pi = atan2(Event->pllx[obsidx].mulam_r, Event->pllx[obsidx].mubet_r);
-  double alpha = phi_pi - pi;
-  double cosa = cos(alpha), sina = sin(alpha);
-
-  if (Paramfile->pllxMultiplyer && (param == 7 || param == 8 || param == 1))
+  // Without parallax, use the event's configured trajectory angle directly.
+  double alpha = Event->alpha * TO_RAD;
+  if (Paramfile->pllxMultiplyer)
     {
+      // Each model call may follow a different finite-difference perturbation.
+      // Rebuild this observer's direction and this epoch's shift from the
+      // current parameters so an earlier call cannot leave parallax state behind.
+      Event->pllx[obsidx].provide_observables_NE(piEN, piEE, tE, Event->thE);
+      double phi_pi = atan2(Event->pllx[obsidx].mulam_r, Event->pllx[obsidx].mubet_r);
+      alpha = phi_pi - pi;
       Event->pllx[obsidx].compute_tushifts(shiftedidx);
     }
+  double cosa = cos(alpha), sina = sin(alpha);
 
   double tt = (Event->epoch[idx] - t0) / tE;
   double uu = u0;
@@ -99,8 +103,10 @@ static double deriv_wrapper(double x, void* p)
   //double xs = tt * cosa - uu * sina + origin;
   //double ys = tt * sina + uu * cosa;
 
-  double xl1 = a1 * cos(rot+pi);
-  double yl1 = a1 * sin(rot+pi);
+  // The source track starts at the primary, while BinaryMag2 uses the binary
+  // center of mass as its origin. Translate the primary to that origin once.
+  double xl1 = a1 * cos(rot);
+  double yl1 = a1 * sin(rot);
 
   double xs0 = uu * sina + tt * cosa + xl1;
   double ys0 = -uu * cosa + tt * sina + yl1;
@@ -114,7 +120,9 @@ static double deriv_wrapper(double x, void* p)
 
   double amp=Event->vbm->BinaryMag2(s, q, xsi, ysi, rs);
 
-  cout << Event->id << " " << param << " " << x << " " << xl1 << " " << yl1 << " " << xs0 << " " << ys0 << " " << xsi << " " << ysi << " " << rot << " " << alpha << " " << a1 << " " << t0 << " " << tE << " " << u0 << " " << s << " " << q << " " << rs << " " << piEN << " " << piEE << " " << amp << endl;
+  // Flux-only evaluations use param=-1 and do not need per-call debug output.
+  if (param >= 0)
+    cout << Event->id << " " << param << " " << x << " " << xl1 << " " << yl1 << " " << xs0 << " " << ys0 << " " << xsi << " " << ysi << " " << rot << " " << alpha << " " << a1 << " " << t0 << " " << tE << " " << u0 << " " << s << " " << q << " " << rs << " " << piEN << " " << piEE << " " << amp << endl;
 
   return amp;
 }
@@ -165,6 +173,7 @@ void fisherMatrix(filekeywords* Paramfile, event* Event,
       if (Paramfile->verbosity>0)
 	cout << "Calculating derivatives for param " << param << endl;
 
+      vector<bool> suppressDerivative(Event->nepochs, false);
       for (int idx = 0; idx < Event->nepochs; ++idx)
 	{
 	  ctx.idx = idx;
@@ -175,39 +184,45 @@ void fisherMatrix(filekeywords* Paramfile, event* Event,
 	  double snr = fabs(result) / (abserr + 1e-12);
 	  bool suppress = std::isnan(result) || std::isnan(abserr) ||
 	    ((param == 6) ? (snr < 1.0) : (snr < 3.0));
-	  bool in_anomaly_window = fabs(Event->epoch[idx] - Event->t0) < 0.2 * Event->tE_r; //should we keep this for Earth mass planets?
 	  int index = param * Event->nepochs + idx;
-	  if (suppress && !in_anomaly_window)
-	    {
-	      double interp = 0.0;
-	      int count = 0;
-	      for (int offset = 1; offset <= 3; ++offset)
-		{
-		  for (int j = -1; j <= 1; j += 2)
-		    {
-		      int neighbor = idx + j * offset;
-		      if (neighbor >= 0 && neighbor < Event->nepochs)
-			{
-			  double val = Event->dF[param * Event->nepochs + neighbor];
-			  if (!std::isnan(val))
-			    {
-			      interp += val;
-			      ++count;
-			    }
-			}
-		    }
-		}
-	      Event->dF[index] = (count > 0) ? (interp / count) : result * fs;
-	    }
-	  else
-	    {
-	      Event->dF[index] = result * fs;
-	    }
+	  // Preserve the existing signal-to-noise and anomaly-window decision; defer
+	  // replacement until every epoch has its raw derivative.
+	  suppressDerivative[idx] = suppress &&
+	    fabs(Event->epoch[idx] - Event->t0) >= 0.2 * Event->tE_r;
+	  Event->dF[index] = result * fs;
 	} //end for idx
+
+      // Fill every epoch before interpolation so future neighbours are real values.
+      // Keep neighbours on the same observer: adjacent array entries can cross
+      // observer boundaries, where parallax tracks and sampling differ.
+      for (int idx = 0; idx < Event->nepochs; ++idx)
+	{
+	  if (!suppressDerivative[idx]) continue;
+	  double interp = 0.0;
+	  int count = 0;
+	  for (int offset = 1; offset <= 3; ++offset)
+	    for (int j = -1; j <= 1; j += 2)
+	      {
+		int neighbor = idx + j * offset;
+		if (neighbor >= 0 && neighbor < Event->nepochs &&
+		    Event->obsidx[neighbor] == Event->obsidx[idx])
+		  {
+		    double val = Event->dF[param * Event->nepochs + neighbor];
+		    if (!std::isnan(val))
+		      {
+			interp += val;
+			++count;
+		      }
+		  }
+	      }
+	  if (count > 0)
+	    Event->dF[param * Event->nepochs + idx] = interp / count;
+	}
 
       if (Paramfile->pllxMultiplyer && (param == 7 || param == 8 || param == 1))
 	{
-	  //reset parallax parameters back to nominal values if necessary
+	  // These parameters change the parallax projection during differentiation.
+	  // Restore all observers to the event values before the next parameter pass.
 	  for(int obsidx=0;obsidx<Paramfile->numobservatories;obsidx++)
 	    {
 	      Event->pllx[obsidx].provide_murel_h_lb(Event->murel_l,Event->murel_b,
@@ -226,8 +241,12 @@ void fisherMatrix(filekeywords* Paramfile, event* Event,
     {
       int obsidx = Event->obsidx[idx];
       int base = (Nparams + obsidx * 2) * Event->nepochs + idx;
-      Event->dF[base] = Event->Atrue[idx];
-      Event->dF[base + Event->nepochs] = (Event->Atrue[idx] - 1.0) / Event->fs[obsidx];
+      DerivContext ctx{-1, idx, Paramfile, Event, World};
+      // Fisher flux terms use its fixed projected lens geometry. Event->Atrue
+      // may instead contain the general generator's live orbital motion.
+      const double amp = deriv_wrapper(0.0, &ctx);
+      Event->dF[base] = 1.0 + Event->fs[obsidx] * (amp - 1.0);
+      Event->dF[base + Event->nepochs] = amp - 1.0;
     }
 
   if (Paramfile->verbosity>0)

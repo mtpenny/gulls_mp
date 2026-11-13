@@ -997,11 +997,11 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 	      else rho = Event->scomp_rs[is-1];  // or companion-source angular radius from scomp_rs (does not include the primary).
 	      //rotate coordintates to binary axis
 
-	      // Shift to COM
-	      //Binary mag works from the center of mass, so translate source to CoM, then rotate
-	      double xs_com_ecl = xs[is] + l_delta[0];  // is this to COM or from?
-	      double ys_com_ecl = ys[is] + l_delta[1];  // VBM is COM centered, but what was the event frame centered on?
-	      // it must have lens 1 for this to make sense.
+	      // xs/ys already include the lens1-at-tref-to-CoM translation above.
+	      // BinaryMag2 needs CoM coordinates, so applying l_delta here again
+	      // would translate the source twice and put it at the wrong lens position.
+	      double xs_com_ecl = xs[is];
+	      double ys_com_ecl = ys[is];
 
 	      // rotate from event -> VBM frame
 	      double xsi = cr*xs_com_ecl - sr*ys_com_ecl;

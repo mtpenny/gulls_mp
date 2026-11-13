@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -32,6 +33,7 @@ from .validation import (
     verify_catalog_columns,
     verify_input_files_exist,
     verify_planet_file_schema,
+    verify_fisher_outputs,
     verify_psf_files,
     verify_nfilters_matches_catalogs,
     verify_outputs,
@@ -204,6 +206,8 @@ def _resolve_case_selection(raw_choices: Sequence[str] | None, ci_mode: bool = F
                 ("smoke_std", "gulls_std.x", "smoke_std.prm"),
                 ("smoke_std_binary", "gulls_std.x", "smoke_std_binary.prm"),
                 ("smoke_fish", "gullsFish.x", "smoke_fish.prm"),
+                # Keep one static-geometry Fisher event in the routine CI subset.
+                ("smoke_fish_static_orbit", "gullsFish.x", "smoke_fish_static_orbit.prm"),
                 # For the fish binary CI case we should use the fish binary
                 # parameter file so outputs land under the fish/ output tree.
                 ("smoke_fish_binary", "gullsFish.x", "smoke_fish_binary.prm"),
@@ -229,6 +233,53 @@ def _resolve_case_selection(raw_choices: Sequence[str] | None, ci_mode: bool = F
         deduped.append(case)
         seen.add(case[0])
     return tuple(deduped)
+
+
+def _verify_fisher_orbital_motion_gate(executable: Path, env: Dict[str, str]) -> None:
+    """Check real gullsFish startup rejects live/default motion before output setup."""
+    template = REPO_ROOT / "smoke_test" / "parameterfiles" / "smoke_fish.prm"
+    original_lines = template.read_text(encoding="utf-8").splitlines()
+    with tempfile.TemporaryDirectory(prefix="gulls_fisher_gate_") as temp_dir:
+        unavailable_output = Path(temp_dir) / "output-does-not-exist"
+        for label, motion_value in (("default", None), ("enabled", "1"), ("disabled", "0")):
+            lines = []
+            for line in original_lines:
+                key = line.partition("=")[0].strip()
+                if key in {"RUN_NAME", "OUTPUT_DIR", "LENS_ORBITAL_MOTION"}:
+                    if key == "RUN_NAME":
+                        lines.append(f"RUN_NAME=fisher_gate_{label}")
+                    elif key == "OUTPUT_DIR":
+                        lines.append(f"OUTPUT_DIR={unavailable_output}/")
+                    continue
+                lines.append(line)
+            if motion_value is not None:
+                lines.append(f"LENS_ORBITAL_MOTION={motion_value}")
+
+            param_path = Path(temp_dir) / f"{label}.prm"
+            param_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            result = subprocess.run(
+                [str(executable), "-i", str(param_path), "-s", "0"],
+                capture_output=True,
+                text=True,
+                cwd=REPO_ROOT,
+                env=env,
+                timeout=30,
+                check=False,
+            )
+            output = result.stdout + result.stderr
+            refusal = "FATAL: gullsFish.x requires LENS_ORBITAL_MOTION=0."
+            if motion_value == "0":
+                if (result.returncode == 0 or refusal in output
+                    or "Unable to open output file:" not in output):
+                    raise SmokeTestError(
+                        "gullsFish.x did not accept LENS_ORBITAL_MOTION=0 through startup"
+                    )
+            elif (result.returncode == 0 or refusal not in output
+                  or "Unable to open output file:" in output
+                  or "Loading VBMicrolening" in output):
+                raise SmokeTestError(
+                    f"gullsFish.x did not reject {label} LENS_ORBITAL_MOTION before output setup"
+                )
 
 
 def _prepare_environment(keep_output: bool, prepared_cases: Sequence[PreparedCase]) -> None:
@@ -328,6 +379,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     env["GULLS_BASE_DIR"] = base_dir
     env.setdefault("GULLS_STARS_DIR", base_dir)
 
+    fisher_case = next((case for case in prepared_cases if case.exe_name == "gullsFish.x"), None)
+    if fisher_case is not None:
+        _verify_fisher_orbital_motion_gate(fisher_case.exe_path, env)
+        print("Fisher orbital-motion startup gate passed (default/1 refused; 0 accepted).")
+
     _prepare_environment(args.keep_output, prepared_cases)
 
     failures: List[str] = []
@@ -353,6 +409,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         out_files = verify_outputs(case.output_dir)
         verify_catalog_alignment(out_files, case.params)
+        if case.label == "fish-static-orbit":
+            # Check that the run produced usable derivatives and a finite covariance.
+            summary = verify_fisher_outputs(case.output_dir, out_files)
+            print(
+                "Fisher smoke sanity passed: "
+                f"event={summary['event_id']}, "
+                f"usable_epochs={summary['usable_epochs']}, "
+                f"finite_covariance_parameters={summary['covariance_parameters']}"
+            )
         if args.astrometry_sanity:
             summary = verify_astrometry_sanity(
                 case.output_dir,

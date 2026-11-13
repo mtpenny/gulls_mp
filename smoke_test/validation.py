@@ -32,6 +32,131 @@ def verify_outputs(output_dir: Path) -> List[Path]:
     return out_files
 
 
+def verify_fisher_outputs(output_dir: Path, out_files: Sequence[Path]) -> Dict[str, int]:
+    """Check one real, supported gullsFish event has derivatives and covariance."""
+    # The selected event has one source and one orbiting planet, so these are
+    # the Fisher parameters and per-observatory flux terms expected in its files.
+    errors = ("ObsGroup_0_t0_err", "ObsGroup_0_log_tE_err", "ObsGroup_0_u0_err",
+              "ObsGroup_0_alpha_err", "ObsGroup_0_log_s_err", "ObsGroup_0_log_q_err",
+              "ObsGroup_0_log_rho_err", "ObsGroup_0_piEN_err", "ObsGroup_0_piEE_err",
+              "ObsGroup_0_Fbase0_err", "ObsGroup_0_fs0_err")
+    derivatives = ("ObsGroup_0_dF_t0", "ObsGroup_0_dF_tE", "ObsGroup_0_dF_u0",
+                   "ObsGroup_0_dF_alpha", "ObsGroup_0_dF_s", "ObsGroup_0_dF_q",
+                   "ObsGroup_0_dF_rs", "ObsGroup_0_dF_piEN", "ObsGroup_0_dF_piEE",
+                   "ObsGroup_0_dF_Fbase0", "ObsGroup_0_dF_fs0")
+    covariance_labels_expected = ("t0", "log(tE)", "u0", "alpha", "log(s)",
+                                  "log(q)", "log(rho)", "piEN", "piEE", "{F0", "fs}")
+    selected: tuple[Path, Dict[str, str]] | None = None
+    supported_detected_rows = 0
+    for out_file in out_files:
+        lines = out_file.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            continue
+        header = lines[0].split()
+        required = ("EventID", "Field", "NSource", "NLens", "NPlanets", "LCOutput", *errors)
+        if not all(name in header for name in required):
+            raise SmokeTestError(f"{out_file} is missing Fisher smoke summary columns")
+        for line in lines[1:]:
+            parts = line.split()
+            if not parts or len(parts) != len(header):
+                continue
+            row = dict(zip(header, parts))
+            supported = (int(float(row["NSource"])) == 1 and
+                         int(float(row["NLens"])) == 2 and
+                         int(float(row["NPlanets"])) == 1 and
+                         int(float(row["LCOutput"])) == 1)
+            if not supported:
+                continue
+            supported_detected_rows += 1
+            values = [float(row[name]) for name in errors]
+            if all(math.isfinite(value) and value > 0.0 and value != 9999.0
+                   for value in values):
+                selected = out_file, row
+                break
+        if selected:
+            break
+
+    if selected is None:
+        raise SmokeTestError(
+            "gullsFish smoke produced no detected one-source, one-planet event "
+            "with finite Fisher uncertainties "
+            f"(detected candidates={supported_detected_rows})"
+        )
+
+    out_file, row = selected
+    event_id = int(float(row["EventID"]))
+    field = int(float(row["Field"]))
+    matching = sorted(output_dir.glob(f"*_{field}_{event_id}.det.lc"))
+    if len(matching) != 1:
+        raise SmokeTestError(f"Expected one detected Fisher lightcurve for event {event_id}")
+
+    lightcurve = matching[0]
+    lines = lightcurve.read_text(encoding="utf-8").splitlines()
+    header_line_index = next((i for i, line in enumerate(lines)
+                              if line.strip() and not line.lstrip().startswith("#")), None)
+    if header_line_index is None:
+        raise SmokeTestError(f"Fisher lightcurve {lightcurve} has no table header")
+    header = lines[header_line_index].split()
+    if not all(name in header for name in derivatives) or "saturation_flag" not in header:
+        raise SmokeTestError(f"Fisher lightcurve {lightcurve} has an incomplete derivative layout")
+    columns = [header.index(name) for name in derivatives]
+    # Saturated rows are excluded by the generator's output mask; all other
+    # rows must contain finite derivatives, including the live-orbit case.
+    physical = columns[:9]
+    sat_column = header.index("saturation_flag")
+    usable_epochs = 0
+    nonzero_physical = False
+    for line_number, line in enumerate(lines[header_line_index + 1:], header_line_index + 2):
+        parts = line.split()
+        if not parts or line.lstrip().startswith("#"):
+            continue
+        if len(parts) != len(header):
+            raise SmokeTestError(f"{lightcurve}:{line_number} has malformed Fisher row layout")
+        saturated = int(float(parts[sat_column]))
+        if saturated not in (0, 1):
+            raise SmokeTestError(f"{lightcurve}:{line_number} has an invalid saturation mask")
+        if saturated == 0:
+            usable_epochs += 1
+            values = [float(parts[i]) for i in columns]
+            if not all(math.isfinite(value) for value in values):
+                raise SmokeTestError(f"{lightcurve}:{line_number} has non-finite Fisher derivatives")
+            nonzero_physical |= any(float(parts[i]) != 0.0 for i in physical)
+    if not usable_epochs or not nonzero_physical:
+        raise SmokeTestError(f"Fisher lightcurve {lightcurve} has no usable derivatives")
+
+    covariance_files = sorted(output_dir.glob(f"*_{field}_{event_id}.det.fm.0"))
+    if len(covariance_files) != 1:
+        raise SmokeTestError(f"Expected one Fisher covariance output for event {event_id}")
+    covariance_path = covariance_files[0]
+    covariance_lines = covariance_path.read_text(encoding="utf-8").splitlines()
+    try:
+        # The matrix diagonal, labels, and reported errors are separate sections
+        # in the existing Fisher file format; check they describe one ordering.
+        matrix_start = covariance_lines.index("cij:") + 1
+        labels_start = covariance_lines.index("errors:") + 1
+        covariance = [[float(value) for value in line.split()]
+                      for line in covariance_lines[matrix_start:matrix_start + len(errors)]]
+        covariance_labels = covariance_lines[labels_start].split()
+        covariance_errors = [float(value) for value in covariance_lines[labels_start + 2].split()]
+    except (ValueError, IndexError) as err:
+        raise SmokeTestError(f"Fisher covariance output {covariance_path} is incomplete") from err
+    if (covariance_labels != list(covariance_labels_expected) or len(covariance) != len(errors) or
+            any(len(values) != len(errors) for values in covariance) or
+            len(covariance_errors) != len(errors)):
+        raise SmokeTestError(f"Fisher covariance output {covariance_path} has an invalid parameter layout")
+    for i, values in enumerate(covariance):
+        if not math.isfinite(values[i]) or values[i] <= 0.0:
+            raise SmokeTestError(f"Fisher covariance output {covariance_path} has invalid variance")
+        if not all(math.isfinite(value) for value in values):
+            raise SmokeTestError(f"Fisher covariance output {covariance_path} is invalid")
+        if (not math.isfinite(covariance_errors[i]) or
+                not math.isclose(covariance_errors[i], math.sqrt(values[i]), rel_tol=1e-5) or
+                not math.isclose(covariance_errors[i], float(row[errors[i]]), rel_tol=1e-5)):
+            raise SmokeTestError(f"Fisher covariance output {covariance_path} has inconsistent errors")
+    return {"event_id": event_id, "usable_epochs": usable_epochs,
+            "covariance_parameters": len(errors)}
+
+
 def _verify_line_delimiters(path: Path, line: str, line_number: int) -> None:
     if "\t" in line:
         raise SmokeTestError(
@@ -1096,6 +1221,7 @@ __all__ = [
     "verify_psf_files",
     "verify_nfilters_matches_catalogs",
     "verify_outputs",
+    "verify_fisher_outputs",
     "verify_rates_file",
     "verify_sequence_has_observations",
     "verify_source_lens_compatibility",
