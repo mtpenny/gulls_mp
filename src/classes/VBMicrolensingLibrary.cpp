@@ -6135,6 +6135,11 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 
 
 void VBMicrolensing::TripleAstroLightCurveOrbital(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, double* seps2, double* psis, int np) {
+	ClearLastError();
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
 	double s1 = exp(pr[0]), rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), u, u0 = pr[2], t0 = pr[6], pai1 = pr[10], pai2 = pr[11], w1 = pr[12], w2 = pr[13], w3 = pr[14];
 	double q[3] = { 1, exp(pr[1]),exp(pr[8]) }, s2 = exp(pr[7]);
 	double FR[3];
@@ -6190,6 +6195,9 @@ void VBMicrolensing::TripleAstroLightCurveOrbital(double* pr, double* ts, double
 
 
 	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("TripleAstroLightCurveOrbital");
+		}
 		ComputeParallax(ts[i], t0);
 
 		phi = (ts[i] + lighttravel - t0 - lighttravel0) * w + phi0;
@@ -6243,6 +6251,13 @@ void VBMicrolensing::TripleAstroLightCurveOrbital(double* pr, double* ts, double
 			c2l[i] += (s[0].im * FR[0] + s[1].im * FR[1] + s[2].im * FR[2]) * sin(PosAng) / FRtot;
 		}
 
+	}
+	}
+	catch (const VBMTimeoutError& err) {
+		if (HandleTimeoutError(err, "TripleAstroLightCurveOrbital")) {
+			throw;
+		}
+		return;
 	}
 }
 
@@ -6742,8 +6757,20 @@ void VBMicrolensing::TripleLightCurveParallax(double* pr, double* ts, double* ma
 }
 
 void VBMicrolensing::TripleLightCurveOrbital(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, double* seps2, double* psis, int np) {
+	ClearLastError();
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
 	astrometry = false;
 	TripleAstroLightCurveOrbital(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, seps, seps2, psis, np);
+	}
+	catch (const VBMTimeoutError& err) {
+		if (HandleTimeoutError(err, "TripleLightCurveOrbital")) {
+			throw;
+		}
+		return;
+	}
 }
 
 void VBMicrolensing::LightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np, int nl) {
@@ -7940,6 +7967,11 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 void VBMicrolensing::t0_from_t0_par(double t0_in, double tE_in, double u0_in, double pai1_in, double pai2_in) {
+	ClearLastError();
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+
 	double u, u1, duleft, duright, dun;
 	double tleft, tright, tn, t, pai, pai_psi;
 
@@ -7964,6 +7996,8 @@ void VBMicrolensing::t0_from_t0_par(double t0_in, double tE_in, double u0_in, do
 	}
 	int iter = 0;
 	while (fabs(tright - tleft) > 1.e-9 && iter < 50) {
+		// At most 50 iterations, each costing two ComputeParallax calls: check every pass.
+		CheckTimeout("t0_from_t0_par");
 		tn = (tleft * duright - tright * duleft) / (duright - duleft);
 		dun = du_par(tn);
 		if (dun < 0) {
@@ -7976,23 +8010,37 @@ void VBMicrolensing::t0_from_t0_par(double t0_in, double tE_in, double u0_in, do
 		}
 		iter++;
 	}
+	CheckTimeout("t0_from_t0_par");
 
 	t0_out = tn;
 	pai = sqrt(pai1 * pai1 + pai2 * pai2);
 	pai_psi = atan2(pai2, pai1);
 	pai1_out = pai * cos(-alpha_out + pai_psi);
 	pai2_out = pai * sin(-alpha_out + pai_psi);
+	}
+	catch (const VBMTimeoutError& err) {
+		const double nan = std::numeric_limits<double>::quiet_NaN();
+		t0_out = u0_out = alpha_out = pai1_out = pai2_out = tE_out = nan;
+		if (HandleTimeoutError(err, "t0_from_t0_par")) {
+			throw;
+		}
+		return;
+	}
 }
 
 double VBMicrolensing::du_par(double t) {
+	// Private helper of t0_from_t0_par: runs under its caller's budget and lets timeouts propagate.
 	double tn, tn1, un, un1, dt = 1.e-6, u;
 	ComputeParallax(t, t0);
+	// Under ReturnNaN, ComputeParallax swallows its own timeout and leaves Et stale; re-check here.
+	CheckTimeout("du_par");
 	tn = (t + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 	un = u0 + pai1 * Et[1] - pai2 * Et[0];
 	u = sqrt(tn * tn + un * un);
 	u0_out = u;
 	alpha_out = atan2(tn, un);
 	ComputeParallax(t + dt, t0);
+	CheckTimeout("du_par");
 	tn1 = (t + dt + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
 	un1 = u0 + pai1 * Et[1] - pai2 * Et[0];
 	if (un * (tn1 - tn) < 0) {

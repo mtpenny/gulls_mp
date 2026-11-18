@@ -22,6 +22,12 @@ silently drop the gulls changes listed below.
    `ShouldCheck` and `CheckTimeout` in an anonymous namespace). Public entry points are
    wrapped in `try { TimeBudget …; ScopedBudget …; … } catch (const VBMTimeoutError&)`,
    and long loops call `ShouldCheck/CheckTimeout`. Timeouts are disabled by default.
+   New public functions that upstream adds need the same wrapper: in 5.6 these were
+   `TripleAstroLightCurveOrbital` (Astrometry), `TripleLightCurveOrbital`
+   (Magnification) and `t0_from_t0_par` (Parallax). Under `ReturnNaN`,
+   `ComputeParallax` swallows its own timeout and leaves `Et` stale, so code that uses
+   `Et` straight after it (such as the private helper `du_par`) calls `CheckTimeout`
+   again on return, letting the timeout reach the public entry point's handler.
    See `VBM_timeout_only_edits.md`. The wrappers re-indent function bodies, so a plain
    3-way merge produces many whitespace-only conflicts (see below).
 3. **RAII ownership** in `BinaryMag`, `BinaryMag0`, `MultiMag`, `MultiMag0` and the
@@ -71,6 +77,8 @@ Then:
 - **Check for silently misplaced wrappers.** In 5.6, the auto-merge moved
   `TripleAstroLightCurve`'s `catch` block onto the new `TripleAstroLightCurveOrbital`.
   Check that every `HandleTimeoutError(err, "X")` is inside function `X`.
+- **List upstream's new public functions** (compare the old and new headers) and add
+  timeout wrappers to any that can run for a long time.
 - Audit with `diff -w <upstream NEW normalized> <merged>`. Every remaining difference
   should map to the customization list above.
 - Convert back to CRLF before copying into gulls (`perl -pe 's/\r?\n/\r\n/'`). That

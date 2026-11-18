@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Updated the vendored VBMicrolensing library to upstream v5.6.1 (from a v5.3.5-era base with partial v5.4/v5.5 backports). This adds the 5.6 `cmplx_roots_multigen` restructuring, safer nopoly failure handling, the MultiMag retry/`flagbad` logic, the BinaryMag2 large-source fix, and `t0_from_t0_par`. The gulls customizations (timeouts and ErrorPolicy, RAII ownership, `VBcomplex` rename, `max_num_images`) are kept. See `documentation/development/VBM_upgrade.md` for the procedure for future upgrades.
+- Updated the vendored VBMicrolensing library to upstream v5.6.1 (from a v5.3.5-era base with partial v5.4/v5.5 backports). This adds the 5.6 `cmplx_roots_multigen` restructuring, safer nopoly failure handling, the MultiMag retry/`flagbad` logic, the BinaryMag2 large-source fix, and `t0_from_t0_par`. The new public functions (`TripleLightCurveOrbital`, `TripleAstroLightCurveOrbital`, `t0_from_t0_par`) get the same opt-in timeout wrappers as the existing entry points. The gulls customizations (timeouts and ErrorPolicy, RAII ownership, `VBcomplex` rename, `max_num_images`) are kept. See `documentation/development/VBM_upgrade.md` for the procedure for future upgrades.
 
 ## [3.1.0] - 2026-01-25
 
