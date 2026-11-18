@@ -1,4 +1,6 @@
-// VBMicrolensing v5.3 (2025)
+// VBMicrolensing v5.6.1 (2026) -- gulls-customized copy (upstream valboz/VBMicrolensing tag v5.6.1).
+// gulls changes: complex->VBcomplex rename, opt-in timeouts/ErrorPolicy, RAII ownership in Binary/MultiMag,
+// max_num_images counter. See documentation/development/VBM_upgrade.md before editing or upgrading.
 //
 // This code has been developed by Valerio Bozza (University of Salerno) and collaborators.
 // Check the repository at https://github.com/valboz/VBMicrolensing
@@ -159,6 +161,7 @@ class VBMicrolensing
 
 	void ComputeCentroids(double* pr, double t, double* c1s, double* c2s, double* c1l, double* c2l);
 	void ComputeParallax(double, double);
+	double du_par(double t);
 	double LDprofile(double r);
 	double rCLDprofile(double tc, annulus*, annulus*);
 	void initroot();
@@ -172,7 +175,7 @@ class VBMicrolensing
 	_curve* NewImages(_theta*);
 	_curve* NewImagespoly(_theta*);
 	_curve* NewImagesmultipoly(_theta*);
-	_curve* NewImages_shear(VBcomplex, VBcomplex*, _theta *);
+	_curve* NewImages_shear(VBcomplex, VBcomplex*, _theta*);
 	double BinaryMagSafe(double s, double q, double y1, double y2, double rho, _sols_for_skiplist_curve** images);
 	double MultiMagSafe(double y1, double y2, double rho, _sols_for_skiplist_curve** images);
 	void OrderImages(_sols_for_skiplist_curve*, _curve*);
@@ -241,6 +244,7 @@ public:
 	bool astrometry;
 	bool turn_off_secondary_source;
 	bool turn_off_secondary_lens;
+	bool block_tertiary_lens;
 	bool ESPLoff;
 	bool t_in_HJD;
 
@@ -248,10 +252,12 @@ public:
 	static void SetESPLtablefile(char* instring) { strcpy(ESPLtablefile, instring); }
 	static char Suntablefile[1024];
 	static void SetSuntablefile(char* instring) { strcpy(Suntablefile, instring); }
-	double Tol, RelTol, a1, a2,corrquad, corrquad2, safedist;
+	double Tol, RelTol, a1, a2, corrquad, corrquad2, safedist;
 	double mass_radius_exponent, mass_luminosity_exponent, lens_mass_luminosity_exponent;
 	int satellite, parallaxsystem, t0_par_fixed, nsat;
 	double t0_par;
+	void t0_from_t0_par(double t0, double tE, double u0, double pai1, double pai2);
+	double t0_out, u0_out, alpha_out, pai1_out, pai2_out, tE_out;
 	bool suntable, parallaxephemeris;
 	int parallaxextrapolation;
 	int minannuli, maxannuli, nannuli, NPS, NPcrit;
@@ -298,7 +304,7 @@ public:
 	double MultiMag2(double y1, double y2, double rho);
 	double MultiMagDark(double y1, double y2, double rho, double accuracy);
 
-	double BinaryMag0_shear(double s, double q, double y1, double y2, double K1, double G1, double Gi, _sols **Images);
+	double BinaryMag0_shear(double s, double q, double y1, double y2, double K1, double G1, double Gi, _sols** Images);
 	double BinaryMag0_shear(double s, double q, double y1, double y2, double K1, double G1, double Gi);
 
 	// Limb Darkening control
@@ -343,6 +349,7 @@ public:
 
 	void TripleLightCurve(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, int np);
 	void TripleLightCurveParallax(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, int np);
+	void TripleLightCurveOrbital(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, double* seps_array, double* seps2_array, double* psi_array, int np);
 	void LightCurve(double* parameters, double* t_array, double* mag_array, double* y1_array, double* y2_array, int np, int nl);
 
 	// Old (v1) light curve functions, for a single calculation
@@ -369,6 +376,7 @@ public:
 
 	double TripleLightCurve(double* parameters, double t);
 	double TripleLightCurveParallax(double* parameters, double t);
+	double TripleLightCurveOrbital(double* parameters, double t);
 
 	// Astrometric functions
 	void CombineCentroids(double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* c1ltot, double* c2tot, double g, int np);
@@ -380,6 +388,7 @@ public:
 	void BinSourceAstroLightCurveXallarap(double* parameters, double* t_array, double* mag_array, double* centroid_s1_array, double* centroid_s2_array, double* centroid_l1_array, double* centroid_l2_array, double* y1_array, double* y2_array, double* y1_array2, double* y2_array2, int np);
 	void BinSourceBinLensAstroLightCurve(double* parameters, double* t_array, double* mag_array, double* centroid_s1_array, double* centroid_s2_array, double* centroid_l1_array, double* centroid_l2_array, double* y1_array, double* y2_array, double* y1_array2, double* y2_array2, double* seps_array, int np);
 	void TripleAstroLightCurve(double* parameters, double* t_array, double* mag_array, double* centroid_s1_array, double* centroid_s2_array, double* centroid_l1_array, double* centroid_l2_array, double* y1_array, double* y2_array, int np);
+	void TripleAstroLightCurveOrbital(double* parameters, double* t_array, double* mag_array, double* centroid_s1_array, double* centroid_s2_array, double* centroid_l1_array, double* centroid_l2_array, double* y1_array, double* y2_array, double* seps_array, double* seps2_array, double* psi_array, int np);
 
 	// Constructor and destructor
 
@@ -712,4 +721,5 @@ inline double _point::operator-(_point p2) {
 
 
 #endif
+
 
