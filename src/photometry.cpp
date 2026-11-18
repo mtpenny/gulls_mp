@@ -190,11 +190,16 @@ void photometry(struct filekeywords* Paramfile, struct event *Event, struct obsf
 	    }
 
 	  // flux weighted addition of the lens 2 centroid, if there's a luminous companion to the lens
-	  if(fl2ofs1 > 0.0 && Event->xlens.size() > 1 && Event->ylens.size() > 1
-	     && Event->xlens[1].size() > size_t(idx) && Event->ylens[1].size() > size_t(idx))  // check that the second lens has defined positions for this epoch before trying to use them
+	  // Event->xlens/ylens are indexed by lens component: [0] is the primary lens star, [1..nplanets] are
+	  // the planets (and moons), and the stellar companion is appended after them, so it is not always [1].
+	  // This matches the order in which the companion is added to the planet arrays (p_*) when the orbits
+	  // are set up in omLightcurveGenerator.cpp. With no planets, nplanets=0 and the companion is at [1].
+	  const int companion_idx = Event->nplanets + 1;
+	  if(fl2ofs1 > 0.0 && Event->xlens.size() > companion_idx && Event->ylens.size() > companion_idx
+	     && Event->xlens[companion_idx].size() > size_t(idx) && Event->ylens[companion_idx].size() > size_t(idx))  // check that the second lens has defined positions for this epoch before trying to use them
 	    {
-	      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
-	      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[1][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
+	      cx_blend_thE = (cx_blend_thE*flux_sum + Event->xlens[companion_idx][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
+	      cy_blend_thE = (cy_blend_thE*flux_sum + Event->ylens[companion_idx][idx]*fl2ofs1) / (flux_sum + fl2ofs1);
 	      flux_sum += fl2ofs1;
 	    }
 
