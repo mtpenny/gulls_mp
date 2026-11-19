@@ -1492,6 +1492,8 @@ def run_bagle_joint_fit_sanity(
         "ypos1": fit_y_ast_arcsec,
         "xpos_err1": fit_x_ast_err_arcsec,
         "ypos_err1": fit_y_ast_err_arcsec,
+        "raL": ra_deg,
+        "decL": dec_deg,
         "obsLocation": obs_location_used,
     }
 
