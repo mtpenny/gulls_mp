@@ -279,6 +279,12 @@ VBM_ABSTOL
 - **Default**: 1.0e-4
 - **Description**: Absolute tolerance for VBM calculations.
 
+VBM_NOPOLY_ABSTOL
+~~~~~~~~~~~~~~~~~
+- **Type**: float
+- **Default**: 1.0e-5
+- **Description**: Upper limit on the absolute tolerance for the Nopoly ``MultiMag2`` calls that ``gulls_general`` makes for three or more lenses. Those calls use ``min(VBM_ABSTOL, VBM_NOPOLY_ABSTOL)``. VBMicrolensing 5.6 and later can return a wrong magnification and centroid at ``Tol=1e-4`` for hierarchical triples with a distant companion (VBMicrolensing issue #88). Single and binary lenses are not affected.
+
 LC_TIMEOUT
 ~~~~~~~~~~
 - **Type**: float
