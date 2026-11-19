@@ -748,7 +748,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 			CheckTimeout("ESPLMagDark");
 		}
 
-		first = new annulus;
+		first = new annulus();
 		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
@@ -767,7 +767,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 		first->prev = 0;
 
 
-		first->next = new annulus;
+		first->next = new annulus();
 		scan = first->next;
 		scan->prev = first;
 		scan->next = 0;
@@ -819,7 +819,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 			tc = (lc + rc) / 2;
 			cb = rCLDprofile(tc, scan->prev, scan);
 
-			scan->prev->next = new annulus;
+			scan->prev->next = new annulus();
 			scan->prev->next->prev = scan->prev;
 			scan->prev = scan->prev->next;
 			scan->prev->next = scan;
@@ -1438,6 +1438,9 @@ double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, do
 		y2a = fabs(y2v);
 
 		Mag0 = BinaryMag0(s, q, y1v, y2a, &Images);
+		if (Images == nullptr) {
+			return std::numeric_limits<double>::quiet_NaN();
+		}
 		delete Images;
 		rho2 = rho * rho;
 		corrquad *= 6 * (rho2 + 1.e-4 * Tol);
@@ -1504,7 +1507,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			CheckTimeout("BinaryMagDark");
 		}
 
-		first = new annulus;
+		first = new annulus();
 		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
@@ -1531,7 +1534,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		first->prev = 0;
 
 
-		first->next = new annulus;
+		first->next = new annulus();
 		scan = first->next;
 		scan->prev = first;
 		scan->next = 0;
@@ -1594,7 +1597,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			rc = scan->cum;
 			tc = (lc + rc) * 0.5;
 			cb = rCLDprofile(tc, scan->prev, scan);
-			scan->prev->next = new annulus;
+			scan->prev->next = new annulus();
 			scan->prev->next->prev = scan->prev;
 			scan->prev = scan->prev->next;
 			scan->prev->next = scan;
@@ -3494,7 +3497,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			CheckTimeout("MultiMagDark");
 		}
 
-		first = new annulus;
+		first = new annulus();
 		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
@@ -3522,7 +3525,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		first->prev = 0;
 
 
-		first->next = new annulus;
+		first->next = new annulus();
 		scan = first->next;
 		scan->prev = first;
 		scan->next = 0;
@@ -3586,7 +3589,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			rc = scan->cum;
 			tc = (lc + rc) * 0.5;
 			cb = rCLDprofile(tc, scan->prev, scan);
-			scan->prev->next = new annulus;
+			scan->prev->next = new annulus();
 			scan->prev->next->prev = scan->prev;
 			scan->prev = scan->prev->next;
 			scan->prev->next = scan;
@@ -3692,6 +3695,9 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 		max_num_images=0;
 
 		Mag0 = MultiMag0(y1s, y2s, &Images);
+		if (Images == nullptr) {
+			return std::numeric_limits<double>::quiet_NaN();
+		}
 		max_num_images = Images->length;
 		delete Images;
 		rho2 = rho * rho;
