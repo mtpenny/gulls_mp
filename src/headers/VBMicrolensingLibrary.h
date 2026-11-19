@@ -214,6 +214,9 @@ public:
 	// Throw: propagate VBMTimeoutError to the caller.
 	// ReturnNaN: handle timeout internally, record details in LastError, and return
 	// a sentinel value (NaN/null/early return depending on API return type).
+	// Nested calls (one public function calling another) always propagate the timeout
+	// to the outermost call, which applies the policy, so a timeout anywhere aborts
+	// the whole call and LastError.api names the function the caller invoked.
 	enum class ErrorPolicy {
 		Throw,
 		ReturnNaN
@@ -401,6 +404,19 @@ private: // Must be declared here at the end
 	TimeoutConfig timeout_config_;
 	ErrorPolicy error_policy_ = ErrorPolicy::ReturnNaN;
 	LastError last_error_;
+	// Nesting depth of timeout-wrapped calls; only the outermost clears LastError and applies the policy.
+	int api_depth_ = 0;
+	struct ApiScope {
+		VBMicrolensing* vbm;
+		explicit ApiScope(VBMicrolensing* v) : vbm(v) {
+			if (vbm->api_depth_++ == 0) {
+				vbm->last_error_ = LastError();
+			}
+		}
+		~ApiScope() { --vbm->api_depth_; }
+		ApiScope(const ApiScope&) = delete;
+		ApiScope& operator=(const ApiScope&) = delete;
+	};
 	LDprofiles curLDprofile;
 	Method SelectedMethod;
 

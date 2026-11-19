@@ -604,7 +604,7 @@ void VBMicrolensing::LoadESPLTable(const char* filename) {
 }
 
 double VBMicrolensing::PSPLMag(double u) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -626,7 +626,7 @@ double VBMicrolensing::PSPLMag(double u) {
 }
 
 double VBMicrolensing::ESPLMag(double u, double RSv) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -688,7 +688,7 @@ double VBMicrolensing::ESPLMag(double u, double RSv) {
 }
 
 double VBMicrolensing::ESPLMag2(double u, double rho) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -729,7 +729,7 @@ double VBMicrolensing::ESPLMag2(double u, double rho) {
 }
 
 double VBMicrolensing::ESPLMagDark(double u, double RSv) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -885,7 +885,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 
 
 double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, _sols_for_skiplist_curve** Images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -1015,7 +1015,7 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v) 
 }
 
 double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v, double RS, _sols_for_skiplist_curve** images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1109,7 +1109,7 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 }
 
 double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -1424,7 +1424,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 }
 
 double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, double rho) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1477,7 +1477,7 @@ double VBDefaultCumulativeFunction(double cb, double* a1) {
 }
 
 double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, double RSv, double Tolnew) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1687,7 +1687,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 }
 
 void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2, double RSv, double* a1_list, int nfil, double* mag_list, double Tol) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -2939,7 +2939,7 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBcomplex* s) 
     }
 
 double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curve** Images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -3021,6 +3021,7 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s) {
 
 
 double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -3375,7 +3376,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol) 
 }
 
 double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for_skiplist_curve** images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -3468,7 +3469,7 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 }
 
 double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double Tolnew) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -3681,7 +3682,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 
 
 double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -5393,7 +5394,7 @@ void VBMicrolensing::CombineCentroids(double* mags, double* c1s, double* c2s, do
 }
 
 void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5439,7 +5440,7 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 
 
 void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5485,7 +5486,7 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 }
 
 void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5535,7 +5536,7 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 
 
 void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5617,7 +5618,7 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 
 
 void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5737,7 +5738,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 }
 
 void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5880,7 +5881,7 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 
 
 void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -6070,7 +6071,7 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 
 
 void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -6141,7 +6142,7 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 
 
 void VBMicrolensing::TripleAstroLightCurveOrbital(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, double* seps2, double* psis, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -6319,7 +6320,7 @@ void VBMicrolensing::ESPLLightCurveParallax(double* pr, double* ts, double* mags
 
 
 void VBMicrolensing::BinaryLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6356,7 +6357,7 @@ void VBMicrolensing::BinaryLightCurve(double* pr, double* ts, double* mags, doub
 
 
 void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6389,7 +6390,7 @@ void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, dou
 
 
 void VBMicrolensing::BinaryLightCurveParallax(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6418,12 +6419,12 @@ void VBMicrolensing::RecordTimeoutError(const VBMTimeoutError& err, const char* 
 
 bool VBMicrolensing::HandleTimeoutError(const VBMTimeoutError& err, const char* api_name) {
 	RecordTimeoutError(err, api_name);
-	return error_policy_ == ErrorPolicy::Throw;
+	return error_policy_ == ErrorPolicy::Throw || api_depth_ > 1;
 }
 
 
 void VBMicrolensing::BinaryLightCurveOrbital(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6440,7 +6441,7 @@ void VBMicrolensing::BinaryLightCurveOrbital(double* pr, double* ts, double* mag
 }
 
 void VBMicrolensing::BinaryLightCurveKepler(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6709,7 +6710,7 @@ void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* 
 
 
 void VBMicrolensing::TripleLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6763,7 +6764,7 @@ void VBMicrolensing::TripleLightCurveParallax(double* pr, double* ts, double* ma
 }
 
 void VBMicrolensing::TripleLightCurveOrbital(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, double* seps2, double* psis, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6780,7 +6781,7 @@ void VBMicrolensing::TripleLightCurveOrbital(double* pr, double* ts, double* mag
 }
 
 void VBMicrolensing::LightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np, int nl) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -7183,7 +7184,7 @@ void VBMicrolensing::SetLDprofile(LDprofiles LDval) {
 //////////////////////////////
 
 void VBMicrolensing::LoadSunTable(char* filename) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -7321,7 +7322,7 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -7496,7 +7497,7 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* CoordinateString) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -7557,6 +7558,7 @@ bool VBMicrolensing::AreCoordinatesSet() {
 }
 
 void VBMicrolensing::ComputeParallax(double t, double t0) {
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -7973,7 +7975,7 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 void VBMicrolensing::t0_from_t0_par(double t0_in, double tE_in, double u0_in, double pai1_in, double pai2_in) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -8071,7 +8073,7 @@ double VBMicrolensing::du_par(double t) {
 
 
 _sols* VBMicrolensing::PlotCrit() {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.critical_curves_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::CriticalCurves);
@@ -8175,7 +8177,7 @@ _sols* VBMicrolensing::PlotCrit() {
 }
 
 _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.critical_curves_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::CriticalCurves);
@@ -8904,7 +8906,7 @@ void VBMicrolensing::polycoefficients_multipoly() {
 
 
 void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.root_solver_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);
@@ -9027,7 +9029,7 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 }
 
 void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.root_solver_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);

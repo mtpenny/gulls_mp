@@ -24,10 +24,16 @@ silently drop the gulls changes listed below.
    and long loops call `ShouldCheck/CheckTimeout`. Timeouts are disabled by default.
    New public functions that upstream adds need the same wrapper: in 5.6 these were
    `TripleAstroLightCurveOrbital` (Astrometry), `TripleLightCurveOrbital`
-   (Magnification) and `t0_from_t0_par` (Parallax). Under `ReturnNaN`,
-   `ComputeParallax` swallows its own timeout and leaves `Et` stale, so code that uses
-   `Et` straight after it (such as the private helper `du_par`) calls `CheckTimeout`
-   again on return, letting the timeout reach the public entry point's handler.
+   (Magnification) and `t0_from_t0_par` (Parallax). Each wrapper opens with
+   `ApiScope api_scope(this);` (declared before the `try`; upstream has nothing there).
+   It counts nesting depth: only the outermost call clears `LastError`, and
+   `HandleTimeoutError` rethrows whenever the call is nested, so the policy is applied
+   once by the function the caller actually invoked. Without it, an inner wrapper
+   swallowed the timeout under `ReturnNaN` and the next inner call cleared `LastError`,
+   so the outer call could return a wrong value with no error set. Functions that catch
+   but do not clear (`MultiMag`, `ComputeParallax`) also take an `ApiScope`. The private
+   helper `du_par` still calls `CheckTimeout` after each `ComputeParallax` call. That is
+   now redundant, but harmless.
    See `VBM_timeout_only_edits.md`. The wrappers re-indent function bodies, so a plain
    3-way merge produces many whitespace-only conflicts (see below).
 3. **RAII ownership** in `BinaryMag`, `BinaryMag0`, `MultiMag`, `MultiMag0` and the
@@ -128,5 +134,7 @@ gulls files exactly.
   that calls `BinaryMag2`, `MultiMag2` and `ESPLMag2` (gulls' per-epoch calls) under
   `ErrorPolicy::ReturnNaN`. Sweep budgets from about 1e-7 s up, with `check_interval` 1–64
   and with `magnification`/`root_solver` enabled together and separately. Each call should
-  either match the untimed result or set `HasLastError()`, with no sanitizer reports.
+  either match the untimed result or set `HasLastError()` and return NaN, with
+  `GetLastError().api` naming the called function and no sanitizer reports. Run the
+  sweep a few times, because the lost-error case it guards against is timing-dependent.
   This is how the `annulus` and `Images == nullptr` crashes above were found.
