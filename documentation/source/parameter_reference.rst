@@ -283,7 +283,7 @@ VBM_NOPOLY_ABSTOL
 ~~~~~~~~~~~~~~~~~
 - **Type**: float
 - **Default**: 1.0e-5
-- **Description**: Upper limit on the absolute tolerance for the Nopoly ``MultiMag2`` calls that ``gulls_general`` and ``gullsFish`` make for three or more lenses. Those calls use ``min(VBM_ABSTOL, VBM_NOPOLY_ABSTOL)``. VBMicrolensing 5.6 and later can return a wrong magnification and centroid at ``Tol=1e-4`` for hierarchical triples with a distant companion (VBMicrolensing issue #88). Single and binary lenses are not affected.
+- **Description**: Upper limit on the absolute tolerance for the Nopoly ``MultiMag2`` calls that ``gulls_general`` and ``gullsFish`` make for three or more lenses. Those calls use ``min(VBM_ABSTOL, VBM_NOPOLY_ABSTOL)``. It works around a known Nopoly accuracy issue in VBMicrolensing 5.6 and later at ``Tol=1e-4`` (VBMicrolensing issue #88), seen in one RMDC26 event with a distant stellar companion. Single and binary lenses are not affected.
 
 LC_TIMEOUT
 ~~~~~~~~~~

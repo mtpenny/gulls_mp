@@ -1088,8 +1088,8 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 		  VBMlocal.SetLensGeometry(nlens,lens_parameters);
 		  VBMlocal.a1 = Event->gamma;
-		  // VBM >= 5.6 Nopoly can return a wrong root set at Tol=1e-4 for hierarchical
-		  // triples with a distant companion (VBMicrolensing issue #88); cap Tol here.
+		  // Cap Tol for Nopoly: see VBMicrolensing issue #88 (accuracy at Tol=1e-4 in
+		  // VBM >= 5.6 for one RMDC26 triple with a distant companion).
 		  VBMlocal.Tol=std::min(Paramfile->vbm_tol, Paramfile->vbm_nopoly_tol);
 		  VBMlocal.RelTol=Paramfile->vbm_reltol;
 		  VBMlocal.SetMethod(VBMicrolensing::Method::Nopoly);
