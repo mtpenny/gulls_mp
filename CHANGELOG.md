@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - VBM timeouts no longer crash gulls. A timeout inside `BinaryMag2` or `MultiMag2` (gulls' per-epoch magnification calls) could segfault: the limb-darkening annulus list was freed through an uninitialized `next` pointer, and `MultiMag2` dereferenced the null image list that `MultiMag0` returns after a timeout. Annuli are now value-initialized, and both functions return NaN with `LastError` set.
 - Under `ErrorPolicy::ReturnNaN`, a timeout inside a nested VBM call could be swallowed and its `LastError` cleared by the next inner call, so the outer call returned a value with no error set. Only the outermost call now applies the policy, so a timeout aborts the whole call and `LastError.api` names the function that was called.
+- VBM no longer leaks memory when a timeout fires in `PlotCrit`, `BinaryMag0` or `MultiMag0`; `PlotCrit` also no longer leaks a sample curve on every successful call. `BinaryMag0_shear` now has its own timeout wrapper: under `ReturnNaN` it previously returned a magnification computed from incomplete roots, and now returns NaN with `LastError` set.
 
 ## [3.1.0] - 2026-01-25
 
