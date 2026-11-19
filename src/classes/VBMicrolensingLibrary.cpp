@@ -937,8 +937,9 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 	corrquad = corrquad2 = 0;
 	safedist = 10;
 	Prov = NewImages(y, coefs, stheta);
+	// Frees the points not yet moved into Images if a timeout interrupts the transfer.
+	std::unique_ptr<_curve> prov_owner(Prov);
 	if (Prov->length == 0) {
-		delete Prov;
 		return -1;
 	}
 	if (q.re < 0.01) {
@@ -983,7 +984,6 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 		}
 		nim0++;
 	}
-	delete Prov;
 	if (astrometry) {
 		astrox1 /= (Mag);
 		astrox1 -= coefs[11].re;
@@ -2965,6 +2965,8 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 	safedist = 10;
 
 	EXECUTE_METHOD(SelectedMethod, stheta)
+	// Frees the points not yet moved into Images if a timeout interrupts the transfer.
+	std::unique_ptr<_curve> prov_owner(Prov);
 
 	Mag = 0.;
 	nim0 = 0;
@@ -2988,7 +2990,6 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 		}
 		nim0++;
 	}
-	delete Prov;
 	if (astrometry) {
 		astrox1 /= (Mag);
 		//astrox1 -= coefs[11].re; 
@@ -8080,12 +8081,13 @@ _sols* VBMicrolensing::PlotCrit() {
 
 	VBcomplex ej, y, z;
 	int NPS = 200;
-	_sols* CriticalCurves;
+	// Owned until the successful return, so a timeout frees everything built so far.
+	std::unique_ptr<_sols> CriticalCurves;
 	_curve* Prov, * Prov2, * isso;
 	_point* pisso;
 	double SD, MD, CD;
 
-	CriticalCurves = new _sols;
+	CriticalCurves.reset(new _sols);
 	for (int i = 0; i < 2 * n; i++) {
 		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit");
@@ -8102,13 +8104,14 @@ _sols* VBMicrolensing::PlotCrit() {
 		polycritcoefficients(ej);
 		cmplx_roots_gen(zcr, coefs, 2 * n, true, true);
 		if (j > 0) {
-			Prov2 = new _curve();
+			// Every sample is moved onto a critical curve; the empty holder used to leak.
+			std::unique_ptr<_curve> samples(new _curve());
 			for (int i = 0; i < 2 * n; i++) {
-				Prov2->append(zcr[i].re + s_offset->re, zcr[i].im + s_offset->im);
+				samples->append(zcr[i].re + s_offset->re, zcr[i].im + s_offset->im);
 			}
 			for (Prov = CriticalCurves->first; Prov; Prov = Prov->next) {
-				Prov2->closest(Prov->last, &pisso);
-				Prov2->drop(pisso);
+				samples->closest(Prov->last, &pisso);
+				samples->drop(pisso);
 				Prov->append(pisso);
 			}
 		}
@@ -8152,7 +8155,7 @@ _sols* VBMicrolensing::PlotCrit() {
 		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit");
 		}
-		Prov2 = new _curve;
+		std::unique_ptr<_curve> caustic(new _curve);
 		int point_iter = 0;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
 			if (ShouldCheck(++point_iter, kDefaultTimeoutCheckInterval)) {
@@ -8162,11 +8165,11 @@ _sols* VBMicrolensing::PlotCrit() {
 			for (int i = 0; i < n; i++) {
 				y = y - m[i] / conj(z - a[i]);
 			}
-			Prov2->append(y.re + s_offset->re, y.im + s_offset->im);
+			caustic->append(y.re + s_offset->re, y.im + s_offset->im);
 		}
-		CriticalCurves->append(Prov2);
+		CriticalCurves->append(caustic.release());
 	}
-	return CriticalCurves;
+	return CriticalCurves.release();
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "PlotCrit")) {
@@ -8184,7 +8187,8 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 
 	VBcomplex  a, q, ej, zr[4], x1, x2;
 	int NPS = 200;
-	_sols* CriticalCurves;
+	// Owned until the successful return, so a timeout frees everything built so far.
+	std::unique_ptr<_sols> CriticalCurves;
 	_curve* Prov, * Prov2, * isso;
 	_point* pisso;
 	double SD, MD, CD, centeroffset;
@@ -8193,7 +8197,7 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 	q = VBcomplex(q1, 0.0);
 	centeroffset = a1 / 2.0 * (1.0 - q1) / (1.0 + q1);
 
-	CriticalCurves = new _sols;
+	CriticalCurves.reset(new _sols);
 	for (int i = 0; i < 4; i++) {
 		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit(a,q)");
@@ -8210,13 +8214,14 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 		VBcomplex  coefs[5] = { a * a / 16.0 * (4.0 - a * a * ej) * (1.0 + q),a * (q - 1.0),(q + 1.0) * (1.0 + a * a * ej / 2.0),0.0,-(1.0 + q) * ej };
 		cmplx_roots_gen(zr, coefs, 4, true, true);
 		if (j > 0) {
-			Prov2 = new _curve();
+			// Every sample is moved onto a critical curve; the empty holder used to leak.
+			std::unique_ptr<_curve> samples(new _curve());
 			for (int i = 0; i < 4; i++) {
-				Prov2->append(zr[i].re + centeroffset, zr[i].im);
+				samples->append(zr[i].re + centeroffset, zr[i].im);
 			}
 			for (Prov = CriticalCurves->first; Prov; Prov = Prov->next) {
-				Prov2->closest(Prov->last, &pisso);
-				Prov2->drop(pisso);
+				samples->closest(Prov->last, &pisso);
+				samples->drop(pisso);
 				Prov->append(pisso);
 			}
 		}
@@ -8260,7 +8265,7 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit(a,q)");
 		}
-		Prov2 = new _curve;
+		std::unique_ptr<_curve> caustic(new _curve);
 		int point_iter = 0;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
 			if (ShouldCheck(++point_iter, kDefaultTimeoutCheckInterval)) {
@@ -8268,11 +8273,11 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 			}
 			x1 = VBcomplex(scanpoint->x1 - centeroffset, 0.0);
 			x2 = VBcomplex(scanpoint->x2, 0.0);
-			Prov2->append(real(_L_1) + centeroffset, real(_L_2));
+			caustic->append(real(_L_1) + centeroffset, real(_L_2));
 		}
-		CriticalCurves->append(Prov2);
+		CriticalCurves->append(caustic.release());
 	}
-	return CriticalCurves;
+	return CriticalCurves.release();
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "PlotCrit")) {
@@ -10078,6 +10083,18 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 
 double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi, _sols** Images) {
 	// by Lawrence Pierson (https://github.com/alpv95)
+	// gulls: outer timeout scope, so a root-solver timeout aborts the whole call
+	// instead of being absorbed by cmplx_roots_gen under ReturnNaN.
+	ApiScope api_scope(this);
+	if (Images) {
+		*Images = nullptr;
+	}
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	std::unique_ptr<_sols> images_owner(new _sols);
+	std::unique_ptr<_theta> stheta_owner(new _theta(-1.));
+
 	static VBcomplex a, q, m1, m2, y, yc, mdiff, mtot, K, G;
 	static double av = -1.0, qv = -1.0, Kv = -1.0, Gv = -1.0, Giv = -1.0, cq;
 	static VBcomplex  coefs[28], d1, d2, dy, dJ, dz;
@@ -10086,7 +10103,7 @@ double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double
 	_curve* Prov, * Prov2;
 	_point* scan1, * scan2;
 
-	stheta = new _theta(-1.);
+	stheta = stheta_owner.get();
 	if ((a1 != av) || (q1 != qv) || (K1 != Kv) || (G1 != Gv) || (Gi != Giv)) {
 		av = a1;
 		qv = q1;
@@ -10126,7 +10143,6 @@ double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double
 
 	}
 	y = VBcomplex(y1v, y2v);
-	(*Images) = new _sols;
 	corrquad = corrquad2 = 0;
 	safedist = 10;
 	Prov = NewImages_shear(y, coefs, stheta);
@@ -10140,15 +10156,21 @@ double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double
 	for (scan1 = Prov->first; scan1; scan1 = scan2) {
 		scan2 = scan1->next;
 		Prov2 = new _curve(scan1);
-		(*Images)->append(Prov2);
+		images_owner->append(Prov2);
 		Mag += fabs(1 / scan1->dJ);
 		nim0++;
 	}
 	Prov->length = 0;
 	delete Prov;
-	delete stheta;
+	*Images = images_owner.release();
 	return Mag;
-
+	}
+	catch (const VBMTimeoutError& err) {
+		if (HandleTimeoutError(err, "BinaryMag0_shear")) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
+	}
 }
 
 double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi) {

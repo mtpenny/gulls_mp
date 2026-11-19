@@ -31,14 +31,22 @@ silently drop the gulls changes listed below.
    once by the function the caller actually invoked. Without it, an inner wrapper
    swallowed the timeout under `ReturnNaN` and the next inner call cleared `LastError`,
    so the outer call could return a wrong value with no error set. Functions that catch
-   but do not clear (`MultiMag`, `ComputeParallax`) also take an `ApiScope`. The private
+   but do not clear (`MultiMag`, `ComputeParallax`) also take an `ApiScope`. Both
+   `BinaryMag0_shear` overloads have no upstream timeout handling, so the 8-argument one
+   carries a gulls wrapper (Magnification budget, returns NaN with `*Images == nullptr`).
+   Without it, the root solver was the outermost call, so under `ReturnNaN` it absorbed
+   the timeout and the shear magnification was computed from incomplete roots. The private
    helper `du_par` still calls `CheckTimeout` after each `ComputeParallax` call. That is
    now redundant, but harmless.
    See `VBM_timeout_only_edits.md`. The wrappers re-indent function bodies, so a plain
    3-way merge produces many whitespace-only conflicts (see below).
 3. **RAII ownership** in `BinaryMag`, `BinaryMag0`, `MultiMag`, `MultiMag0` and the
-   `*Dark` functions. These use `std::unique_ptr` (`images_owner`, `thetas_owner`,
-   `stheta_owner`, `AnnulusChainPtr`) instead of raw `new`/`delete`. `Prov` lists are
+   `*Dark` functions, plus both `PlotCrit` overloads. These use `std::unique_ptr`
+   (`images_owner`, `thetas_owner`, `stheta_owner`, `prov_owner`, `AnnulusChainPtr`;
+   in `PlotCrit`, `CriticalCurves`, `samples` and `caustic`) instead of raw
+   `new`/`delete`, so a timeout that exits early frees what was built so far. Upstream
+   `PlotCrit` also leaks its per-step sample curve on every successful call; the
+   `samples` owner fixes that too. `Prov` lists are
    drained with `while (Prov->first) { …; Prov->drop(scan1); }`. Callers check
    `Images == nullptr` and return NaN after a timeout. On upstream's own `return -1`
    paths, `MultiMag` still hands back the image list (`images_owner.release()`), which
