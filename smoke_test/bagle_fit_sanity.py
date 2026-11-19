@@ -964,16 +964,41 @@ def run_bagle_joint_fit_sanity(
             f"Closest events:\n{head}"
         )
 
-    candidate_rows = candidates.sort_values(
-        ["ObsGroup_0_chi2", "EventID"],
-        ascending=[True, True],
-    )
+    selection_notes: List[str] = []
+    n_lens = pd.to_numeric(candidates["NLens"], errors="coerce") if "NLens" in candidates.columns else None
+    single_lens = candidates.loc[n_lens == 1.0] if n_lens is not None else candidates.iloc[0:0]
+    if not single_lens.empty:
+        # The fit model is a point lens, so use single-lens events only, and among
+        # them the one whose parallax the data constrain best. The parallax signal
+        # grows with |piE| and with how long the event lasts, so rank by |piE| * tE.
+        # (Ranking by lowest ObsGroup_0_chi2 picked short, near-zero-parallax events
+        # whose fitted muRel/piE directions are dominated by noise.)
+        candidates = single_lens.copy()
+        pie_e = pd.to_numeric(candidates["piEE"], errors="coerce")
+        pie_n = pd.to_numeric(candidates["piEN"], errors="coerce")
+        te_abs = pd.to_numeric(candidates["tE_ref"], errors="coerce").abs()
+        candidates["_parallax_score"] = (np.hypot(pie_e, pie_n) * te_abs).fillna(-np.inf)
+        candidate_rows = candidates.sort_values(
+            ["_parallax_score", "EventID"],
+            ascending=[False, True],
+        )
+    else:
+        # Multi-lens runs only: fit the most single-lens-like event, as before.
+        selection_notes.append(
+            "no NLens==1 candidates; fitting a point-lens model to a multi-lens event "
+            "(lowest ObsGroup_0_chi2 first). Use the general-bagle case for a single-lens fit."
+        )
+        candidate_rows = candidates.sort_values(
+            ["ObsGroup_0_chi2", "EventID"],
+            ascending=[True, True],
+        )
 
     row = None
     lc_file = None
     df = None
     mask_skips: List[str] = []
     min_epochs_after_mask = 60
+    edge_margin_te = 2.0
     for _, candidate_row in candidate_rows.iterrows():
         evt_try = int(float(candidate_row["EventID"]))
         subrun_try = int(float(candidate_row["SubRun"]))
@@ -990,6 +1015,24 @@ def run_bagle_joint_fit_sanity(
         tE_try = abs(_safe_get(candidate_row, "tE_ref"))
         if math.isnan(t0_try) or math.isnan(tE_try) or tE_try <= 0.0:
             continue
+
+        # The event must sit inside the data with room on both sides; otherwise
+        # t0, u0 and parallax are poorly constrained however strong the signal is.
+        finite_time_try = sim_time_try[np.isfinite(sim_time_try)]
+        if finite_time_try.size == 0 or not (
+            finite_time_try.min() + edge_margin_te * tE_try
+            <= t0_try
+            <= finite_time_try.max() - edge_margin_te * tE_try
+        ):
+            edge_msg = (
+                f"{lc_try.name} (EventID={evt_try}): t0={t0_try:.2f} is within "
+                f"{edge_margin_te:g}*tE of the light-curve edges"
+            )
+            if event_id is None:
+                mask_skips.append(edge_msg)
+                continue
+            # An explicitly requested event is still fitted, with a warning.
+            mask_skips.append(f"{edge_msg} (fitted anyway: requested with --bagle-event-id)")
 
         if microlensing_mask_te > 0.0:
             mask_halfwidth_days_try = microlensing_mask_te * max(tE_try, 1.0e-12)
@@ -1012,7 +1055,8 @@ def run_bagle_joint_fit_sanity(
     if row is None or lc_file is None or df is None:
         detail = "\n".join(mask_skips[:8]) if mask_skips else "No candidate passed mask-based epoch availability checks."
         raise SmokeTestError(
-            "BAGLE sanity: all selected events were skipped because the microlensing mask left insufficient data.\n"
+            "BAGLE sanity: all selected events were skipped (event near the light-curve edges, "
+            "or the microlensing mask left insufficient data).\n"
             + detail
         )
 
@@ -1030,6 +1074,8 @@ def run_bagle_joint_fit_sanity(
     deferred_failures: List[str] = []
     for skip_msg in mask_skips[:5]:
         warnings.append(f"BAGLE candidate skipped: {skip_msg}.")
+    for note in selection_notes:
+        warnings.append(f"BAGLE event selection: {note}")
 
     def _resolve_col(contract_keys: tuple[str, ...], *fallbacks: str, allow_none: bool = False) -> str | None:
         candidates: List[str] = []

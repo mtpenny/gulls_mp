@@ -29,8 +29,8 @@ CASES: Tuple[CaseDef, ...] = (
     ("general-1s1l", "gulls_general.x", "smoke_1s1l.prm"),
     ("general-binary", "gulls_general.x", "smoke_general_binary.prm"),
     # Single lens over two years, so the BAGLE joint fit (--bagle-joint-fit-sanity)
-    # can constrain parallax and proper motion. Use with --cases general-bagle
-    # --bagle-event-id 0 (tE ~13 d, |piE| ~0.48, t0 mid-baseline).
+    # can constrain parallax and proper motion. Use with --cases general-bagle.
+    # Ten events only: each two-year light curve is ~26 MB.
     ("general-bagle", "gulls_general.x", "smoke_bagle.prm"),
     # Houston catalog tests - different seeds to test for serendipitous success
     ("std-houston-seed1", "gulls_std.x", "smoke_std_houston_seed1.prm"),

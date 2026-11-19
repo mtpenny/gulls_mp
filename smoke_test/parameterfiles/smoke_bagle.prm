@@ -20,7 +20,7 @@ LENS_LIST=smoke.lenses
 LENS_COLOURS=0
 
 PLANET_DIR=smoke_test/assets/planets/
-PLANET_ROOT=smoke_general_pspl.planets.
+PLANET_ROOT=smoke_bagle.planets.
 
 RATES_FILE=smoke_test/assets/rates/smoke.rates
 
