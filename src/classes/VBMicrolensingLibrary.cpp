@@ -11064,6 +11064,7 @@ _theta::_theta(double th1) {
 }
 
 _thetas::_thetas(void) {
+	first = last = nullptr;
 	length = 0;
 }
 
@@ -11145,8 +11146,12 @@ void _thetas::remove(_theta* stheta) {
 	scan = first;
 	while (scan != 0) {
 		if (scan == stheta) {
+			// gulls: keep first/last valid when removing an end element (upstream leaves them
+			// dangling; harmless there, but thetas_owner's destructor walks first).
 			if (scan != first) scan->prev->next = stheta->next;
+			else first = stheta->next;
 			if (scan != last) scan->next->prev = stheta->prev;
+			else last = stheta->prev;
 			delete stheta;
 			length--;
 			break;
