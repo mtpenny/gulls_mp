@@ -153,7 +153,6 @@ struct filekeywords{
   double LD_GAMMA; //limb darkening coefficient used in lc-gen
 // A switch for appending uniform error scalings to find DeltaChi2 and n3sig cuts
   double vbm_tol, vbm_reltol;
-  double vbm_nopoly_tol; // Tol cap for Nopoly MultiMag2 (3+ lenses); see VBM_NOPOLY_ABSTOL
   
   int error_scaling;
   int parameterization; //0=standard, 1=croin

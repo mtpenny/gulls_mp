@@ -1088,9 +1088,7 @@ void lightcurveGenerator(struct filekeywords* Paramfile, struct event *Event, st
 
 		  VBMlocal.SetLensGeometry(nlens,lens_parameters);
 		  VBMlocal.a1 = Event->gamma;
-		  // Cap Tol for Nopoly: see VBMicrolensing issue #88 (accuracy at Tol=1e-4 in
-		  // VBM >= 5.6 for one RMDC26 triple with a distant companion).
-		  VBMlocal.Tol=std::min(Paramfile->vbm_tol, Paramfile->vbm_nopoly_tol);
+		  VBMlocal.Tol=Paramfile->vbm_tol;
 		  VBMlocal.RelTol=Paramfile->vbm_reltol;
 		  VBMlocal.SetMethod(VBMicrolensing::Method::Nopoly);
 		  VBMlocal.SetTimeouts(Event->vbm->GetTimeouts());

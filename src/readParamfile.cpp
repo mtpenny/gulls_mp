@@ -62,7 +62,6 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
     {"LD_GAMMA","0.00"},     
     {"VBM_RELTOL","1.0e-6"},
     {"VBM_ABSTOL","1.0e-4"},
-    {"VBM_NOPOLY_ABSTOL","1.0e-5"},
     {"LC_TIMEOUT","60.0"},
     {"VBM_TIMEOUT_ROOT_SOLVER","0.0"},
     {"VBM_TIMEOUT_MAGNIFICATION","0.0"},
@@ -243,7 +242,6 @@ void readParamfile(string v_file, struct filekeywords *Paramfile){
   Paramfile->LD_GAMMA = stod(pfile["LD_GAMMA"]);
   Paramfile->vbm_reltol = stod(pfile["VBM_RELTOL"]);
   Paramfile->vbm_tol = stod(pfile["VBM_ABSTOL"]);  
-  Paramfile->vbm_nopoly_tol = stod(pfile["VBM_NOPOLY_ABSTOL"]);
   Paramfile->lc_timeout = stod(pfile["LC_TIMEOUT"]);
   Paramfile->vbm_timeout_root_solver = stod(pfile["VBM_TIMEOUT_ROOT_SOLVER"]);
   Paramfile->vbm_timeout_magnification = stod(pfile["VBM_TIMEOUT_MAGNIFICATION"]);
