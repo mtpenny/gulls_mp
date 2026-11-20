@@ -4620,7 +4620,7 @@ void VBMicrolensing::OrderMultipleImages(_sols_for_skiplist_curve* Sols, _curve*
 		printf("\n%le %le %le %le %le %le %le %le", scan->x1, scan->x2, scan->dJ, (scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2, scan->parab, (scan->ds - scan2->ds) * mi / 2, fabs(scan->parab) * (cmp2) / 10, fabs(scan->parab) * (1.5 * fabs(cmp2 / (cmp * cmp) - 1)));
 #endif
 
-		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * 1.5 * fabs(cmp2 / (cmp_2)-1)) + er3;
+		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * (cmp2 * 0.1 + 1.5 * fabs(cmp2 / (cmp_2)-1))) + er3;
 #ifdef _noparab
 		mi = fabs(scan->parab) * 2 + 0 * fabs((scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2 * cmp * cmp / 6);
 		scan->parab = 0.;
@@ -5016,7 +5016,7 @@ void VBMicrolensing::OrderMultipleImages(_sols_for_skiplist_curve* Sols, _curve*
 		printf("\n%le %le %le %le %le %le %le %le", scan->x1, scan->x2, scan->dJ, (scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2, scan->parab, (scan->ds - scan2->ds) * mi / 2, fabs(scan->parab) * (cmp2) / 10, fabs(scan->parab) * (1.5 * fabs(cmp2 / (cmp * cmp) - 1)));
 #endif
 
-		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * 1.5 * fabs(cmp2 / (cmp_2)-1)) + er3;
+		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * (cmp2 * 0.1 + 1.5 * fabs(cmp2 / (cmp_2)-1))) + er3;
 #ifdef _noparab
 		mi = fabs(scan->parab) * 2 + 0 * fabs((scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2 * cmp * cmp / 6);
 		scan->parab = 0.;
