@@ -9,6 +9,7 @@
 
 
 #include<time.h>
+#include<algorithm>
 #include<vector>
 #include<fstream>
 #include<sstream>

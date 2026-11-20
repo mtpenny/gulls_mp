@@ -1,4 +1,6 @@
-// VBMicrolensing v5.3.3 (2025)
+// VBMicrolensing v5.6.1 (2026) -- gulls-customized copy (upstream valboz/VBMicrolensing tag v5.6.1).
+// gulls changes: complex->VBcomplex rename, opt-in timeouts/ErrorPolicy, RAII ownership in Binary/MultiMag,
+// max_num_images counter. See documentation/development/VBM_upgrade.md before editing or upgrading.
 //
 // This code has been developed by Valerio Bozza (University of Salerno) and collaborators.
 // Check the repository at https://github.com/valboz/VBMicrolensing
@@ -446,6 +448,7 @@ VBMicrolensing::VBMicrolensing() {
 	CumulativeFunction = &VBDefaultCumulativeFunction;
 	SelectedMethod = Method::Nopoly;
 	turn_off_secondary_source = turn_off_secondary_lens = false;
+	block_tertiary_lens = false;
 	t_in_HJD = true;
 	parallaxextrapolation = 0;
 	//	testnewcoefs = true;
@@ -467,6 +470,7 @@ VBMicrolensing::~VBMicrolensing() {
 		free(posEar);
 	}
 
+	if (coefs) free(coefs);
 	if (m) {
 		free(m);
 		free(a);
@@ -600,7 +604,7 @@ void VBMicrolensing::LoadESPLTable(const char* filename) {
 }
 
 double VBMicrolensing::PSPLMag(double u) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -622,7 +626,7 @@ double VBMicrolensing::PSPLMag(double u) {
 }
 
 double VBMicrolensing::ESPLMag(double u, double RSv) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -684,7 +688,7 @@ double VBMicrolensing::ESPLMag(double u, double RSv) {
 }
 
 double VBMicrolensing::ESPLMag2(double u, double rho) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -725,7 +729,7 @@ double VBMicrolensing::ESPLMag2(double u, double rho) {
 }
 
 double VBMicrolensing::ESPLMagDark(double u, double RSv) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -744,7 +748,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 			CheckTimeout("ESPLMagDark");
 		}
 
-		first = new annulus;
+		first = new annulus();
 		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
@@ -763,7 +767,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 		first->prev = 0;
 
 
-		first->next = new annulus;
+		first->next = new annulus();
 		scan = first->next;
 		scan->prev = first;
 		scan->next = 0;
@@ -815,7 +819,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 			tc = (lc + rc) / 2;
 			cb = rCLDprofile(tc, scan->prev, scan);
 
-			scan->prev->next = new annulus;
+			scan->prev->next = new annulus();
 			scan->prev->next->prev = scan->prev;
 			scan->prev = scan->prev->next;
 			scan->prev->next = scan;
@@ -881,7 +885,7 @@ double VBMicrolensing::ESPLMagDark(double u, double RSv) {
 
 
 double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, _sols_for_skiplist_curve** Images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -933,14 +937,32 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 	corrquad = corrquad2 = 0;
 	safedist = 10;
 	Prov = NewImages(y, coefs, stheta);
+	// Frees the points not yet moved into Images if a timeout interrupts the transfer.
+	std::unique_ptr<_curve> prov_owner(Prov);
 	if (Prov->length == 0) {
-		delete Prov;
 		return -1;
 	}
 	if (q.re < 0.01) {
 		safedist = y1v + (a.re - 1 / a.re) * coefs[21].re; // Note that a.re is negative 
 		safedist *= safedist;
 		safedist += y2v * y2v - 4 * sqrt(q.re) / (a.re * a.re); // Caustic region of influence ~ sqrt(caustic size)
+	}
+	else {
+		// Without this branch safedist keeps its initialization value of 10,
+		// so the point-source shortcut in BinaryMag2 ("safedist > 4*rho*rho")
+		// can never pass for rho > sqrt(10)/2 ~ 1.6 when q >= 0.01. The full
+		// finite-source machinery then runs even for a source thousands of
+		// Einstein radii away, where the magnification is 1 to machine
+		// precision. All caustics of a binary lens lie within
+		// Rinf = s + 1/s + 2 of the center of mass, so outside that circle
+		// the distance to the caustic region grows with the source distance.
+		double sabs = fabs(a.re);
+		double Rinf = sabs + 1 / sabs + 2;
+		double d2 = y1v * y1v + y2v * y2v;
+		if (d2 > Rinf * Rinf) {
+			double d = sqrt(d2);
+			safedist = (d - Rinf) * (d - Rinf);
+		}
 	}
 	Mag = 0.;
 	astrox1 = 0.;
@@ -962,7 +984,6 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v, 
 		}
 		nim0++;
 	}
-	delete Prov;
 	if (astrometry) {
 		astrox1 /= (Mag);
 		astrox1 -= coefs[11].re;
@@ -994,7 +1015,7 @@ double VBMicrolensing::BinaryMag0(double a1, double q1, double y1v, double y2v) 
 }
 
 double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v, double RS, _sols_for_skiplist_curve** images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1088,7 +1109,7 @@ double VBMicrolensing::BinaryMagSafe(double s, double q, double y1v, double y2v,
 }
 
 double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -1403,7 +1424,7 @@ double VBMicrolensing::BinaryMag(double a1, double q1, double y1v, double y2v, d
 }
 
 double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, double rho) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1417,10 +1438,13 @@ double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, do
 		y2a = fabs(y2v);
 
 		Mag0 = BinaryMag0(s, q, y1v, y2a, &Images);
+		if (Images == nullptr) {
+			return std::numeric_limits<double>::quiet_NaN();
+		}
 		delete Images;
 		rho2 = rho * rho;
 		corrquad *= 6 * (rho2 + 1.e-4 * Tol);
-		corrquad2 *= 256 * (rho2 + 1.e-9);
+	corrquad2 *= 256 * (rho2 + 1.e-8);
 		if (corrquad < Tol && corrquad2 < 1 && (/*rho2 * s * s<q || */ safedist > 4 * rho2)) {
 			Mag = Mag0;
 		}
@@ -1453,7 +1477,7 @@ double VBDefaultCumulativeFunction(double cb, double* a1) {
 }
 
 double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, double RSv, double Tolnew) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1483,7 +1507,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			CheckTimeout("BinaryMagDark");
 		}
 
-		first = new annulus;
+		first = new annulus();
 		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
@@ -1510,7 +1534,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		first->prev = 0;
 
 
-		first->next = new annulus;
+		first->next = new annulus();
 		scan = first->next;
 		scan->prev = first;
 		scan->next = 0;
@@ -1573,7 +1597,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			rc = scan->cum;
 			tc = (lc + rc) * 0.5;
 			cb = rCLDprofile(tc, scan->prev, scan);
-			scan->prev->next = new annulus;
+			scan->prev->next = new annulus();
 			scan->prev->next->prev = scan->prev;
 			scan->prev = scan->prev->next;
 			scan->prev->next = scan;
@@ -1663,7 +1687,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 }
 
 void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2, double RSv, double* a1_list, int nfil, double* mag_list, double Tol) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -1758,7 +1782,7 @@ void VBMicrolensing::BinaryMagMultiDark(double a, double q, double y1, double y2
 	JJalt2=(1-J1c*Jalt);\
 	J3=J2*J1c*JJalt2;\
 	J3=(J3-conj(J3)*Jalt)/(JJalt2*JJalt2*dJ.re);\
-	cq=(dJ.re<-100)? 0.0 : (J3.re*J3.re+J3.im*J3.im);
+	cq=(dJ.re<-10)? -1.0 : (J3.re*J3.re+J3.im*J3.im);
 
 
 _curve* VBMicrolensing::NewImages(VBcomplex yi, VBcomplex* coefs, _theta* theta) {
@@ -1899,7 +1923,10 @@ _curve* VBMicrolensing::NewImages(VBcomplex yi, VBcomplex* coefs, _theta* theta)
 			i = worst2;
 			_Jacobians1
 				_Jacobians4
-				if (cq < corrquad2) corrquad2 = cq;
+				if (corrquad2 < 0 || cq < 0) corrquad2 = 0;
+				else {
+					if (cq > corrquad2) corrquad2 = cq;
+				}
 			//_Jacobians3
 			//corrquad2 +=  1/cq;
 
@@ -2828,7 +2855,7 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBcomplex* s) 
 					p = i + 1;
 				}
 			}
-			x = p;
+			if (k) x = p;
 		} while (k == 1);
 	}
 
@@ -2912,7 +2939,7 @@ void VBMicrolensing::SetLensGeometry_multipoly(int nn, double* q, VBcomplex* s) 
     }
 
 double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curve** Images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -2938,6 +2965,8 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 	safedist = 10;
 
 	EXECUTE_METHOD(SelectedMethod, stheta)
+	// Frees the points not yet moved into Images if a timeout interrupts the transfer.
+	std::unique_ptr<_curve> prov_owner(Prov);
 
 	Mag = 0.;
 	nim0 = 0;
@@ -2961,7 +2990,6 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s, _sols_for_skiplist_curv
 		}
 		nim0++;
 	}
-	delete Prov;
 	if (astrometry) {
 		astrox1 /= (Mag);
 		//astrox1 -= coefs[11].re; 
@@ -2992,7 +3020,9 @@ double VBMicrolensing::MultiMag0(double y1s, double y2s) {
 	return mag;
 }
 
+
 double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, _sols_for_skiplist_curve** Images) {
+	ApiScope api_scope(this);
 	if (Images) {
 		*Images = nullptr;
 	}
@@ -3002,9 +3032,9 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 	std::unique_ptr<_thetas> thetas_owner(new _thetas);
 
 	static VBcomplex y0, yi;
-	static double Mag = -1.0, th, thoff = 0.01020304, thoff2 = 0.7956012033974483; //0.01020304
-	static double errimage, maxerr, currerr, Magold, rhorad2, th2;
-	static int NPSmax, flag, NPSold, isquare, flagfinal;
+	static double Mag = -1.0, th, thoff, thoff2 = 0.7956012033974483; //0.01020304
+	static double errimage, maxerr, currerr, Magold, rhorad2, th2, errbuff;
+	static int NPSmax, flag, NPSold, isquare, flagfinal, flagbad, flagbadmax = 3;
 	static _thetas* Thetas;
 	static _theta* stheta, * itheta, * jtheta;
 	static _curve* Prov;
@@ -3012,7 +3042,8 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 	static _point* scan1, * scan2;
 	static int lsquares[4];
 
-
+	flagbad = 0;
+	thoff = 0.01020304;
 	yi = VBcomplex(y1s, y2s);
 	static std::minstd_rand engine_start{ std::random_device{}() };
 
@@ -3054,21 +3085,32 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		// Calculation of the images
 
 		Thetas = thetas_owner.get();
-		th = thoff;
-		stheta = Thetas->insert(th);
-		stheta->maxerr = 0.;
-		stheta->Mag = 0.;
-		stheta->astrox1 = 0.;
-		stheta->astrox2 = 0.;
-		y = y0 + VBcomplex(RSv * cos(thoff), RSv * sin(thoff)); // first image
-
+		Prov = 0;
+		int count = 0;
+		do {
+			thoff += thoff;
+			th = thoff;
+			stheta = Thetas->insert(th);
+			stheta->maxerr = 0.;
+			stheta->Mag = 0.;
+			stheta->astrox1 = 0.;
+			stheta->astrox2 = 0.;
+			y = y0 + VBcomplex(RSv * cos(thoff), RSv * sin(thoff)); // first image
+			EXECUTE_METHOD(SelectedMethod, stheta)
+				if (Prov->length == 0) {
+					delete Prov; Prov = 0; Thetas->remove(stheta);
+					count++;
+				}
+		} while (count < 10 && (!Prov));
+		if (count == 10) {
+			*Images = images_owner.release(); // upstream contract: caller owns (empty) image list on -1
+			return -1;
+		}
 
 
 #ifdef _PRINT_TIMES
 		tim0 = Environment::TickCount;
 #endif
-
-		EXECUTE_METHOD(SelectedMethod, stheta)
 
 #ifdef _PRINT_TIMES
 			tim1 = Environment::TickCount;
@@ -3100,6 +3142,18 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		}
 		delete Prov;
 
+		//th = thoff;
+		//for (int i = 0; i < 3; i++) {
+		//	th += M_PI_2;
+		//	stheta = Thetas->insert(th);
+		//	y = y0 + VBcomplex(RSv * cos(th), RSv * sin(th));
+
+		//	EXECUTE_METHOD(SelectedMethod, stheta)
+
+		//		OrderMultipleImages((*Images), Prov);
+		//}
+		//NPS = 4;
+
 		th = thoff;
 		for (int i = 0; i < 3; i++) {
 			th += M_PI_2;
@@ -3107,10 +3161,15 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			y = y0 + VBcomplex(RSv * cos(th), RSv * sin(th));
 
 			EXECUTE_METHOD(SelectedMethod, stheta)
-
-				OrderMultipleImages(images_owner.get(), Prov);
+				if (Prov->length == 0) {
+					delete Prov;
+					Thetas->remove(stheta);
+				}
+				else {
+					OrderMultipleImages(images_owner.get(), Prov);
+					NPS++;
+				}
 		}
-		NPS = 4;
 
 		currerr = Mag = 0.;
 
@@ -3145,6 +3204,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 		flag = 0;
 		Magold = -1.;
 		NPSold = NPS + 1;
+		errbuff = 0;
 
 			timeout_iter = 0;
 			while (((currerr > errimage) && (currerr > RelTol * Mag) && (NPS < NPSmax) && (flag < NPSold))) {
@@ -3175,6 +3235,8 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 #ifdef _PRINT_ERRORS2
 			int lim = Prov->length;
 #endif
+			if (Prov->length > 0) {
+				flagbad = 0;
 			Mag -= stheta->prev->Mag;
 			if (astrometry) {
 				astrox1 -= stheta->prev->astrox1;
@@ -3193,19 +3255,42 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			}
 
       if ((stheta->th - stheta->prev->th) < 1.e-8) {
+					errbuff += stheta->prev->maxerr + stheta->maxerr;
 				stheta->maxerr = 0;
 				stheta->prev->maxerr = 0;				// stop to insert new theta behind stheta and stheta->prev
 			}
 
 			APQ.pop_then_push_augmented_heap(stheta->prev->maxerr, stheta->prev);
 			APQ.push_augmented_heap(stheta->maxerr, stheta);
+			}
+			else {
+				delete Prov;
+				flagbad++;
+				if (flagbad == flagbadmax) {
+					if (NPS < 16) {
+						*Images = images_owner.release(); // Thetas freed by thetas_owner
+						return -1;
+					}
+					errbuff += stheta->prev->maxerr;
+					stheta->prev->maxerr = 0;
+					APQ.pop_then_push_augmented_heap(0., stheta->prev);
+					NPS--;
+					NPSmax--;
+				}
+				else {
+					th = (th - stheta->prev->th >= stheta->next->th - th) ? (th + flagbad * stheta->prev->th) / (1 + flagbad) : (th + flagbad * stheta->next->th) / (1 + flagbad);
+				}
+				Thetas->remove(stheta);
+			}
+
+
+			if (flagbad == 0 || flagbad == flagbadmax) {
+				flagbad = 0;
 
 			itheta = APQ.apq_array[0].stheta;
 			currerr = APQ.sum_tree_array[0].sumerr;
-
-			th = (itheta->th + itheta->next->th) * 0.5;
+				th = (itheta->th + itheta->next->th) / 2;
 			NPS++;
-
 #ifndef _uniform
 			//if (fabs(Magold - Mag) * 2 < errimage) {
 			//	flag++;
@@ -3213,7 +3298,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			//else {
 			//	flag = 0;
 			//	Magold = Mag;
-			//	NPSold = NPS + 1;
+				//	NPSold = NPS + 8;
 			//}
 #else
 			currerr = 2 * errimage;
@@ -3229,8 +3314,9 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			}
 #endif
 #ifdef _PRINT_ERRORS2
-			printf("\nNPS= %d nim=%d Mag = %lf maxerr= %lg currerr =%lg th = %lf", NPS, lim, Mag / (M_PI * RSv * RSv), maxerr / (M_PI * RSv * RSv), currerr / (M_PI * RSv * RSv), th);
+				printf("\nNPS= %d Mag = %lf maxerr= %lg currerr =%lg errbuff = %lg th = %lf", NPS, Mag / (M_PI * RSv * RSv), maxerr / (M_PI * RSv * RSv), currerr / (M_PI * RSv * RSv), errbuff / (M_PI * RSv * RSv), th);
 #endif
+			}
 
 		}
 		if (astrometry) {
@@ -3238,7 +3324,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			astrox2 /= (Mag);
 		}
 		Mag /= (M_PI * RSv * RSv);
-		therr = currerr / (M_PI * RSv * RSv);
+		therr = (currerr + errbuff) / (M_PI * RSv * RSv);
 
 		*Images = images_owner.release();
 		return Mag;
@@ -3254,6 +3340,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol, 
 			return std::numeric_limits<double>::quiet_NaN();
 		}
 		catch (...) {
+			// Thetas and images are freed by thetas_owner/images_owner.
 			FILE* f = fopen("Geom.txt", "w");
 		fprintf(f, "\n%d\n", n);
 		for (int i = 0; i < n; i++) {
@@ -3290,7 +3377,7 @@ double VBMicrolensing::MultiMag(double y1s, double y2s, double RSv, double Tol) 
 }
 
 double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for_skiplist_curve** images) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -3335,7 +3422,7 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 				deltabest = RSi / delta1;
 				magbest = mag1;
 			}
-		} while ((weird || cerr > 10 * (Tol + RelTol * mag1)) && delta1 < 1);
+		} while ((weird || cerr > 10 * (Tol + RelTol * mag1)) && delta1 < 1 && 9 * delta1 * delta1 < minerr * RS); // Later steps cannot have cerr < minerr
 
 		mag1 = magbest;
 		delta1 = deltabest;
@@ -3363,7 +3450,7 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 				deltabest = RSo / delta2;
 				magbest = mag2;
 			}
-		} while ((weird || cerr > 10 * (Tol + RelTol * mag2)) && RSo < 1.e4);
+		} while ((weird || cerr > 10 * (Tol + RelTol * mag2)) && RSo < 1.e4 && 9 * delta2 * delta2 < minerr * RS); // Later steps cannot have cerr < minerr
 		mag2 = magbest;
 		delta2 = deltabest;
 		if (mag2 < 0) mag2 = 1.0;
@@ -3383,7 +3470,7 @@ double VBMicrolensing::MultiMagSafe(double y1s, double y2s, double RS, _sols_for
 }
 
 double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double Tolnew) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -3412,7 +3499,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			CheckTimeout("MultiMagDark");
 		}
 
-		first = new annulus;
+		first = new annulus();
 		annulus_chain.reset(first);
 		first->bin = 0.;
 		first->cum = 0.;
@@ -3440,7 +3527,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		first->prev = 0;
 
 
-		first->next = new annulus;
+		first->next = new annulus();
 		scan = first->next;
 		scan->prev = first;
 		scan->next = 0;
@@ -3504,7 +3591,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			rc = scan->cum;
 			tc = (lc + rc) * 0.5;
 			cb = rCLDprofile(tc, scan->prev, scan);
-			scan->prev->next = new annulus;
+			scan->prev->next = new annulus();
 			scan->prev->next->prev = scan->prev;
 			scan->prev = scan->prev->next;
 			scan->prev->next = scan;
@@ -3596,7 +3683,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 
 
 double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 		TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 		ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -3610,6 +3697,9 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 		max_num_images=0;
 
 		Mag0 = MultiMag0(y1s, y2s, &Images);
+		if (Images == nullptr) {
+			return std::numeric_limits<double>::quiet_NaN();
+		}
 		max_num_images = Images->length;
 		delete Images;
 		rho2 = rho * rho;
@@ -3916,8 +4006,9 @@ int VBMicrolensing::froot(VBcomplex zi) {
 		iter++;
 	}
 	newtonstep += iter;
-	err = 1.e-29 * (fabs(Jac) + 1 / (Jac * Jac)); // Matches upstream v5.4 error model near small lenses and critical curves.
-	err += abs2(epsbase);
+	err = 1.e-29 * (fabs(Jac) + 1 / (Jac * Jac)); // First term comes from secondary images very close to small lenses,
+	// Second comes for images close to critical curves
+	err += abs2(epsbase);             // Last step size
 	zf = z;
 	Jacf = Jac;
 	S2f = S2;
@@ -3930,6 +4021,7 @@ bool VBMicrolensing::checkroot(_theta* theta) {
 	static int imn;
 	static VBcomplex S3, z, S4;
 	static double fad;
+	if (!(zf.re > -1.e99) || !(zf.im > -1.e99)) return false;
 	if ((iter2 < 9 && iter < maxiter) || L0f < 1.e-29) {
 		mn = 1.e100;
 		imn = 0;
@@ -4067,6 +4159,10 @@ _curve* VBMicrolensing::NewImages(_theta* theta) {
 				nminus++;
 			}
 			ngoodold = ngood;
+		}
+		if (ngood > 5 * n - 5) {
+			ngood = 0;
+			break;
 		}
 		imass++;
 		if (imass == n) {
@@ -4307,7 +4403,7 @@ _curve* VBMicrolensing::NewImagesmultipoly(_theta* theta) {
 	tim0 = Environment::TickCount;
 #endif
 
-	cmplx_roots_multigen(zr, coefs_mp, n2 + 1, false, false);
+	cmplx_roots_multigen(zr, coefs_mp, n2 + 1, false, true);
 
 	for (int i = n2; i >= 0; i--) {
 		findimagepoly(i);
@@ -4340,6 +4436,9 @@ _curve* VBMicrolensing::NewImagesmultipoly(_theta* theta) {
 		else nminus++;
 		ngood++;
 		if (ngood < n2 + 1)	isgood = good[worst[ngood]];
+	}
+	if (theta->th >= 0 && (nminus != nplus + n - 1 || nplus == 0)) {
+		ngood = 0;
 	}
 	Prov = new _curve;
 	for (int i = 0; i < ngood; i++) {
@@ -4521,7 +4620,7 @@ void VBMicrolensing::OrderMultipleImages(_sols_for_skiplist_curve* Sols, _curve*
 		printf("\n%le %le %le %le %le %le %le %le", scan->x1, scan->x2, scan->dJ, (scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2, scan->parab, (scan->ds - scan2->ds) * mi / 2, fabs(scan->parab) * (cmp2) / 10, fabs(scan->parab) * (1.5 * fabs(cmp2 / (cmp * cmp) - 1)));
 #endif
 
-		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * 1.5 * fabs(cmp2 / (cmp_2)-1)) + er3;
+		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * (cmp2 * 0.1 + 1.5 * fabs(cmp2 / (cmp_2)-1))) + er3;
 #ifdef _noparab
 		mi = fabs(scan->parab) * 2 + 0 * fabs((scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2 * cmp * cmp / 6);
 		scan->parab = 0.;
@@ -4917,7 +5016,7 @@ void VBMicrolensing::OrderMultipleImages(_sols_for_skiplist_curve* Sols, _curve*
 		printf("\n%le %le %le %le %le %le %le %le", scan->x1, scan->x2, scan->dJ, (scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2, scan->parab, (scan->ds - scan2->ds) * mi / 2, fabs(scan->parab) * (cmp2) / 10, fabs(scan->parab) * (1.5 * fabs(cmp2 / (cmp * cmp) - 1)));
 #endif
 
-		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * 1.5 * fabs(cmp2 / (cmp_2)-1)) + er3;
+		mi = fabs((scan->ds - scan2->ds) * mi * 0.5) + fabs(scan->parab * (cmp2 * 0.1 + 1.5 * fabs(cmp2 / (cmp_2)-1))) + er3;
 #ifdef _noparab
 		mi = fabs(scan->parab) * 2 + 0 * fabs((scan->x2 + scan2->x2) * (scan2->x1 - scan->x1) / 2 * cmp * cmp / 6);
 		scan->parab = 0.;
@@ -5296,7 +5395,7 @@ void VBMicrolensing::CombineCentroids(double* mags, double* c1s, double* c2s, do
 }
 
 void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5342,7 +5441,7 @@ void VBMicrolensing::PSPLAstroLightCurve(double* pr, double* ts, double* mags, d
 
 
 void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5388,7 +5487,7 @@ void VBMicrolensing::ESPLAstroLightCurve(double* pr, double* ts, double* mags, d
 }
 
 void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5438,7 +5537,7 @@ void VBMicrolensing::BinaryAstroLightCurve(double* pr, double* ts, double* mags,
 
 
 void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5462,7 +5561,7 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 	w123 = sqrt(w13 + w2 * w2);
 	w13 = sqrt(w13);
 	if (w13 > 1.e-8) {
-		w3 = (w3 > 1.e-8) ? w3 : 1.e-8;
+		w3 = (fabs(w3) > 1.e-8) ? w3 : ((w3 < 0.) ? -1.e-8 : 1.e-8);
 		w = w3 * w123 / w13;
 		inc = acos(w2 * w3 / w13 / w123);
 		phi0 = atan2(-w1 * w123, w3 * w13);
@@ -5520,7 +5619,7 @@ void VBMicrolensing::BinaryAstroLightCurveOrbital(double* pr, double* ts, double
 
 
 void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5624,7 +5723,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 			c1s[i] = astrox1;
 			c2s[i] = astrox2;
 			ComputeCentroids(pr, ts[i], &c1s[i], &c2s[i], &c1l[i], &c2l[i]);
-			FR = (turn_off_secondary_lens)? 0 : pow(q, lens_mass_luminosity_exponent); // Flux ratio between the two lenses
+			FR = (turn_off_secondary_lens) ? 0 : pow(q, lens_mass_luminosity_exponent); // Flux ratio between the two lenses
 			c1l[i] += (-q + FR) * s * thetaE / (1 + q) * cos(PosAng) / (1 + FR); // Flux center of the two lenses from barycenter
 			c2l[i] += (-q + FR) * s * thetaE / (1 + q) * sin(PosAng) / (1 + FR);
 		}
@@ -5640,7 +5739,7 @@ void VBMicrolensing::BinaryAstroLightCurveKepler(double* pr, double* ts, double*
 }
 
 void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5782,8 +5881,8 @@ void VBMicrolensing::BinSourceAstroLightCurveXallarap(double* pr, double* ts, do
 }
 
 
-void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, double *seps, int np) {
-	ClearLastError();
+void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* y1s2, double* y2s2, double* seps, int np) {
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
@@ -5794,7 +5893,7 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 	double ws[3] = { pr[15] + 1.01e-15, pr[16] + 1.01e-15, pr[17] + 1.01e-15 };
 	double t01 = pr[6], t02 = pr[13] + ws[0] * (pr[13] - pr[6]) / tE_inv, u1 = pr[2], u2 = pr[12] + ws[1] * (pr[6] - pr[13]), FR = exp(pr[14]), rho2, xt, xu;
 	double ss[3] = { (t01 - t02) * tE_inv,u2 - u1,0 };
-	double L[3], Om[3], Y[3], norm, normOm, s3D, wstot, qs,phis0;
+	double L[3], Om[3], Y[3], norm, normOm, s3D, wstot, qs, phis0;
 	double u0B, t0B, vuB, vt0B, s1, s2, uB, tnB, paitB, paiuB, alphas;
 	parallaxextrapolation = 0;
 
@@ -5815,7 +5914,7 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 	w123 = sqrt(w13 + w2 * w2);
 	w13 = sqrt(w13);
 	if (w13 > 1.e-8) {
-		w3 = (w3 > 1.e-8) ? w3 : 1.e-8;
+		w3 = (fabs(w3) > 1.e-8) ? w3 : ((w3 < 0.) ? -1.e-8 : 1.e-8);
 		w = w3 * w123 / w13;
 		inc = acos(w2 * w3 / w13 / w123);
 		phi0 = atan2(-w1 * w123, w3 * w13);
@@ -5973,12 +6072,12 @@ void VBMicrolensing::BinSourceBinLensAstroLightCurve(double* pr, double* ts, dou
 
 
 void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
 
-	double rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), di, mindi, u, u0 = pr[2], t0 = pr[6], pai1 = pr[10], pai2 = pr[11];
+	double rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), u, u0 = pr[2], t0 = pr[6], pai1 = pr[10], pai2 = pr[11];
 	double q[3] = { 1, exp(pr[1]),exp(pr[8]) };
 	double FR[3]; 
 	double FRtot;
@@ -6028,7 +6127,7 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 			c1s[i] = astrox1;
 			c2s[i] = astrox2;
 			ComputeCentroids(pr, ts[i], &c1s[i], &c2s[i], &c1l[i], &c2l[i]);
-			c1l[i] += (s[0].re * FR[0] + s[1].re * FR[1] + s[2].re * FR[2])*cos(PosAng)/FRtot; // Flux center of the three lenses from origin
+			c1l[i] += (s[0].re * FR[0] + s[1].re * FR[1] + s[2].re * FR[2]) * cos(PosAng) / FRtot; // Flux center of the three lenses from origin
 			c2l[i] += (s[0].im * FR[0] + s[1].im * FR[1] + s[2].im * FR[2]) * sin(PosAng) / FRtot;
 		}
 
@@ -6036,6 +6135,134 @@ void VBMicrolensing::TripleAstroLightCurve(double* pr, double* ts, double* mags,
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "TripleAstroLightCurve")) {
+			throw;
+		}
+		return;
+	}
+}
+
+
+void VBMicrolensing::TripleAstroLightCurveOrbital(double* pr, double* ts, double* mags, double* c1s, double* c2s, double* c1l, double* c2l, double* y1s, double* y2s, double* seps, double* seps2, double* psis, int np) {
+	ApiScope api_scope(this);
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.astrometry_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Astrometry);
+
+	double s1 = exp(pr[0]), rho = exp(pr[4]), tn, tE_inv = exp(-pr[5]), u, u0 = pr[2], t0 = pr[6], pai1 = pr[10], pai2 = pr[11], w1 = pr[12], w2 = pr[13], w3 = pr[14];
+	double q[3] = { 1, exp(pr[1]),exp(pr[8]) }, s2 = exp(pr[7]);
+	double FR[3];
+	double FRtot;
+	VBcomplex s[3];
+	double salpha = sin(pr[3]), calpha = cos(pr[3]), sbeta = sin(pr[9]), cbeta = cos(pr[9]);
+	double w, phi0, inc, phi, Cinc, Sinc, Cphi, Sphi, Cphi0, Sphi0, pphi0, COm, SOm, s_true, pphi;
+	double w13, w123, den, den0;
+	double pphi0_2, phi0_2, s2_true, den0_2, Cphi0_2, Sphi0_2, w_2, phi_2, Cphi_2, Sphi_2, den_2, pphi_2;
+	iastro = 15;
+	//	dPosAng = 0;
+	t0old = t0parold = 1.e200;
+	parallaxextrapolation = 0;
+
+	if (astrometry) {
+		FR[0] = 1;
+		FR[1] = (turn_off_secondary_lens) ? 0 : exp(pr[1] * mass_luminosity_exponent);
+		FR[2] = exp(pr[8] * mass_luminosity_exponent);
+		FRtot = FR[0] + FR[1] + FR[2];
+	}
+
+	w13 = w1 * w1 + w3 * w3;
+	w123 = sqrt(w13 + w2 * w2);
+	w13 = sqrt(w13);
+	if (w13 > 1.e-8) {
+		w3 = (fabs(w3) > 1.e-8) ? w3 : ((w3 < 0.) ? -1.e-8 : 1.e-8);
+		w = w3 * w123 / w13;
+		inc = acos(w2 * w3 / w13 / w123);
+		phi0 = atan2(-w1 * w123, w3 * w13);
+	}
+	else {
+		w = w2;
+		inc = 0.;
+		phi0 = 0.;
+	}
+	Cphi0 = cos(phi0);
+	Sphi0 = sin(phi0);
+	Cinc = cos(inc);
+	Sinc = sin(inc);
+	den0 = sqrt(Cphi0 * Cphi0 + Cinc * Cinc * Sphi0 * Sphi0);
+	s_true = s1 / den0; // orbital radius
+	COm = (Cphi0 * calpha + Cinc * salpha * Sphi0) / den0;
+	SOm = (Cphi0 * salpha - Cinc * calpha * Sphi0) / den0;
+	pphi0 = atan2(Cinc * Sphi0, Cphi0);
+
+	pphi0_2 = pphi0 + pr[9];
+	phi0_2 = atan2(sin(pphi0_2) / Cinc, cos(pphi0_2)); // Impose co-planarity and calculate orbital phase
+	Cphi0_2 = cos(phi0_2);
+	Sphi0_2 = sin(phi0_2);
+	den0_2 = sqrt(Cphi0_2 * Cphi0_2 + Cinc * Cinc * Sphi0_2 * Sphi0_2);
+	s2_true = s2 / den0_2;  // Orbital radius of second planet
+	w_2 = (block_tertiary_lens) ? 0 : w * pow(s2_true / s_true, -1.5); // Third Kepler's law
+
+
+	for (int i = 0; i < np; i++) {
+		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+			CheckTimeout("TripleAstroLightCurveOrbital");
+		}
+		ComputeParallax(ts[i], t0);
+
+		phi = (ts[i] + lighttravel - t0 - lighttravel0) * w + phi0;
+		Cphi = cos(phi);
+		Sphi = sin(phi);
+		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
+		seps[i] = s_true * den; // projected separation at time ts[i]
+		pphi = atan2(Cinc * Sphi, Cphi);
+
+		phi_2 = (ts[i] + lighttravel - t0 - lighttravel0) * w_2 + phi0_2;
+		Cphi_2 = cos(phi_2);
+		Sphi_2 = sin(phi_2);
+		den_2 = sqrt(Cphi_2 * Cphi_2 + Cinc * Cinc * Sphi_2 * Sphi_2);
+		seps2[i] = s2_true * den_2; // projected separation at time ts[i]
+		pphi_2 = atan2(Cinc * Sphi_2, Cphi_2);
+		psis[i] = pphi_2 - pphi;
+		cbeta = cos(psis[i]);
+		cbeta = sin(psis[i]);
+
+		u = u0 + pai1 * Et[1] - pai2 * Et[0];
+		tn = (ts[i] + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+		y1s[i] = (Cphi * (u * SOm - tn * COm) + Cinc * Sphi * (u * COm + tn * SOm)) / den;
+		y2s[i] = (-Cphi * (u * COm + tn * SOm) - Cinc * Sphi * (tn * COm - u * SOm)) / den;
+
+		//s[1] = seps[i]; // Remember frame is rotated so as to have first planet always to the right
+		//s[2] = seps2[i] * VBcomplex(cbeta, sbeta);
+		//s[0] = -(s[1] * q[1] + s[2] * q[2]) / (q[0] + q[1] + q[2]); // - center of mass
+		//for (int i = 1; i < 3; i++) {
+		//	s[i] = s[i] +s[0];
+		//}
+
+		// Frame is anchored to center of mass of the first two objects
+		// We are implicitly assuming that the third object is negligible
+		// Since we are neglecting mutual interactions between planets, 
+		// this is still consistent at zero order in planets mass.
+		s[0] = seps[i] / (q[0] + q[1]);
+		s[1] = s[0] * q[0];
+		s[0] = -q[1] * s[0];
+		s[2] = seps2[i] * VBcomplex(cbeta, sbeta) + s[0];
+
+		SetLensGeometry(3, q, s);
+
+		mags[i] = MultiMag2(y1s[i], y2s[i], rho);
+		dPosAng = -pphi + pphi0;
+
+		if (astrometry) {
+			c1s[i] = astrox1;
+			c2s[i] = astrox2;
+			ComputeCentroids(pr, ts[i], &c1s[i], &c2s[i], &c1l[i], &c2l[i]);
+			c1l[i] += (s[0].re * FR[0] + s[1].re * FR[1] + s[2].re * FR[2]) * cos(PosAng) / FRtot; // Flux center of the three lenses from origin
+			c2l[i] += (s[0].im * FR[0] + s[1].im * FR[1] + s[2].im * FR[2]) * sin(PosAng) / FRtot;
+		}
+
+	}
+	}
+	catch (const VBMTimeoutError& err) {
+		if (HandleTimeoutError(err, "TripleAstroLightCurveOrbital")) {
 			throw;
 		}
 		return;
@@ -6094,7 +6321,7 @@ void VBMicrolensing::ESPLLightCurveParallax(double* pr, double* ts, double* mags
 
 
 void VBMicrolensing::BinaryLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6131,7 +6358,7 @@ void VBMicrolensing::BinaryLightCurve(double* pr, double* ts, double* mags, doub
 
 
 void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6164,7 +6391,7 @@ void VBMicrolensing::BinaryLightCurveW(double* pr, double* ts, double* mags, dou
 
 
 void VBMicrolensing::BinaryLightCurveParallax(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6193,12 +6420,12 @@ void VBMicrolensing::RecordTimeoutError(const VBMTimeoutError& err, const char* 
 
 bool VBMicrolensing::HandleTimeoutError(const VBMTimeoutError& err, const char* api_name) {
 	RecordTimeoutError(err, api_name);
-	return error_policy_ == ErrorPolicy::Throw;
+	return error_policy_ == ErrorPolicy::Throw || api_depth_ > 1;
 }
 
 
 void VBMicrolensing::BinaryLightCurveOrbital(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6215,7 +6442,7 @@ void VBMicrolensing::BinaryLightCurveOrbital(double* pr, double* ts, double* mag
 }
 
 void VBMicrolensing::BinaryLightCurveKepler(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6232,7 +6459,7 @@ void VBMicrolensing::BinaryLightCurveKepler(double* pr, double* ts, double* mags
 }
 
 void VBMicrolensing::BinSourceLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	double u1 = pr[2], u2 = pr[3], t01 = pr[4], t02 = pr[5], tE_inv = exp(-pr[0]), FR=exp(pr[1]), tn, u;
+	double u1 = pr[2], u2 = pr[3], t01 = pr[4], t02 = pr[5], tE_inv = exp(-pr[0]), FR = exp(pr[1]), tn, u;
 
 	for (int i = 0; i < np; i++) {
 		tn = (ts[i] - t01) * tE_inv;
@@ -6303,7 +6530,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 	w123 = sqrt(w13 + w2 * w2);
 	w13 = sqrt(w13);
 	if (w13 > 1.e-8) {
-		w3 = (w3 > 1.e-8) ? w3 : 1.e-8;
+		w3 = (fabs(w3) > 1.e-8) ? w3 : ((w3 < 0.) ? -1.e-8 : 1.e-8);
 		w = w3 * w123 / w13;
 		inc = acos(w2 * w3 / w13 / w123);
 		phi0 = atan2(-w1 * w123, w3 * w13);
@@ -6326,7 +6553,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 	for (int i = 0; i < np; i++) {
 		ComputeParallax(ts[i], t0);
 
-		phi = (ts[i] + lighttravel - t0_par-lighttravel0) * w + phi0;
+		phi = (ts[i] + lighttravel - t0_par - lighttravel0) * w + phi0;
 		Cphi = cos(phi);
 		Sphi = sin(phi);
 		den = sqrt(Cphi * Cphi + Cinc * Cinc * Sphi * Sphi);
@@ -6335,7 +6562,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 		dt0 = s_true * (COm * Cphi - Cinc * SOm * Sphi) / (1 + q) * q;  //Position of the primary component with respect to center of mass
 		du0 = s_true * (SOm * Cphi + Cinc * COm * Sphi) / (1 + q) * q;
 
-		tn = -((ts[i] + lighttravel - t0_par- lighttravel0) * tE_inv + dt0 + pai1 * Et[0] + pai2 * Et[1]);
+		tn = -((ts[i] + lighttravel - t0_par - lighttravel0) * tE_inv + dt0 + pai1 * Et[0] + pai2 * Et[1]);
 		u = -(u0 + du0 + pai1 * Et[1] - pai2 * Et[0]);
 		y1s[i] = tn;
 		y2s[i] = u;
@@ -6343,7 +6570,7 @@ void VBMicrolensing::BinSourceLightCurveXallarap(double* pr, double* ts, double*
 
 		mags[i] = (u + 2) / sqrt(u * (u + 4));
 
-		tn = -((ts[i] + lighttravel - t0_par- lighttravel0) * tE_inv - dt0 / q + pai1 * Et[0] + pai2 * Et[1]); // Position of the secondary component
+		tn = -((ts[i] + lighttravel - t0_par - lighttravel0) * tE_inv - dt0 / q + pai1 * Et[0] + pai2 * Et[1]); // Position of the secondary component
 		u = -(u0 - du0 / q + pai1 * Et[1] - pai2 * Et[0]);
 		u = tn * tn + u * u;
 
@@ -6476,7 +6703,7 @@ void VBMicrolensing::BinSourceSingleLensXallarap(double* pr, double* ts, double*
 }
 
 
-void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* y1s2, double* y2s2, double *seps, int np) {
+void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* y1s2, double* y2s2, double* seps, int np) {
 	astrometry = false;
 	BinSourceBinLensAstroLightCurve(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, y1s2, y2s2, seps, np);
 }
@@ -6484,7 +6711,7 @@ void VBMicrolensing::BinSourceBinLensLightCurve(double* pr, double* ts, double* 
 
 
 void VBMicrolensing::TripleLightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6537,8 +6764,25 @@ void VBMicrolensing::TripleLightCurveParallax(double* pr, double* ts, double* ma
 	TripleAstroLightCurve(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, np);
 }
 
+void VBMicrolensing::TripleLightCurveOrbital(double* pr, double* ts, double* mags, double* y1s, double* y2s, double* seps, double* seps2, double* psis, int np) {
+	ApiScope api_scope(this);
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+
+	astrometry = false;
+	TripleAstroLightCurveOrbital(pr, ts, mags, NULL, NULL, NULL, NULL, y1s, y2s, seps, seps2, psis, np);
+	}
+	catch (const VBMTimeoutError& err) {
+		if (HandleTimeoutError(err, "TripleLightCurveOrbital")) {
+			throw;
+		}
+		return;
+	}
+}
+
 void VBMicrolensing::LightCurve(double* pr, double* ts, double* mags, double* y1s, double* y2s, int np, int nl) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
@@ -6721,7 +6965,11 @@ double VBMicrolensing::TripleLightCurveParallax(double* pr, double t) {
 	return mag;
 }
 
-
+double VBMicrolensing::TripleLightCurveOrbital(double* pr, double t) {
+	double mag, y1, y2, s, s2, psi;
+	TripleLightCurveOrbital(pr, &t, &mag, &y1, &y2, &s, &s2, &psi, 1);
+	return mag;
+}
 
 
 #pragma endregion
@@ -6937,7 +7185,7 @@ void VBMicrolensing::SetLDprofile(LDprofiles LDval) {
 //////////////////////////////
 
 void VBMicrolensing::LoadSunTable(char* filename) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -6954,7 +7202,7 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 		}
 		// Reading Sun table files
 		int flag2 = 0;
-//		long startpos = 0;
+		//		long startpos = 0;
 		char teststring[1000];
 		ndataEar = 1;
 
@@ -6977,7 +7225,7 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 		// Finding end of data
 		if (flag2) {
 			flag2 = 0;
-//			startpos = ftell(f);
+			//			startpos = ftell(f);
 				timeout_iter = 0;
 				while (!feof(f)) {
 					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
@@ -7015,7 +7263,7 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 		f = fopen(filename, "r");
 		double tcur;
 		startEar = stepEar = -1;
-//		fseek(f, startpos, SEEK_SET);
+		//		fseek(f, startpos, SEEK_SET);
 		
 		// Finding start of data
 			timeout_iter = 0;
@@ -7075,7 +7323,7 @@ void VBMicrolensing::LoadSunTable(char* filename) {
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -7119,7 +7367,7 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 			}
 		}
 
-
+		if (nsat > 0) {
 		tsat = (double**)malloc(sizeof(double*) * nsat);
 		possat = (double***)malloc(sizeof(double**) * nsat);
 		ndatasat = (int*)malloc(sizeof(int) * nsat);
@@ -7211,7 +7459,6 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 
 				// Reading data
 				if (f) {
-					double tcur;
 						for (int id = 0; id < ndatasat[ic]; id++) {
 							if (ShouldCheck(id + 1, kDefaultTimeoutCheckInterval)) {
 								CheckTimeout("SetObjectCoordinates");
@@ -7237,6 +7484,7 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 			}
 		}
 	}
+	}
 	else {
 		printf("\nFile not found!\n");
 	}
@@ -7250,7 +7498,7 @@ void VBMicrolensing::SetObjectCoordinates(char* modelfile, char* sateltabledir) 
 }
 
 void VBMicrolensing::SetObjectCoordinates(char* CoordinateString) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
@@ -7311,9 +7559,11 @@ bool VBMicrolensing::AreCoordinatesSet() {
 }
 
 void VBMicrolensing::ComputeParallax(double t, double t0) {
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+	int timeout_iter = 0;
 
 	static double dtflight = 0.0000993512; // = angle covered by Earth as light covers 1 au.
 	static double au_c = 0.005775518331436995; // au/c in days.
@@ -7327,7 +7577,7 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 	static double x1, y1, vx, vy, Ear[3], vEar[3];
 	static double r, sp, ty, Spit, dLtof;
 	int c = 0, ic;
-	
+
 	if (!coordinates_set) {
 		printf("\nUse SetObjectCoordinates to input target coordinates");
 		return;
@@ -7350,34 +7600,33 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			ic = (int)floor(ty);
 			ty -= ic;
 			for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
-				if (t_in_HJD) {
-					double told = t0_par, tnew;
-					int timeout_iter = 0;
+			if (t_in_HJD) {
+				double told = t0_par, tnew;
+				lighttravel0par = 0;
+				for (int i = 0; i < 3; i++) lighttravel0par += Ear[i] * Obj[i];
+				lighttravel0par *= au_c;
+				tnew = t0_par - lighttravel0par;
+				while (fabs(told - tnew) > 1.e-8) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+						CheckTimeout("ComputeParallax");
+					}
+					told = tnew;
+					ty = (told - startEar) / stepEar;
+					ic = (int)floor(ty);
+					ty -= ic;
+					for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
 					lighttravel0par = 0;
 					for (int i = 0; i < 3; i++) lighttravel0par += Ear[i] * Obj[i];
 					lighttravel0par *= au_c;
 					tnew = t0_par - lighttravel0par;
-					while (fabs(told - tnew) > 1.e-8) {
-						if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
-							CheckTimeout("ComputeParallax");
-						}
-						told = tnew;
-						ty = (told - startEar) / stepEar;
-						ic = (int)floor(ty);
-						ty -= ic;
-						for (int i = 0; i < 3; i++) Ear[i] = posEar[ic][i] * (1 - ty) + posEar[ic + 1][i] * ty;
-						lighttravel0par = 0;
-						for (int i = 0; i < 3; i++) lighttravel0par += Ear[i] * Obj[i];
-						lighttravel0par *= au_c;
-						tnew = t0_par - lighttravel0par;
-					}
 				}
+			}
 			for (int i = 0; i < 3; i++) {
 				if (ty > 0.5) {
-					vEar[i] = ((posEar[ic+2][i]- posEar[ic+1][i]) * (ty-0.5) + (posEar[ic+1][i] - posEar[ic][i]) * (1.5-ty)) / stepEar;
+					vEar[i] = ((posEar[ic + 2][i] - posEar[ic + 1][i]) * (ty - 0.5) + (posEar[ic + 1][i] - posEar[ic][i]) * (1.5 - ty)) / stepEar;
 				}
 				else {
-					vEar[i] = ((posEar[ic][i] - posEar[ic-1][i]) * (0.5 - ty) + (posEar[ic+1][i] - posEar[ic][i]) * (ty+0.5)) / stepEar;
+					vEar[i] = ((posEar[ic][i] - posEar[ic - 1][i]) * (0.5 - ty) + (posEar[ic + 1][i] - posEar[ic][i]) * (ty + 0.5)) / stepEar;
 				}
 			}
 			if (parallaxsystem != 1) {
@@ -7406,11 +7655,12 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			lighttravel0par *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
 		}
 
+		// Let's also update traveltime for t0 
 		if (t0_par_fixed == 0) {
 			lighttravel0 = lighttravel0par;
 		}
 		else {
-			lighttravel0 = 0;
+			lighttravel0 = 0; //Only non-zero for t in JD
 			if (!t_in_HJD && t0 != t0old) {
 				t0old = t0;
 				ty = (t0 - startEar) / stepEar;
@@ -7420,9 +7670,13 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 				for (int i = 0; i < 3; i++) {
 					lighttravel0 += Ear[i] * Obj[i];
 				}
-				lighttravel0 *= au_c;
+				lighttravel0 *= au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
 			}
+
 		}
+
+
+
 		ty = (t - startEar) / stepEar;
 		ic = (int)floor(ty);
 		ty -= ic;
@@ -7432,15 +7686,14 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 		lighttravel = 0;
 		for (int i = 0; i < 3; i++) lighttravel += Ear[i] * Obj[i];
 		lighttravel *= au_c;
-			if (t_in_HJD) {
-				double told = t, tnew;
-				int timeout_iter = 0;
-				tnew = t - lighttravel;
-				while (fabs(told - tnew) > 1.e-8) {
-					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
-						CheckTimeout("ComputeParallax");
-					}
-					told = tnew;
+		if (t_in_HJD) {
+			double told = t, tnew;
+			tnew = t - lighttravel;
+			while (fabs(told - tnew) > 1.e-8) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("ComputeParallax");
+				}
+				told = tnew;
 				ty = (told - startEar) / stepEar;
 				ic = (int)floor(ty);
 				ty -= ic;
@@ -7478,15 +7731,14 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			M = L - om;
 			M -= floor((M + M_PI) / (2 * M_PI)) * 2 * M_PI;
 
-				EE = M + e * sin(M);
-				dE = 1;
-				dLtof = 0;
-				int timeout_iter = 0;
-				while (fabs(dE) > 1.e-8) {
-					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
-						CheckTimeout("ComputeParallax");
-					}
-					if (t_in_HJD) {
+			EE = M + e * sin(M);
+			dE = 1;
+			dLtof = 0;
+			while (fabs(dE) > 1.e-8) {
+				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+					CheckTimeout("ComputeParallax");
+				}
+				if (t_in_HJD) {
 					// Correction to calculate Earth position at JD not HJD
 					x1 = a * (cos(EE) - e);
 					y1 = a * sqrt(1 - e * e) * sin(EE);
@@ -7542,11 +7794,12 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 			lighttravel0par *= (t_in_HJD) ? 0 : au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
 		}
 
+		// Let's also update traveltime for t0 
 		if (t0_par_fixed == 0) {
 			lighttravel0 = lighttravel0par;
 		}
 		else {
-			lighttravel0 = 0;
+			lighttravel0 = 0; //Only non-zero for t in JD
 			if (!t_in_HJD && t0 != t0old) {
 				t0old = t0;
 				ty = (t0 - 1545) / 36525.0;
@@ -7563,12 +7816,12 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 				EE = M + e * sin(M);
 				dE = 1;
 				dLtof = 0;
-				int timeout_iter = 0;
 				while (fabs(dE) > 1.e-8) {
 					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 						CheckTimeout("ComputeParallax");
 					}
 					if (t_in_HJD) {
+						// Correction to calculate Earth position at JD not HJD
 						x1 = a * (cos(EE) - e);
 						y1 = a * sqrt(1 - e * e) * sin(EE);
 						Ear[0] = x1 * cos(om) - y1 * sin(om);
@@ -7584,6 +7837,10 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 				}
 				x1 = a * (cos(EE) - e);
 				y1 = a * sqrt(1 - e * e) * sin(EE);
+				//		r=a*(1-e*cos(EE));
+				vx = -a / (1 - e * cos(EE)) * sin(EE) * Ldot * deg / 36525;
+				vy = a / (1 - e * cos(EE)) * cos(EE) * sqrt(1 - e * e) * Ldot * deg / 36525;
+
 				Ear[0] = x1 * cos(om) - y1 * sin(om);
 				Ear[1] = x1 * sin(om) * cos(inc) + y1 * cos(om) * cos(inc);
 				Ear[2] = x1 * sin(om) * sin(inc) + y1 * cos(om) * sin(inc);
@@ -7592,9 +7849,11 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 				for (int i = 0; i < 3; i++) {
 					lighttravel0 += Ear[i] * Obj[i];
 				}
-				lighttravel0 *= au_c;
+				lighttravel0 *= au_c; // Light travel time from Earth projection to Sun: HJD = JD + lighttravel.
 			}
+
 		}
+
 
 		ty = (t - 1545) / 36525.0;
 
@@ -7607,15 +7866,14 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 		M = L - om;
 		M -= floor((M + M_PI) / (2 * M_PI)) * 2 * M_PI;
 
-			EE = M + e * sin(M);
-			dE = 1;
-			dLtof = 0;
-			int timeout_iter = 0;
-			while (fabs(dE) > 1.e-8) {
-				if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
-					CheckTimeout("ComputeParallax");
-				}
-				if (t_in_HJD) {
+		EE = M + e * sin(M);
+		dE = 1;
+		dLtof = 0;
+		while (fabs(dE) > 1.e-8) {
+			if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
+				CheckTimeout("ComputeParallax");
+			}
+			if (t_in_HJD) {
 				// Correction to calculate Earth position at JD not HJD
 				x1 = a * (cos(EE) - e);
 				y1 = a * sqrt(1 - e * e) * sin(EE);
@@ -7699,7 +7957,7 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 					ic = left;
 				}
 			}
-			ty = (t - tsat[satellite - 1][ic])/(tsat[satellite - 1][ic+1]- tsat[satellite - 1][ic]);
+			ty = (t - tsat[satellite - 1][ic]) / (tsat[satellite - 1][ic + 1] - tsat[satellite - 1][ic]);
 			for (int i = 0; i < 3; i++) {
 				Spit = possat[satellite - 1][ic][i] * (1 - ty) + possat[satellite - 1][ic + 1][i] * ty;
 				Et[0] += Spit * rad[i];
@@ -7717,6 +7975,91 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 }
 
 
+void VBMicrolensing::t0_from_t0_par(double t0_in, double tE_in, double u0_in, double pai1_in, double pai2_in) {
+	ApiScope api_scope(this);
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.parallax_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Parallax);
+
+	double u, u1, duleft, duright, dun;
+	double tleft, tright, tn, t, pai, pai_psi;
+
+	t0 = t0_in;
+	tE_inv = 1 / tE_in;
+	u0 = u0_in;
+	pai1 = pai1_in;
+	pai2 = pai2_in;
+
+	tleft = tn = (t0 + t0_par) * 0.5;
+	tright = (1.5 * t0 - 0.5 * t0_par);
+
+	duleft = du_par(tleft);
+	duright = du_par(tright);
+	if (duleft < 0 && duright < 0) {
+		tright += tright - tleft;
+		duright = du_par(tright);
+	}
+	if (duleft > 0 && duright > 0) {
+		tleft -= tright - tleft;
+		duleft = du_par(tleft);
+	}
+	int iter = 0;
+	while (fabs(tright - tleft) > 1.e-9 && iter < 50) {
+		// At most 50 iterations, each costing two ComputeParallax calls: check every pass.
+		CheckTimeout("t0_from_t0_par");
+		tn = (tleft * duright - tright * duleft) / (duright - duleft);
+		dun = du_par(tn);
+		if (dun < 0) {
+			tleft = tn;
+			duleft = dun;
+		}
+		else {
+			tright = tn;
+			duright = dun;
+		}
+		iter++;
+	}
+	CheckTimeout("t0_from_t0_par");
+
+	t0_out = tn;
+	pai = sqrt(pai1 * pai1 + pai2 * pai2);
+	pai_psi = atan2(pai2, pai1);
+	pai1_out = pai * cos(-alpha_out + pai_psi);
+	pai2_out = pai * sin(-alpha_out + pai_psi);
+	}
+	catch (const VBMTimeoutError& err) {
+		const double nan = std::numeric_limits<double>::quiet_NaN();
+		t0_out = u0_out = alpha_out = pai1_out = pai2_out = tE_out = nan;
+		if (HandleTimeoutError(err, "t0_from_t0_par")) {
+			throw;
+		}
+		return;
+	}
+}
+
+double VBMicrolensing::du_par(double t) {
+	// Private helper of t0_from_t0_par: runs under its caller's budget and lets timeouts propagate.
+	double tn, tn1, un, un1, dt = 1.e-6, u;
+	ComputeParallax(t, t0);
+	// Under ReturnNaN, ComputeParallax swallows its own timeout and leaves Et stale; re-check here.
+	CheckTimeout("du_par");
+	tn = (t + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+	un = u0 + pai1 * Et[1] - pai2 * Et[0];
+	u = sqrt(tn * tn + un * un);
+	u0_out = u;
+	alpha_out = atan2(tn, un);
+	ComputeParallax(t + dt, t0);
+	CheckTimeout("du_par");
+	tn1 = (t + dt + lighttravel - t0 - lighttravel0) * tE_inv + pai1 * Et[0] + pai2 * Et[1];
+	un1 = u0 + pai1 * Et[1] - pai2 * Et[0];
+	if (un * (tn1 - tn) < 0) {
+		u0_out = -u;
+		alpha_out += M_PI;
+	}
+	tE_out = dt / sqrt((tn1 - tn) * (tn1 - tn) + (un1 - un) * (un1 - un));
+	return sqrt(tn1 * tn1 + un1 * un1) - u;
+}
+
 
 #pragma endregion
 
@@ -7731,19 +8074,20 @@ void VBMicrolensing::ComputeParallax(double t, double t0) {
 
 
 _sols* VBMicrolensing::PlotCrit() {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.critical_curves_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::CriticalCurves);
 
 	VBcomplex ej, y, z;
 	int NPS = 200;
-	_sols* CriticalCurves;
+	// Owned until the successful return, so a timeout frees everything built so far.
+	std::unique_ptr<_sols> CriticalCurves;
 	_curve* Prov, * Prov2, * isso;
 	_point* pisso;
 	double SD, MD, CD;
 
-	CriticalCurves = new _sols;
+	CriticalCurves.reset(new _sols);
 	for (int i = 0; i < 2 * n; i++) {
 		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit");
@@ -7760,13 +8104,14 @@ _sols* VBMicrolensing::PlotCrit() {
 		polycritcoefficients(ej);
 		cmplx_roots_gen(zcr, coefs, 2 * n, true, true);
 		if (j > 0) {
-			Prov2 = new _curve();
+			// Every sample is moved onto a critical curve; the empty holder used to leak.
+			std::unique_ptr<_curve> samples(new _curve());
 			for (int i = 0; i < 2 * n; i++) {
-				Prov2->append(zcr[i].re + s_offset->re, zcr[i].im + s_offset->im);
+				samples->append(zcr[i].re + s_offset->re, zcr[i].im + s_offset->im);
 			}
 			for (Prov = CriticalCurves->first; Prov; Prov = Prov->next) {
-				Prov2->closest(Prov->last, &pisso);
-				Prov2->drop(pisso);
+				samples->closest(Prov->last, &pisso);
+				samples->drop(pisso);
 				Prov->append(pisso);
 			}
 		}
@@ -7810,7 +8155,7 @@ _sols* VBMicrolensing::PlotCrit() {
 		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit");
 		}
-		Prov2 = new _curve;
+		std::unique_ptr<_curve> caustic(new _curve);
 		int point_iter = 0;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
 			if (ShouldCheck(++point_iter, kDefaultTimeoutCheckInterval)) {
@@ -7820,11 +8165,11 @@ _sols* VBMicrolensing::PlotCrit() {
 			for (int i = 0; i < n; i++) {
 				y = y - m[i] / conj(z - a[i]);
 			}
-			Prov2->append(y.re + s_offset->re, y.im + s_offset->im);
+			caustic->append(y.re + s_offset->re, y.im + s_offset->im);
 		}
-		CriticalCurves->append(Prov2);
+		CriticalCurves->append(caustic.release());
 	}
-	return CriticalCurves;
+	return CriticalCurves.release();
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "PlotCrit")) {
@@ -7835,14 +8180,15 @@ _sols* VBMicrolensing::PlotCrit() {
 }
 
 _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.critical_curves_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::CriticalCurves);
 
 	VBcomplex  a, q, ej, zr[4], x1, x2;
 	int NPS = 200;
-	_sols* CriticalCurves;
+	// Owned until the successful return, so a timeout frees everything built so far.
+	std::unique_ptr<_sols> CriticalCurves;
 	_curve* Prov, * Prov2, * isso;
 	_point* pisso;
 	double SD, MD, CD, centeroffset;
@@ -7851,7 +8197,7 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 	q = VBcomplex(q1, 0.0);
 	centeroffset = a1 / 2.0 * (1.0 - q1) / (1.0 + q1);
 
-	CriticalCurves = new _sols;
+	CriticalCurves.reset(new _sols);
 	for (int i = 0; i < 4; i++) {
 		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit(a,q)");
@@ -7868,13 +8214,14 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 		VBcomplex  coefs[5] = { a * a / 16.0 * (4.0 - a * a * ej) * (1.0 + q),a * (q - 1.0),(q + 1.0) * (1.0 + a * a * ej / 2.0),0.0,-(1.0 + q) * ej };
 		cmplx_roots_gen(zr, coefs, 4, true, true);
 		if (j > 0) {
-			Prov2 = new _curve();
+			// Every sample is moved onto a critical curve; the empty holder used to leak.
+			std::unique_ptr<_curve> samples(new _curve());
 			for (int i = 0; i < 4; i++) {
-				Prov2->append(zr[i].re + centeroffset, zr[i].im);
+				samples->append(zr[i].re + centeroffset, zr[i].im);
 			}
 			for (Prov = CriticalCurves->first; Prov; Prov = Prov->next) {
-				Prov2->closest(Prov->last, &pisso);
-				Prov2->drop(pisso);
+				samples->closest(Prov->last, &pisso);
+				samples->drop(pisso);
 				Prov->append(pisso);
 			}
 		}
@@ -7918,7 +8265,7 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 		if (ShouldCheck(++merge_iter, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("PlotCrit(a,q)");
 		}
-		Prov2 = new _curve;
+		std::unique_ptr<_curve> caustic(new _curve);
 		int point_iter = 0;
 		for (_point* scanpoint = Prov->first; scanpoint; scanpoint = scanpoint->next) {
 			if (ShouldCheck(++point_iter, kDefaultTimeoutCheckInterval)) {
@@ -7926,11 +8273,11 @@ _sols* VBMicrolensing::PlotCrit(double a1, double q1) {
 			}
 			x1 = VBcomplex(scanpoint->x1 - centeroffset, 0.0);
 			x2 = VBcomplex(scanpoint->x2, 0.0);
-			Prov2->append(real(_L_1) + centeroffset, real(_L_2));
+			caustic->append(real(_L_1) + centeroffset, real(_L_2));
 		}
-		CriticalCurves->append(Prov2);
+		CriticalCurves->append(caustic.release());
 	}
-	return CriticalCurves;
+	return CriticalCurves.release();
 	}
 	catch (const VBMTimeoutError& err) {
 		if (HandleTimeoutError(err, "PlotCrit")) {
@@ -8191,6 +8538,10 @@ void VBMicrolensing::change_n_mp(int nn) {
 		free(errs);
 		free(newseeds);
 		free(grads);
+		free(S2s);
+		free(S3s);
+		free(S4s);
+		S2s = S3s = S4s = 0;
 	}
 	if (pmza) {
 		for (int i = 0; i < n; i++) {
@@ -8310,10 +8661,11 @@ void VBMicrolensing::change_n_mp(int nn) {
 			ppmy_mp[j][i] = (VBcomplex*)malloc(sizeof(VBcomplex) * (nnm1 + 1));
 		}
 	}
+
 	zr_mp = (VBcomplex**)malloc(sizeof(VBcomplex*) * n);
 	for (int j = 0; j < n; j++) {
 		zr_mp[j] = (VBcomplex*)malloc(sizeof(VBcomplex) * nroots);
-		for (int i = 0; i < n; i++) {
+		for (int i = 0; i < nroots; i++) {
 			zr_mp[j][i] = 0;
 		}
 	}
@@ -8366,6 +8718,9 @@ void VBMicrolensing::change_n_mp(int nn) {
 	errs = (double*)malloc(sizeof(double) * nroots);
 	newseeds = (VBcomplex*)malloc(sizeof(VBcomplex) * (2 * nroots));
 	grads = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	S2s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	S3s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
+	S4s = (VBcomplex*)malloc(sizeof(VBcomplex) * (nroots));
 
 
 	cprec = (_skiplist_curve**)malloc(sizeof(_skiplist_curve*) * nroots);
@@ -8556,7 +8911,7 @@ void VBMicrolensing::polycoefficients_multipoly() {
 
 
 void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.root_solver_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);
@@ -8679,226 +9034,287 @@ void VBMicrolensing::cmplx_roots_gen(VBcomplex* roots, VBcomplex* poly, int degr
 }
 
 void VBMicrolensing::cmplx_roots_multigen(VBcomplex* roots, VBcomplex** poly, int degree, bool polish_roots_after, bool use_roots_as_starting_points) {
-	ClearLastError();
+	ApiScope api_scope(this);
 	try {
 	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.root_solver_seconds);
 	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::RootSolver);
+	int timeout_iter = 0;
 
 	static VBcomplex poly2[MAXM];
-	static int l, j, i, k, ind, degreenew, croots, m, attempts;
-	static double dif0, br;
+	static int l, j, i, k, ind, degreenew, croots, m;
+	static int attempts;
+	static double dif0, dif0_lin, br;
 	static bool success;
 	static VBcomplex coef, prev, przr;
 
+	static const double safety_levels[3] = { 0.001, 0.01, 0.1 };
 
-	//	n = (int) round(sqrt(degree - 1));
-	for (l = 0; l < n; l++) {
-		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
+	auto total_roots_prev = [&]() -> int {
+		int tot = 0;
+		for (int ll = 0; ll < n - 1; ll++) tot += nrootsmp_mp[ll];
+		return tot;
+		};
+
+	// Main attempt loop over safety levels
+	for (int safety_attempt = 0; safety_attempt < 3; safety_attempt++) {
+		if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("cmplx_roots_multigen");
 		}
-		nrootsmp_mp[l] = 0;
-	}
-	for (l = 0; l < n; l++) {
-		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
-			CheckTimeout("cmplx_roots_multigen");
+
+		double safety = safety_levels[safety_attempt];
+		bool is_last_attempt = (safety_attempt == 2);
+		bool need_retry = false;
+
+		// --- Reset state ---
+		for (l = 0; l < n; l++) nrootsmp_mp[l] = 0;
+		if (!use_roots_as_starting_points) {
+			for (l = 0; l < n; l++) {
+				for (i = 0; i < degree; i++) {
+					zr_mp[l][i] = VBcomplex(0., 0.);
+				}
+			}
 		}
-		for (i = 0; i < degree; i++) {
-			if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+
+		for (l = 0; l < n; l++) {
+			if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 				CheckTimeout("cmplx_roots_multigen");
 			}
-			zr_mp[l][i] = VBcomplex(0., 0.);
-		}
-	}
-	//Cycle reference systems
-	for (l = 0; l < n; l++) {
-		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
-			CheckTimeout("cmplx_roots_multigen");
-		}
+			br = false;
+			attempts = 0;
 
-		br = false;
-		attempts = 0;
+		Retry_Laguerre:
 
-	Retry_Laguerre:
-		//copy poly coefs
-			for (j = 0; j <= degree; j++) {
-				if (ShouldCheck(j + 1, kDefaultTimeoutCheckInterval)) {
-					CheckTimeout("cmplx_roots_multigen");
-				}
-				poly2[j] = poly[l][j];
-			}
-		//Don't do Lagierre's for small degree polybnomials
-		if (l != n - 1) {
-			if (degree <= 1) {
-				nrootsmp_mp[l] = degree;
-				if (degree == 1) {
-					zr_mp[l][0] = -poly[l][0] / poly[l][1];
-					dif0 = abs2(zr_mp[l][0]);
-					for (i = 1; i < n; i++) {
-						if (abs2(zr_mp[l][0] - a_mp[l][i]) < dif0) {
-							zr_mp[l][0] = VBcomplex(0, 0);
-							nrootsmp_mp[l] = 0;
-							break;
+			for (j = 0; j <= degree; j++) poly2[j] = poly[l][j];
+
+			if (l != n - 1) {
+				if (degree <= 1) {
+					nrootsmp_mp[l] = degree;
+					if (degree == 1) {
+						zr_mp[l][0] = -poly[l][0] / poly[l][1];
+						dif0 = abs2(zr_mp[l][0]);
+						dif0_lin = sqrt(dif0);
+						for (i = 1; i < n; i++) {
+							double safety_i = safety * sqrt(abs2(a_mp[l][i]));
+							if (abs2(zr_mp[l][0] - a_mp[l][i]) < dif0 + 2 * safety_i * dif0_lin + safety_i * safety_i) {
+								zr_mp[l][0] = VBcomplex(0, 0);
+								nrootsmp_mp[l] = 0;
+								break;
+							}
 						}
 					}
+					break;
 				}
-				break;
-			}
-				//Do Laguerre for degree >=3
+
 				for (m = degree; m >= 3; m--) {
-					if (ShouldCheck(degree - m + 1, kDefaultTimeoutCheckInterval)) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 						CheckTimeout("cmplx_roots_multigen");
 					}
 					cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
-				if (!success) {
-					zr_mp[l][m - 1] = VBcomplex(0, 0);
-					cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
-				}
-				nrootsmp_mp[l]++;
-				//distance check
-				dif0 = abs2(zr_mp[l][m - 1]);
-				for (i = 1; i < n; i++) {
-					if (abs2(zr_mp[l][m - 1] - a_mp[l][i]) < dif0) {
-						if (m == degree && attempts < 10) {
-							attempts++;
-							nrootsmp_mp[l] = 0;
-							double shift = 1.0e-4;
-							double r_real = ((double)rand() / RAND_MAX - 0.5) * shift;
-							double r_imag = ((double)rand() / RAND_MAX - 0.5) * shift;
-							zr_mp[l][m - 1] = VBcomplex(r_real, r_imag);
-							goto Retry_Laguerre;
-						}
+					if (!success) {
 						zr_mp[l][m - 1] = VBcomplex(0, 0);
-						br = true;
+						cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
+					}
+
+					dif0 = abs2(zr_mp[l][m - 1]);
+					dif0_lin = sqrt(dif0);
+					for (i = 1; i < n; i++) {
+						double safety_i = safety * sqrt(abs2(a_mp[l][i]));
+						if (abs2(zr_mp[l][m - 1] - a_mp[l][i]) < dif0 + 2 * safety_i * dif0_lin + safety_i * safety_i) {
+
+							if (m == degree && attempts < 10) {
+								attempts++;
+								nrootsmp_mp[l] = 0;
+								double shift = 1.0e-4;
+								double u1 = attempts * 0.7548776662466927;
+								double u2 = attempts * 0.5698402909980532;
+								double r_real = (u1 - floor(u1) - 0.5) * shift;
+								double r_imag = (u2 - floor(u2) - 0.5) * shift;
+								zr_mp[l][m - 1] = VBcomplex(r_real, r_imag);
+								goto Retry_Laguerre;
+							}
+							zr_mp[l][m - 1] = VBcomplex(0, 0);
+							br = true;
+							break;
+						}
+					}
+					if (br) break;
+
+					nrootsmp_mp[l]++;
+
+					coef = poly2[m];
+					for (i = m - 1; i >= 0; i--) {
+						prev = poly2[i];
+						poly2[i] = coef;
+						coef = prev + zr_mp[l][m - 1] * coef;
+					}
+				}
+				if (br) continue;
+
+				solve_quadratic_eq(zr_mp[l][1], zr_mp[l][0], poly2);
+				nrootsmp_mp[l] += 2;
+
+				dif0 = abs2(zr_mp[l][1]);
+				dif0_lin = sqrt(dif0);
+				for (i = 1; i < n; i++) {
+					double safety_i = safety * sqrt(abs2(a_mp[l][i]));
+					if (abs2(zr_mp[l][1] - a_mp[l][i]) < dif0 + 2 * safety_i * dif0_lin + safety_i * safety_i) {
+						zr_mp[l][1] = zr_mp[l][0];
+						zr_mp[l][0] = VBcomplex(0, 0);
 						nrootsmp_mp[l]--;
 						break;
 					}
 				}
-				if (br) break;
-				//Divide by root
-				//cmplx_newton_spec(poly[l], degree, &zr_mp[l][m - 1], iter, success);
-				coef = poly2[m];
-					for (i = m - 1; i >= 0; i--) {
-						if (ShouldCheck(m - i, kDefaultTimeoutCheckInterval)) {
-							CheckTimeout("cmplx_roots_multigen");
+				k = degree - nrootsmp_mp[l];
+				if (k >= 0 && k < degree) {
+					dif0 = abs2(zr_mp[l][k]);
+					dif0_lin = sqrt(dif0);
+					for (i = 1; i < n; i++) {
+						double safety_i = safety * sqrt(abs2(a_mp[l][i]));
+						if (abs2(zr_mp[l][k] - a_mp[l][i]) < dif0 + 2 * safety_i * dif0_lin + safety_i * safety_i) {
+							zr_mp[l][k] = VBcomplex(0, 0);
+							nrootsmp_mp[l]--;
+							break;
 						}
-						prev = poly2[i];
-					poly2[i] = coef;
-					coef = prev + zr_mp[l][m - 1] * coef;
+					}
+				}
+
+				// Clamp only on last attempt 
+				if (is_last_attempt) {
+					if (nrootsmp_mp[l] < 0) nrootsmp_mp[l] = 0;
+					if (nrootsmp_mp[l] > degree) nrootsmp_mp[l] = degree;
 				}
 			}
-			if (br) continue;
-			//find the last 2 roots
-			solve_quadratic_eq(zr_mp[l][1], zr_mp[l][0], poly2);
-			nrootsmp_mp[l] += 2;
-			for (i = 1; i < n; i++) {
-				if (abs2(zr_mp[l][1] - a_mp[l][i]) < abs2(zr_mp[l][1])) {
-					zr_mp[l][1] = zr_mp[l][0];
-					zr_mp[l][0] = VBcomplex(0, 0);
-					nrootsmp_mp[l]--;
+
+			// Last lens: use roots from previous lenses, solve for the rest
+			if (l == n - 1) {
+
+				int tot_prev = total_roots_prev();
+
+				if (tot_prev > degree) {
+					need_retry = true;
 					break;
 				}
-			}
-			k = degree - nrootsmp_mp[l];
-			for (i = 1; i < n; i++) {
-				if (abs2(zr_mp[l][k] - a_mp[l][i]) < abs2(zr_mp[l][k])) {
-					zr_mp[l][k] = VBcomplex(0, 0);
-					nrootsmp_mp[l]--;
-					break;
+
+				ind = 0;
+				for (int ll = 0; ll < n - 1; ll++) {
+					for (int ii = ind; ii < ind + nrootsmp_mp[ll]; ii++) {
+						int widx = degree - ii - 1;
+						int ridx = degree - 1 - ii + ind;
+						if (widx >= 0 && widx < degree && ridx >= 0 && ridx < degree) {
+							zr_mp[l][widx] = zr_mp[ll][ridx] + s_sort[ll] - s_sort[l];
+						}
+					}
+					ind += nrootsmp_mp[ll];
 				}
-			}
-		}
 
-		//LAST lens
-		if (l == n - 1) {
-			//Set previous roots
-			ind = 0;
-			for (int ll = 0; ll < n - 1; ll++) {
-				for (int i = ind; i < ind + nrootsmp_mp[ll]; i++) {
-					zr_mp[l][degree - i - 1] = zr_mp[ll][degree - 1 - i + ind] + s_sort[ll] - s_sort[l];
-				}
-				ind += nrootsmp_mp[ll];
-			}
+				degreenew = degree - tot_prev; // always >= 0 here
 
-
-			//divide by previous roots
-
-			degreenew = degree;
-			for (int i = 0; i < n - 1; i++) {
-				degreenew -= nrootsmp_mp[i];
-			}
-
-				for (int m = degree; m > degreenew; m--) {
-					if (ShouldCheck(degree - m + 1, kDefaultTimeoutCheckInterval)) {
+				for (int mm = degree; mm > degreenew; mm--) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 						CheckTimeout("cmplx_roots_multigen");
 					}
-					coef = poly2[m];
-					for (i = m - 1; i >= 0; i--) {
-						if (ShouldCheck(m - i, kDefaultTimeoutCheckInterval)) {
-							CheckTimeout("cmplx_roots_multigen");
-						}
+					if (mm - 1 < 0 || mm - 1 >= degree) break;
+					coef = poly2[mm];
+					for (i = mm - 1; i >= 0; i--) {
 						prev = poly2[i];
-					poly2[i] = coef;
-					coef = prev + zr_mp[l][m - 1] * coef;
+						poly2[i] = coef;
+						coef = prev + zr_mp[l][mm - 1] * coef;
+					}
 				}
-			}
 
-			if (degreenew <= 1) {
-				if (degreenew == 1) {
-					zr_mp[l][0] = -poly2[0] / poly2[1];
+				if (degreenew <= 1) {
+					if (degreenew == 1) {
+						zr_mp[l][0] = -poly2[0] / poly2[1];
+					}
+					nrootsmp_mp[l] = degreenew;
+					break;
 				}
-				nrootsmp_mp[l] = degreenew;
 
-				break;
-			}
+				int roots_so_far = tot_prev;
 
 				for (m = degreenew; m >= 3; m--) {
-					if (ShouldCheck(degreenew - m + 1, kDefaultTimeoutCheckInterval)) {
+					if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 						CheckTimeout("cmplx_roots_multigen");
 					}
-					cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
-				if (!success) {
-					zr_mp[l][m - 1] = VBcomplex(0, 0);
-					cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
-				}
-				nrootsmp_mp[l] += 1;
+					if (is_last_attempt && roots_so_far + nrootsmp_mp[l] + 1 > degree) break;
 
-				// Divide by root
-				//cmplx_newton_spec(poly[l], degree, &zr_mp[l][m - 1], iter, success);
-				coef = poly2[m];
+					if (m - 1 < 0 || m - 1 >= degree) break;
+
+					cmplx_laguerre2newton(poly2, m, &zr_mp[l][m - 1], iter, success, 2);
+					if (!success) {
+						zr_mp[l][m - 1] = VBcomplex(0, 0);
+						cmplx_laguerre(poly2, m, &zr_mp[l][m - 1], iter, success);
+					}
+					nrootsmp_mp[l] += 1;
+
+					coef = poly2[m];
 					for (i = m - 1; i >= 0; i--) {
-						if (ShouldCheck(m - i, kDefaultTimeoutCheckInterval)) {
-							CheckTimeout("cmplx_roots_multigen");
-						}
 						prev = poly2[i];
-					poly2[i] = coef;
-					coef = prev + zr_mp[l][m - 1] * coef;
+						poly2[i] = coef;
+						coef = prev + zr_mp[l][m - 1] * coef;
+					}
+				}
+
+				// Add quadratic roots
+				if (!is_last_attempt) {
+
+					solve_quadratic_eq(zr_mp[l][1], zr_mp[l][0], poly2);
+					nrootsmp_mp[l] += 2;
+				}
+				else {
+					int room = degree - roots_so_far - nrootsmp_mp[l];
+					if (room >= 2) {
+						solve_quadratic_eq(zr_mp[l][1], zr_mp[l][0], poly2);
+						nrootsmp_mp[l] += 2;
+					}
+					else if (room == 1) {
+						VBcomplex qa, qb;
+						solve_quadratic_eq(qb, qa, poly2);
+						int slot = nrootsmp_mp[l];
+						if (slot >= 0 && slot < degree) {
+							zr_mp[l][slot] = qa;
+						}
+						nrootsmp_mp[l] += 1;
+					}
+
+					// Final clamp on last attempt only
+					if (nrootsmp_mp[l] < 0) nrootsmp_mp[l] = 0;
+					if (roots_so_far + nrootsmp_mp[l] > degree)
+						nrootsmp_mp[l] = degree - roots_so_far;
 				}
 			}
-			solve_quadratic_eq(zr_mp[l][1], zr_mp[l][0], poly2);
-			nrootsmp_mp[l] += 2;
+		} // end for l
 
-		}
+		if (!need_retry) break;
+
 	}
 
+	// Assemble final roots array
 	ind = degree - 1;
 	for (l = 0; l < n - 1; l++) {
-		if (ShouldCheck(l + 1, kDefaultTimeoutCheckInterval)) {
-			CheckTimeout("cmplx_roots_multigen");
-		}
 		for (i = 0; i < nrootsmp_mp[l]; i++) {
-			if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
-				CheckTimeout("cmplx_roots_multigen");
+			if (ind < 0) break;
+			int ridx = degree - 1 - i;
+			if (ridx >= 0 && ridx < degree) {
+				roots[ind] = zr_mp[l][ridx] + s_sort[l] - s_sort[0];
 			}
-			roots[ind] = zr_mp[l][degree - 1 - i] + s_sort[l] - s_sort[0];
 			ind--;
 		}
 	}
+	int ind_last = ind;
 	for (i = 0; i < nrootsmp_mp[n - 1]; i++) {
-		if (ShouldCheck(i + 1, kDefaultTimeoutCheckInterval)) {
+		if (ind < 0) break;
+		if (i >= 0 && i < degree) {
+			roots[ind] = zr_mp[n - 1][i] + s_sort[n - 1] - s_sort[0];
+		}
+		ind--;
+	}
+
+	for (i = ind + 1; i <= ind_last; i++) {
+		if (ShouldCheck(++timeout_iter, kDefaultTimeoutCheckInterval)) {
 			CheckTimeout("cmplx_roots_multigen");
 		}
-		roots[ind] = zr_mp[n - 1][i] + s_sort[n - 1] - s_sort[0];
-		ind--;
+		cmplx_newton_spec(poly[0], degree, &roots[i], iter, success);
 	}
 
 	return;
@@ -8983,6 +9399,12 @@ void VBMicrolensing::solve_cubic_eq(VBcomplex& x0, VBcomplex& x1, VBcomplex& x2,
 
 	return;
 
+}
+
+static double abs2poly(VBcomplex* poly, int degree, VBcomplex z) {
+	VBcomplex pv = poly[degree];
+	for (int k = degree - 1; k >= 0; k--) pv = poly[k] + z * pv;
+	return real(conj(pv) * pv);
 }
 
 void VBMicrolensing::cmplx_laguerre(VBcomplex* poly, int degree, VBcomplex* root, int& iter, bool& success) {
@@ -9124,7 +9546,7 @@ void VBMicrolensing::cmplx_laguerre(VBcomplex* poly, int degree, VBcomplex* root
 		newroot = *root - dx;
 		if (newroot == *root) return; //nothing changes so return
 		if (good_to_go) {
-			*root = newroot;
+			if (abs2poly(poly, degree, newroot) < abs2p) *root = newroot;
 			return;
 		}
 		if (i % FRAC_JUMP_EVERY == 0) { //decide whether to do a jump of modified length (to break cycles)
@@ -9264,7 +9686,7 @@ void VBMicrolensing::cmplx_newton_spec(VBcomplex* poly, int degree, VBcomplex* r
 		newroot = *root - dx;
 		if (newroot == *root) return; //nothing changes -> return
 		if (good_to_go) {//this was jump already after stopping criterion was met
-			*root = newroot;
+			if (abs2poly(poly, degree, newroot) < abs2p) *root = newroot;
 			return;
 		}
 		if (i % FRAC_JUMP_EVERY == 0) { // decide whether to do a jump of modified length (to break cycles)
@@ -9463,7 +9885,7 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 				newroot = *root - dx;
 				if (newroot == *root) return; // nothing changes -> return
 				if (good_to_go) {//this was jump already after stopping criterion was met
-					*root = newroot;
+					if (abs2poly(poly, degree, newroot) < abs2p) *root = newroot;
 					return;
 				}
 				if (mode != 2) {
@@ -9554,8 +9976,8 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 				}
 				newroot = *root - dx;
 				if (newroot == *root) return; //nothing changes -> return
-				if (good_to_go) {
-					*root = newroot; //this was jump already after stopping criterion was met
+				if (good_to_go) {//this was jump already after stopping criterion was met
+					if (abs2poly(poly, degree, newroot) < abs2p) *root = newroot;
 					return;
 				}
 				if (mode != 1) {
@@ -9631,7 +10053,7 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 				newroot = *root - dx;
 				if (newroot == *root) return;
 				if (good_to_go) {
-					*root = newroot;
+					if (abs2poly(poly, degree, newroot) < abs2p) *root = newroot;
 					return;
 				}
 				*root = newroot;
@@ -9659,24 +10081,36 @@ void VBMicrolensing::cmplx_laguerre2newton(VBcomplex* poly, int degree, VBcomple
 
 #define _LL_shear (y-(1.0-coefs[26])*z)+coefs[27]*zc+coefs[21]/(zc-coefs[20])+coefs[22]/zc //Lens equation test
 
-double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi, _sols **Images) {
+double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi, _sols** Images) {
 	// by Lawrence Pierson (https://github.com/alpv95)
+	// gulls: outer timeout scope, so a root-solver timeout aborts the whole call
+	// instead of being absorbed by cmplx_roots_gen under ReturnNaN.
+	ApiScope api_scope(this);
+	if (Images) {
+		*Images = nullptr;
+	}
+	try {
+	TimeBudget budget = TimeBudget::FromSeconds(timeout_config_.magnification_seconds);
+	ScopedBudget scoped(SelectBudget(budget), SelectCheckInterval(timeout_config_.check_interval), VBMTimeoutError::TimeoutCategory::Magnification);
+	std::unique_ptr<_sols> images_owner(new _sols);
+	std::unique_ptr<_theta> stheta_owner(new _theta(-1.));
+
 	static VBcomplex a, q, m1, m2, y, yc, mdiff, mtot, K, G;
 	static double av = -1.0, qv = -1.0, Kv = -1.0, Gv = -1.0, Giv = -1.0, cq;
 	static VBcomplex  coefs[28], d1, d2, dy, dJ, dz;
 	double Mag = -1.0;
-	_theta *stheta;
-	_curve *Prov, *Prov2;
-	_point *scan1, *scan2;
+	_theta* stheta;
+	_curve* Prov, * Prov2;
+	_point* scan1, * scan2;
 
-	stheta = new _theta(-1.);
+	stheta = stheta_owner.get();
 	if ((a1 != av) || (q1 != qv) || (K1 != Kv) || (G1 != Gv) || (Gi != Giv)) {
 		av = a1;
 		qv = q1;
 		Kv = K1;
 		Gv = G1;
 		Giv = Gi;
-		if (q1<1) {
+		if (q1 < 1) {
 			a = VBcomplex(-a1, 0);
 			q = VBcomplex(q1, 0);
 		}
@@ -9685,22 +10119,22 @@ double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double
 			q = VBcomplex(1 / q1, 0);
 		}
 		m1 = 1.0 / (1.0 + q);
-		m2 = q*m1;
+		m2 = q * m1;
 		mdiff = (m2 - m1) / 2; //this might be the opposite sign
 		mtot = (m2 + m1) / 2;
-		K = VBcomplex(K1,0);
-		G = VBcomplex(G1,Gi);
+		K = VBcomplex(K1, 0);
+		G = VBcomplex(G1, Gi);
 
 
 		coefs[20] = a;
 		coefs[21] = m1;
 		coefs[22] = m2;
-		coefs[6] = a*a;
+		coefs[6] = a * a;
 		coefs[7] = coefs[6] * a;
-		coefs[8] = m2*m2;
+		coefs[8] = m2 * m2;
 		coefs[9] = coefs[6] * coefs[8];
-		coefs[10] = a*m2;
-		coefs[11] = a*m1;
+		coefs[10] = a * m2;
+		coefs[11] = a * m1;
 		coefs[23] = 0;
 		coefs[24] = (m2 - m1) / 2;
 		coefs[25] = (m2 + m1) / 2;
@@ -9709,48 +10143,53 @@ double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double
 
 	}
 	y = VBcomplex(y1v, y2v);
-	(*Images) = new _sols;
 	corrquad = corrquad2 = 0;
 	safedist = 10;
 	Prov = NewImages_shear(y, coefs, stheta);
 	if (q.re < 0.01) {
-		safedist = y1v + coefs[11].re-1/a.re;
+		safedist = y1v + coefs[11].re - 1 / a.re;
 		safedist *= safedist;
-		safedist += y2v*y2v - 36 * q1/(a1*a1);
+		safedist += y2v * y2v - 36 * q1 / (a1 * a1);
 	}
 	Mag = 0.;
 	nim0 = 0;
 	for (scan1 = Prov->first; scan1; scan1 = scan2) {
 		scan2 = scan1->next;
 		Prov2 = new _curve(scan1);
-		(*Images)->append(Prov2);
+		images_owner->append(Prov2);
 		Mag += fabs(1 / scan1->dJ);
 		nim0++;
 	}
 	Prov->length = 0;
 	delete Prov;
-	delete stheta;
+	*Images = images_owner.release();
 	return Mag;
-
+	}
+	catch (const VBMTimeoutError& err) {
+		if (HandleTimeoutError(err, "BinaryMag0_shear")) {
+			throw;
+		}
+		return std::numeric_limits<double>::quiet_NaN();
+	}
 }
 
 double VBMicrolensing::BinaryMag0_shear(double a1, double q1, double y1v, double y2v, double K1, double G1, double Gi) {
-	_sols *images;
+	_sols* images;
 	double mag;
 	mag = BinaryMag0_shear(a1, q1, y1v, y2v, K1, G1, Gi, &images);
 	delete images;
 	return mag;
 }
 
-_curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta *theta) {
+_curve* VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex* coefs, _theta* theta) {
     // by Lawrence Pierson (https://github.com/alpv95)
-	static VBcomplex  y, yc, z, zc, Gc, J1, J1c, dy, dz, dJ,J2,J3,dza,za2,zb2,zaltc,Jalt,Jaltc,JJalt2;
-	static VBcomplex zr[9] = { 0.,0.,0.,0.,0.,0.,0.,0.,0.};
-	static double dzmax, dlmax = 1.0e-6, good[9], dJ2,ob2,cq;
+	static VBcomplex  y, yc, z, zc, Gc, J1, J1c, dy, dz, dJ, J2, J3, dza, za2, zb2, zaltc, Jalt, Jaltc, JJalt2;
+	static VBcomplex zr[9] = { 0.,0.,0.,0.,0.,0.,0.,0.,0. };
+	static double dzmax, dlmax = 1.0e-6, good[9], dJ2, ob2, cq;
 	static int worst1, worst2, worst3, bad, f1;
 	static double av = 0.0, m1v = 0.0, disim, disisso;
-	static _curve *Prov;
-	static _point *scan, *prin, *fifth, *left, *right, *center;
+	static _curve* Prov;
+	static _point* scan, * prin, * fifth, * left, * right, * center;
 
 #ifdef _PRINT_TIMES
 	static double tim0, tim1;
@@ -9760,16 +10199,16 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 	yc = conj(y);
 	Gc = conj(coefs[27]);
 
-	coefs[9] = -coefs[27]*Gc*Gc*Gc + Gc*Gc*coefs[26]*coefs[26] - 2*Gc*Gc*coefs[26] + Gc*Gc;
-	coefs[8] = y*Gc*Gc*coefs[26] - y*Gc*Gc + 3*coefs[20]*coefs[27]*Gc*Gc*Gc - coefs[20]*coefs[27]*Gc*Gc*coefs[26] + coefs[20]*coefs[27]*Gc*Gc - 3*coefs[20]*Gc*Gc*coefs[26]*coefs[26] + 6*coefs[20]*Gc*Gc*coefs[26] - 3*coefs[20]*Gc*Gc + coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] - 3*coefs[20]*Gc*coefs[26]*coefs[26] + 3*coefs[20]*Gc*coefs[26] - coefs[20]*Gc - 3*coefs[27]*Gc*Gc*yc + 2*Gc*coefs[26]*coefs[26]*yc - 4*Gc*coefs[26]*yc + 2*Gc*yc;
-	coefs[7] = -6*coefs[25]*coefs[27]*Gc*Gc + 2*coefs[25]*Gc*coefs[26]*coefs[26] - 4*coefs[25]*Gc*coefs[26] + 2*coefs[25]*Gc - 3*y*coefs[20]*Gc*Gc*coefs[26] + 3*y*coefs[20]*Gc*Gc + y*coefs[20]*Gc*coefs[26]*coefs[26] - 2*y*coefs[20]*Gc*coefs[26] + y*coefs[20]*Gc + 2*y*Gc*coefs[26]*yc - 2*y*Gc*yc - 3*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*Gc + 3*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[26] - 3*coefs[20]*coefs[20]*coefs[27]*Gc*Gc + 3*coefs[20]*coefs[20]*Gc*Gc*coefs[26]*coefs[26] - 6*coefs[20]*coefs[20]*Gc*Gc*coefs[26] + 3*coefs[20]*coefs[20]*Gc*Gc - 3*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] + 9*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 9*coefs[20]*coefs[20]*Gc*coefs[26] + 3*coefs[20]*coefs[20]*Gc + 9*coefs[20]*coefs[27]*Gc*Gc*yc - 2*coefs[20]*coefs[27]*Gc*coefs[26]*yc + 2*coefs[20]*coefs[27]*Gc*yc - 6*coefs[20]*Gc*coefs[26]*coefs[26]*yc + 12*coefs[20]*Gc*coefs[26]*yc - 6*coefs[20]*Gc*yc + coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc - 3*coefs[20]*coefs[26]*coefs[26]*yc + 3*coefs[20]*coefs[26]*yc - coefs[20]*yc - 3*coefs[27]*Gc*yc*yc + coefs[26]*coefs[26]*yc*yc - 2*coefs[26]*yc*yc + yc*yc;
-	coefs[6] = 4*coefs[25]*y*Gc*coefs[26] - 4*coefs[25]*y*Gc + 15*coefs[25]*coefs[20]*coefs[27]*Gc*Gc - 4*coefs[25]*coefs[20]*coefs[27]*Gc*coefs[26] + 4*coefs[25]*coefs[20]*coefs[27]*Gc - 4*coefs[25]*coefs[20]*Gc*coefs[26]*coefs[26] + 8*coefs[25]*coefs[20]*Gc*coefs[26] - 4*coefs[25]*coefs[20]*Gc + coefs[25]*coefs[20]*coefs[26]*coefs[26]*coefs[26] - 3*coefs[25]*coefs[20]*coefs[26]*coefs[26] + 3*coefs[25]*coefs[20]*coefs[26] - coefs[25]*coefs[20] - 12*coefs[25]*coefs[27]*Gc*yc + 2*coefs[25]*coefs[26]*coefs[26]*yc - 4*coefs[25]*coefs[26]*yc + 2*coefs[25]*yc + 3*y*coefs[20]*coefs[20]*Gc*Gc*coefs[26] - 3*y*coefs[20]*coefs[20]*Gc*Gc - 3*y*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] + 6*y*coefs[20]*coefs[20]*Gc*coefs[26] - 3*y*coefs[20]*coefs[20]*Gc - 6*y*coefs[20]*Gc*coefs[26]*yc + 6*y*coefs[20]*Gc*yc + y*coefs[20]*coefs[26]*coefs[26]*yc - 2*y*coefs[20]*coefs[26]*yc + y*coefs[20]*yc + y*coefs[26]*yc*yc - y*yc*yc + coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*Gc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[26] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc - coefs[20]*coefs[20]*coefs[20]*Gc*Gc*coefs[26]*coefs[26] + 2*coefs[20]*coefs[20]*coefs[20]*Gc*Gc*coefs[26] - coefs[20]*coefs[20]*coefs[20]*Gc*Gc + 3*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] - 9*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] + 9*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] - 3*coefs[20]*coefs[20]*coefs[20]*Gc - 9*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*yc + 6*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*yc - 6*coefs[20]*coefs[20]*coefs[27]*Gc*yc + 6*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*yc - 12*coefs[20]*coefs[20]*Gc*coefs[26]*yc + 6*coefs[20]*coefs[20]*Gc*yc - 3*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc + 9*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 9*coefs[20]*coefs[20]*coefs[26]*yc + 3*coefs[20]*coefs[20]*yc + 3*coefs[20]*coefs[27]*Gc*Gc*coefs[24] + 9*coefs[20]*coefs[27]*Gc*yc*yc - coefs[20]*coefs[27]*coefs[26]*yc*yc + coefs[20]*coefs[27]*yc*yc - 2*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[24] + 4*coefs[20]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*Gc*coefs[24] - coefs[20]*coefs[26]*coefs[26]*coefs[26]*coefs[24] + 3*coefs[20]*coefs[26]*coefs[26]*coefs[24] - 3*coefs[20]*coefs[26]*coefs[26]*yc*yc - 3*coefs[20]*coefs[26]*coefs[24] + 6*coefs[20]*coefs[26]*yc*yc + coefs[20]*coefs[24] - 3*coefs[20]*yc*yc - coefs[27]*yc*yc*yc;
-	coefs[5] = -12*coefs[25]*coefs[25]*coefs[27]*Gc - 10*coefs[25]*y*coefs[20]*Gc*coefs[26] + 10*coefs[25]*y*coefs[20]*Gc + 2*coefs[25]*y*coefs[20]*coefs[26]*coefs[26] - 4*coefs[25]*y*coefs[20]*coefs[26] + 2*coefs[25]*y*coefs[20] + 4*coefs[25]*y*coefs[26]*yc - 4*coefs[25]*y*yc - 12*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc + 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26] - 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc + 2*coefs[25]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 4*coefs[25]*coefs[20]*coefs[20]*Gc*coefs[26] + 2*coefs[25]*coefs[20]*coefs[20]*Gc - 2*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26] + 6*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26] - 6*coefs[25]*coefs[20]*coefs[20]*coefs[26] + 2*coefs[25]*coefs[20]*coefs[20] + 30*coefs[25]*coefs[20]*coefs[27]*Gc*yc - 4*coefs[25]*coefs[20]*coefs[27]*coefs[26]*yc + 4*coefs[25]*coefs[20]*coefs[27]*yc - 4*coefs[25]*coefs[20]*coefs[26]*coefs[26]*yc + 8*coefs[25]*coefs[20]*coefs[26]*yc - 4*coefs[25]*coefs[20]*yc - 6*coefs[25]*coefs[27]*yc*yc - y*coefs[20]*coefs[20]*coefs[20]*Gc*Gc*coefs[26] + y*coefs[20]*coefs[20]*coefs[20]*Gc*Gc + 3*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 6*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] + 3*y*coefs[20]*coefs[20]*coefs[20]*Gc + 6*y*coefs[20]*coefs[20]*Gc*coefs[26]*yc - 6*y*coefs[20]*coefs[20]*Gc*yc - 3*y*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc + 6*y*coefs[20]*coefs[20]*coefs[26]*yc - 3*y*coefs[20]*coefs[20]*yc - 2*y*coefs[20]*Gc*coefs[26]*coefs[24] + 2*y*coefs[20]*Gc*coefs[24] - 3*y*coefs[20]*coefs[26]*yc*yc + 3*y*coefs[20]*yc*yc + coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[26] - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc - coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[26] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] - 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] + coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*yc - 6*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*yc + 6*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc - 2*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*yc + 4*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*yc - 2*coefs[20]*coefs[20]*coefs[20]*Gc*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc - 9*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc + 9*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc - 3*coefs[20]*coefs[20]*coefs[20]*yc - 6*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[24] + 2*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] - 9*coefs[20]*coefs[20]*coefs[27]*Gc*yc*yc + 3*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc*yc - 3*coefs[20]*coefs[20]*coefs[27]*yc*yc + 4*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[24] - 8*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] + 4*coefs[20]*coefs[20]*Gc*coefs[24] + 2*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*coefs[24] - 6*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc*yc + 6*coefs[20]*coefs[20]*coefs[26]*coefs[24] - 6*coefs[20]*coefs[20]*coefs[26]*yc*yc - 2*coefs[20]*coefs[20]*coefs[24] + 3*coefs[20]*coefs[20]*yc*yc + 6*coefs[20]*coefs[27]*Gc*coefs[24]*yc + 3*coefs[20]*coefs[27]*yc*yc*yc - 2*coefs[20]*coefs[26]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[24]*yc;
-	coefs[4] = 4*coefs[25]*coefs[25]*y*coefs[26] - 4*coefs[25]*coefs[25]*y + 24*coefs[25]*coefs[25]*coefs[20]*coefs[27]*Gc - 4*coefs[25]*coefs[25]*coefs[20]*coefs[27]*coefs[26] + 4*coefs[25]*coefs[25]*coefs[20]*coefs[27] + 2*coefs[25]*coefs[25]*coefs[20]*coefs[26]*coefs[26] - 4*coefs[25]*coefs[25]*coefs[20]*coefs[26] + 2*coefs[25]*coefs[25]*coefs[20] - 12*coefs[25]*coefs[25]*coefs[27]*yc + 8*coefs[25]*y*coefs[20]*coefs[20]*Gc*coefs[26] - 8*coefs[25]*y*coefs[20]*coefs[20]*Gc - 5*coefs[25]*y*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 10*coefs[25]*y*coefs[20]*coefs[20]*coefs[26] - 5*coefs[25]*y*coefs[20]*coefs[20] - 10*coefs[25]*y*coefs[20]*coefs[26]*yc + 10*coefs[25]*y*coefs[20]*yc + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc - 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26] + 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc + coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26] - 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26] - coefs[25]*coefs[20]*coefs[20]*coefs[20] - 24*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*yc + 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc - 10*coefs[25]*coefs[20]*coefs[20]*coefs[27]*yc + 2*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 4*coefs[25]*coefs[20]*coefs[20]*coefs[26]*yc + 2*coefs[25]*coefs[20]*coefs[20]*yc + 12*coefs[25]*coefs[20]*coefs[27]*Gc*coefs[24] + 15*coefs[25]*coefs[20]*coefs[27]*yc*yc - 2*coefs[25]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 4*coefs[25]*coefs[20]*coefs[26]*coefs[24] - 2*coefs[25]*coefs[20]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26] + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*Gc - 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*yc + 3*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 6*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc + 3*y*coefs[20]*coefs[20]*coefs[20]*yc + 4*y*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] - 4*y*coefs[20]*coefs[20]*Gc*coefs[24] - y*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 3*y*coefs[20]*coefs[20]*coefs[26]*yc*yc - y*coefs[20]*coefs[20]*coefs[24] - 3*y*coefs[20]*coefs[20]*yc*yc - 2*y*coefs[20]*coefs[26]*coefs[24]*yc + 2*y*coefs[20]*coefs[24]*yc + 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc + coefs[20]*coefs[20]*coefs[20]*coefs[20]*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*Gc*coefs[24] - 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*coefs[24] + 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc*yc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc - 2*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[26]*coefs[24] + 4*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[26]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc*yc - 3*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 2*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc*yc + coefs[20]*coefs[20]*coefs[20]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*yc*yc - 12*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*yc + 2*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc - 3*coefs[20]*coefs[20]*coefs[27]*yc*yc*yc + 4*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*yc - 8*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[20]*coefs[24]*yc + 3*coefs[20]*coefs[27]*coefs[24]*yc*yc;
-	coefs[3] = -8*coefs[25]*coefs[25]*coefs[25]*coefs[27] - 8*coefs[25]*coefs[25]*y*coefs[20]*coefs[26] + 8*coefs[25]*coefs[25]*y*coefs[20] - 15*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc + 8*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[26] - 8*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27] - 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 6*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[26] - 3*coefs[25]*coefs[25]*coefs[20]*coefs[20] + 24*coefs[25]*coefs[25]*coefs[20]*coefs[27]*yc - 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26] + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*Gc + 4*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] - 8*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26] + 4*coefs[25]*y*coefs[20]*coefs[20]*coefs[20] + 8*coefs[25]*y*coefs[20]*coefs[20]*coefs[26]*yc - 8*coefs[25]*y*coefs[20]*coefs[20]*yc - 4*coefs[25]*y*coefs[20]*coefs[26]*coefs[24] + 4*coefs[25]*y*coefs[20]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26] - 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*yc - 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc + 8*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc - 18*coefs[25]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] + 4*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24] - 4*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24] - 12*coefs[25]*coefs[20]*coefs[20]*coefs[27]*yc*yc + 2*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] - 4*coefs[25]*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[24] + 12*coefs[25]*coefs[20]*coefs[27]*coefs[24]*yc - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*yc - 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[26]*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[20]*Gc*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] - 4*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[24] + y*coefs[20]*coefs[20]*coefs[20]*yc*yc + 4*y*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc - 4*y*coefs[20]*coefs[20]*coefs[24]*yc + 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[26]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc*yc - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc + 6*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*yc - 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc + coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*yc + 4*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[24]*yc - 3*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*coefs[24] - 6*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc*yc + coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*coefs[24] - 2*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[24]*coefs[24];
-	coefs[2] = 12*coefs[25]*coefs[25]*coefs[25]*coefs[20]*coefs[27] + 5*coefs[25]*coefs[25]*y*coefs[20]*coefs[20]*coefs[26] - 5*coefs[25]*coefs[25]*y*coefs[20]*coefs[20] + 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc - 5*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26] + 5*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27] + coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] - 2*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[26] + coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20] - 15*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*yc + 12*coefs[25]*coefs[25]*coefs[20]*coefs[27]*coefs[24] - coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26] + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26] - coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[20] - 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*yc + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*yc + 6*coefs[25]*y*coefs[20]*coefs[20]*coefs[26]*coefs[24] - 6*coefs[25]*y*coefs[20]*coefs[20]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*yc - 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24] - 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24] + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24] + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc*yc - 18*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24] + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[24] - 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*yc + 2*y*coefs[20]*coefs[20]*coefs[20]*coefs[24]*yc + y*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] - y*coefs[20]*coefs[20]*coefs[24]*coefs[24] + 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*yc - 2*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*Gc*coefs[24]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc*yc - coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[26]*coefs[24]*coefs[24] + 2*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[24]*coefs[24] - 3*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24]*yc;
-	coefs[1] = -6*coefs[25]*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27] - coefs[25]*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26] + coefs[25]*coefs[25]*y*coefs[20]*coefs[20]*coefs[20] + coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26] - coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27] + 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*yc - 12*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24] - 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24] + 2*coefs[25]*y*coefs[20]*coefs[20]*coefs[20]*coefs[24] + 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24] - 2*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24] + 6*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*yc - 6*coefs[25]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] - y*coefs[20]*coefs[20]*coefs[20]*coefs[26]*coefs[24]*coefs[24] + y*coefs[20]*coefs[20]*coefs[20]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[26]*coefs[24]*coefs[24] - coefs[20]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] + 3*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24]*yc;
-	coefs[0] = coefs[25]*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27] + 3*coefs[25]*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24] + 3*coefs[25]*coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24] + coefs[20]*coefs[20]*coefs[20]*coefs[27]*coefs[24]*coefs[24]*coefs[24];
+	coefs[9] = -coefs[27] * Gc * Gc * Gc + Gc * Gc * coefs[26] * coefs[26] - 2 * Gc * Gc * coefs[26] + Gc * Gc;
+	coefs[8] = y * Gc * Gc * coefs[26] - y * Gc * Gc + 3 * coefs[20] * coefs[27] * Gc * Gc * Gc - coefs[20] * coefs[27] * Gc * Gc * coefs[26] + coefs[20] * coefs[27] * Gc * Gc - 3 * coefs[20] * Gc * Gc * coefs[26] * coefs[26] + 6 * coefs[20] * Gc * Gc * coefs[26] - 3 * coefs[20] * Gc * Gc + coefs[20] * Gc * coefs[26] * coefs[26] * coefs[26] - 3 * coefs[20] * Gc * coefs[26] * coefs[26] + 3 * coefs[20] * Gc * coefs[26] - coefs[20] * Gc - 3 * coefs[27] * Gc * Gc * yc + 2 * Gc * coefs[26] * coefs[26] * yc - 4 * Gc * coefs[26] * yc + 2 * Gc * yc;
+	coefs[7] = -6 * coefs[25] * coefs[27] * Gc * Gc + 2 * coefs[25] * Gc * coefs[26] * coefs[26] - 4 * coefs[25] * Gc * coefs[26] + 2 * coefs[25] * Gc - 3 * y * coefs[20] * Gc * Gc * coefs[26] + 3 * y * coefs[20] * Gc * Gc + y * coefs[20] * Gc * coefs[26] * coefs[26] - 2 * y * coefs[20] * Gc * coefs[26] + y * coefs[20] * Gc + 2 * y * Gc * coefs[26] * yc - 2 * y * Gc * yc - 3 * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * Gc + 3 * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * coefs[26] - 3 * coefs[20] * coefs[20] * coefs[27] * Gc * Gc + 3 * coefs[20] * coefs[20] * Gc * Gc * coefs[26] * coefs[26] - 6 * coefs[20] * coefs[20] * Gc * Gc * coefs[26] + 3 * coefs[20] * coefs[20] * Gc * Gc - 3 * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * coefs[26] + 9 * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] - 9 * coefs[20] * coefs[20] * Gc * coefs[26] + 3 * coefs[20] * coefs[20] * Gc + 9 * coefs[20] * coefs[27] * Gc * Gc * yc - 2 * coefs[20] * coefs[27] * Gc * coefs[26] * yc + 2 * coefs[20] * coefs[27] * Gc * yc - 6 * coefs[20] * Gc * coefs[26] * coefs[26] * yc + 12 * coefs[20] * Gc * coefs[26] * yc - 6 * coefs[20] * Gc * yc + coefs[20] * coefs[26] * coefs[26] * coefs[26] * yc - 3 * coefs[20] * coefs[26] * coefs[26] * yc + 3 * coefs[20] * coefs[26] * yc - coefs[20] * yc - 3 * coefs[27] * Gc * yc * yc + coefs[26] * coefs[26] * yc * yc - 2 * coefs[26] * yc * yc + yc * yc;
+	coefs[6] = 4 * coefs[25] * y * Gc * coefs[26] - 4 * coefs[25] * y * Gc + 15 * coefs[25] * coefs[20] * coefs[27] * Gc * Gc - 4 * coefs[25] * coefs[20] * coefs[27] * Gc * coefs[26] + 4 * coefs[25] * coefs[20] * coefs[27] * Gc - 4 * coefs[25] * coefs[20] * Gc * coefs[26] * coefs[26] + 8 * coefs[25] * coefs[20] * Gc * coefs[26] - 4 * coefs[25] * coefs[20] * Gc + coefs[25] * coefs[20] * coefs[26] * coefs[26] * coefs[26] - 3 * coefs[25] * coefs[20] * coefs[26] * coefs[26] + 3 * coefs[25] * coefs[20] * coefs[26] - coefs[25] * coefs[20] - 12 * coefs[25] * coefs[27] * Gc * yc + 2 * coefs[25] * coefs[26] * coefs[26] * yc - 4 * coefs[25] * coefs[26] * yc + 2 * coefs[25] * yc + 3 * y * coefs[20] * coefs[20] * Gc * Gc * coefs[26] - 3 * y * coefs[20] * coefs[20] * Gc * Gc - 3 * y * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] + 6 * y * coefs[20] * coefs[20] * Gc * coefs[26] - 3 * y * coefs[20] * coefs[20] * Gc - 6 * y * coefs[20] * Gc * coefs[26] * yc + 6 * y * coefs[20] * Gc * yc + y * coefs[20] * coefs[26] * coefs[26] * yc - 2 * y * coefs[20] * coefs[26] * yc + y * coefs[20] * yc + y * coefs[26] * yc * yc - y * yc * yc + coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * Gc - 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * coefs[26] + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc - coefs[20] * coefs[20] * coefs[20] * Gc * Gc * coefs[26] * coefs[26] + 2 * coefs[20] * coefs[20] * coefs[20] * Gc * Gc * coefs[26] - coefs[20] * coefs[20] * coefs[20] * Gc * Gc + 3 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * coefs[26] - 9 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] + 9 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] - 3 * coefs[20] * coefs[20] * coefs[20] * Gc - 9 * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * yc + 6 * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] * yc - 6 * coefs[20] * coefs[20] * coefs[27] * Gc * yc + 6 * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * yc - 12 * coefs[20] * coefs[20] * Gc * coefs[26] * yc + 6 * coefs[20] * coefs[20] * Gc * yc - 3 * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] * yc + 9 * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc - 9 * coefs[20] * coefs[20] * coefs[26] * yc + 3 * coefs[20] * coefs[20] * yc + 3 * coefs[20] * coefs[27] * Gc * Gc * coefs[24] + 9 * coefs[20] * coefs[27] * Gc * yc * yc - coefs[20] * coefs[27] * coefs[26] * yc * yc + coefs[20] * coefs[27] * yc * yc - 2 * coefs[20] * Gc * coefs[26] * coefs[26] * coefs[24] + 4 * coefs[20] * Gc * coefs[26] * coefs[24] - 2 * coefs[20] * Gc * coefs[24] - coefs[20] * coefs[26] * coefs[26] * coefs[26] * coefs[24] + 3 * coefs[20] * coefs[26] * coefs[26] * coefs[24] - 3 * coefs[20] * coefs[26] * coefs[26] * yc * yc - 3 * coefs[20] * coefs[26] * coefs[24] + 6 * coefs[20] * coefs[26] * yc * yc + coefs[20] * coefs[24] - 3 * coefs[20] * yc * yc - coefs[27] * yc * yc * yc;
+	coefs[5] = -12 * coefs[25] * coefs[25] * coefs[27] * Gc - 10 * coefs[25] * y * coefs[20] * Gc * coefs[26] + 10 * coefs[25] * y * coefs[20] * Gc + 2 * coefs[25] * y * coefs[20] * coefs[26] * coefs[26] - 4 * coefs[25] * y * coefs[20] * coefs[26] + 2 * coefs[25] * y * coefs[20] + 4 * coefs[25] * y * coefs[26] * yc - 4 * coefs[25] * y * yc - 12 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc + 10 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] - 10 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * Gc + 2 * coefs[25] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] - 4 * coefs[25] * coefs[20] * coefs[20] * Gc * coefs[26] + 2 * coefs[25] * coefs[20] * coefs[20] * Gc - 2 * coefs[25] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] + 6 * coefs[25] * coefs[20] * coefs[20] * coefs[26] * coefs[26] - 6 * coefs[25] * coefs[20] * coefs[20] * coefs[26] + 2 * coefs[25] * coefs[20] * coefs[20] + 30 * coefs[25] * coefs[20] * coefs[27] * Gc * yc - 4 * coefs[25] * coefs[20] * coefs[27] * coefs[26] * yc + 4 * coefs[25] * coefs[20] * coefs[27] * yc - 4 * coefs[25] * coefs[20] * coefs[26] * coefs[26] * yc + 8 * coefs[25] * coefs[20] * coefs[26] * yc - 4 * coefs[25] * coefs[20] * yc - 6 * coefs[25] * coefs[27] * yc * yc - y * coefs[20] * coefs[20] * coefs[20] * Gc * Gc * coefs[26] + y * coefs[20] * coefs[20] * coefs[20] * Gc * Gc + 3 * y * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] - 6 * y * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] + 3 * y * coefs[20] * coefs[20] * coefs[20] * Gc + 6 * y * coefs[20] * coefs[20] * Gc * coefs[26] * yc - 6 * y * coefs[20] * coefs[20] * Gc * yc - 3 * y * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc + 6 * y * coefs[20] * coefs[20] * coefs[26] * yc - 3 * y * coefs[20] * coefs[20] * yc - 2 * y * coefs[20] * Gc * coefs[26] * coefs[24] + 2 * y * coefs[20] * Gc * coefs[24] - 3 * y * coefs[20] * coefs[26] * yc * yc + 3 * y * coefs[20] * yc * yc + coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * coefs[26] - coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc - coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * coefs[26] + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] - 3 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] + coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * yc - 6 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] * yc + 6 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * yc - 2 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * yc + 4 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * yc - 2 * coefs[20] * coefs[20] * coefs[20] * Gc * yc + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] * yc - 9 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc + 9 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc - 3 * coefs[20] * coefs[20] * coefs[20] * yc - 6 * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * coefs[24] + 2 * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] * coefs[24] - 2 * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] - 9 * coefs[20] * coefs[20] * coefs[27] * Gc * yc * yc + 3 * coefs[20] * coefs[20] * coefs[27] * coefs[26] * yc * yc - 3 * coefs[20] * coefs[20] * coefs[27] * yc * yc + 4 * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * coefs[24] - 8 * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[24] + 4 * coefs[20] * coefs[20] * Gc * coefs[24] + 2 * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] * coefs[24] - 6 * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] + 3 * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc * yc + 6 * coefs[20] * coefs[20] * coefs[26] * coefs[24] - 6 * coefs[20] * coefs[20] * coefs[26] * yc * yc - 2 * coefs[20] * coefs[20] * coefs[24] + 3 * coefs[20] * coefs[20] * yc * yc + 6 * coefs[20] * coefs[27] * Gc * coefs[24] * yc + 3 * coefs[20] * coefs[27] * yc * yc * yc - 2 * coefs[20] * coefs[26] * coefs[26] * coefs[24] * yc + 4 * coefs[20] * coefs[26] * coefs[24] * yc - 2 * coefs[20] * coefs[24] * yc;
+	coefs[4] = 4 * coefs[25] * coefs[25] * y * coefs[26] - 4 * coefs[25] * coefs[25] * y + 24 * coefs[25] * coefs[25] * coefs[20] * coefs[27] * Gc - 4 * coefs[25] * coefs[25] * coefs[20] * coefs[27] * coefs[26] + 4 * coefs[25] * coefs[25] * coefs[20] * coefs[27] + 2 * coefs[25] * coefs[25] * coefs[20] * coefs[26] * coefs[26] - 4 * coefs[25] * coefs[25] * coefs[20] * coefs[26] + 2 * coefs[25] * coefs[25] * coefs[20] - 12 * coefs[25] * coefs[25] * coefs[27] * yc + 8 * coefs[25] * y * coefs[20] * coefs[20] * Gc * coefs[26] - 8 * coefs[25] * y * coefs[20] * coefs[20] * Gc - 5 * coefs[25] * y * coefs[20] * coefs[20] * coefs[26] * coefs[26] + 10 * coefs[25] * y * coefs[20] * coefs[20] * coefs[26] - 5 * coefs[25] * y * coefs[20] * coefs[20] - 10 * coefs[25] * y * coefs[20] * coefs[26] * yc + 10 * coefs[25] * y * coefs[20] * yc + 3 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc - 8 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] + 8 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc + coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] - 3 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] + 3 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[26] - coefs[25] * coefs[20] * coefs[20] * coefs[20] - 24 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * Gc * yc + 10 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * yc - 10 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * yc + 2 * coefs[25] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc - 4 * coefs[25] * coefs[20] * coefs[20] * coefs[26] * yc + 2 * coefs[25] * coefs[20] * coefs[20] * yc + 12 * coefs[25] * coefs[20] * coefs[27] * Gc * coefs[24] + 15 * coefs[25] * coefs[20] * coefs[27] * yc * yc - 2 * coefs[25] * coefs[20] * coefs[26] * coefs[26] * coefs[24] + 4 * coefs[25] * coefs[20] * coefs[26] * coefs[24] - 2 * coefs[25] * coefs[20] * coefs[24] - y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] + 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] - y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * Gc - 2 * y * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * yc + 2 * y * coefs[20] * coefs[20] * coefs[20] * Gc * yc + 3 * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc - 6 * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc + 3 * y * coefs[20] * coefs[20] * coefs[20] * yc + 4 * y * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[24] - 4 * y * coefs[20] * coefs[20] * Gc * coefs[24] - y * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] + 2 * y * coefs[20] * coefs[20] * coefs[26] * coefs[24] + 3 * y * coefs[20] * coefs[20] * coefs[26] * yc * yc - y * coefs[20] * coefs[20] * coefs[24] - 3 * y * coefs[20] * coefs[20] * yc * yc - 2 * y * coefs[20] * coefs[26] * coefs[24] * yc + 2 * y * coefs[20] * coefs[24] * yc + 2 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] * yc - 2 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * yc - coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] * yc + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc - 3 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc + coefs[20] * coefs[20] * coefs[20] * coefs[20] * yc + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * Gc * coefs[24] - 4 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] * coefs[24] + 4 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * yc * yc - 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * yc * yc + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc * yc - 2 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[26] * coefs[24] + 4 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[24] - 2 * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[24] - coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[26] * coefs[24] + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] - coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc * yc - 3 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] + 2 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc * yc + coefs[20] * coefs[20] * coefs[20] * coefs[24] - coefs[20] * coefs[20] * coefs[20] * yc * yc - 12 * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] * yc + 2 * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] * yc - 2 * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc - 3 * coefs[20] * coefs[20] * coefs[27] * yc * yc * yc + 4 * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] * yc - 8 * coefs[20] * coefs[20] * coefs[26] * coefs[24] * yc + 4 * coefs[20] * coefs[20] * coefs[24] * yc + 3 * coefs[20] * coefs[27] * coefs[24] * yc * yc;
+	coefs[3] = -8 * coefs[25] * coefs[25] * coefs[25] * coefs[27] - 8 * coefs[25] * coefs[25] * y * coefs[20] * coefs[26] + 8 * coefs[25] * coefs[25] * y * coefs[20] - 15 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[27] * Gc + 8 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[26] - 8 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[27] - 3 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[26] * coefs[26] + 6 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[26] - 3 * coefs[25] * coefs[25] * coefs[20] * coefs[20] + 24 * coefs[25] * coefs[25] * coefs[20] * coefs[27] * yc - 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] + 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * Gc + 4 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] - 8 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] + 4 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] + 8 * coefs[25] * y * coefs[20] * coefs[20] * coefs[26] * yc - 8 * coefs[25] * y * coefs[20] * coefs[20] * yc - 4 * coefs[25] * y * coefs[20] * coefs[26] * coefs[24] + 4 * coefs[25] * y * coefs[20] * coefs[24] + 2 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] - 2 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc + 6 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * yc - 8 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * yc + 8 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc - 18 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] + 4 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] - 4 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[24] - 12 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * yc * yc + 2 * coefs[25] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] - 4 * coefs[25] * coefs[20] * coefs[20] * coefs[26] * coefs[24] + 2 * coefs[25] * coefs[20] * coefs[20] * coefs[24] + 12 * coefs[25] * coefs[20] * coefs[27] * coefs[24] * yc - y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * yc + 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc - y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * yc - 2 * y * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[26] * coefs[24] + 2 * y * coefs[20] * coefs[20] * coefs[20] * Gc * coefs[24] + 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] - 4 * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] - y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc * yc + 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[24] + y * coefs[20] * coefs[20] * coefs[20] * yc * yc + 4 * y * coefs[20] * coefs[20] * coefs[26] * coefs[24] * yc - 4 * y * coefs[20] * coefs[20] * coefs[24] * yc + 2 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[26] * coefs[24] - 2 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] + coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * yc * yc - coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc * yc + 6 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] * yc - 4 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] * yc + 4 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc + coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc * yc * yc - 2 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] * yc + 4 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] * yc - 2 * coefs[20] * coefs[20] * coefs[20] * coefs[24] * yc - 3 * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] * coefs[24] - 6 * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc * yc + coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] * coefs[24] - 2 * coefs[20] * coefs[20] * coefs[26] * coefs[24] * coefs[24] + coefs[20] * coefs[20] * coefs[24] * coefs[24];
+	coefs[2] = 12 * coefs[25] * coefs[25] * coefs[25] * coefs[20] * coefs[27] + 5 * coefs[25] * coefs[25] * y * coefs[20] * coefs[20] * coefs[26] - 5 * coefs[25] * coefs[25] * y * coefs[20] * coefs[20] + 3 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc - 5 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] + 5 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] + coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] - 2 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[26] + coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] - 15 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[27] * yc + 12 * coefs[25] * coefs[25] * coefs[20] * coefs[27] * coefs[24] - coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] + 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] - coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[20] - 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * yc + 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * yc + 6 * coefs[25] * y * coefs[20] * coefs[20] * coefs[26] * coefs[24] - 6 * coefs[25] * y * coefs[20] * coefs[20] * coefs[24] + 2 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * yc - 2 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc + 6 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] - 6 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] + 6 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] + 3 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc * yc - 18 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc - y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] + 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] - y * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[24] - 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] * yc + 2 * y * coefs[20] * coefs[20] * coefs[20] * coefs[24] * yc + y * coefs[20] * coefs[20] * coefs[26] * coefs[24] * coefs[24] - y * coefs[20] * coefs[20] * coefs[24] * coefs[24] + 2 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] * yc - 2 * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * Gc * coefs[24] * coefs[24] - coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] * coefs[24] + coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc * yc - coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[26] * coefs[24] * coefs[24] + 2 * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] * coefs[24] - coefs[20] * coefs[20] * coefs[20] * coefs[24] * coefs[24] - 3 * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] * yc;
+	coefs[1] = -6 * coefs[25] * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[27] - coefs[25] * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] + coefs[25] * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] + coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] - coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] + 3 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * yc - 12 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[24] - 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] + 2 * coefs[25] * y * coefs[20] * coefs[20] * coefs[20] * coefs[24] + 2 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] - 2 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] + 6 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * yc - 6 * coefs[25] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] - y * coefs[20] * coefs[20] * coefs[20] * coefs[26] * coefs[24] * coefs[24] + y * coefs[20] * coefs[20] * coefs[20] * coefs[24] * coefs[24] + coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[26] * coefs[24] * coefs[24] - coefs[20] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] + 3 * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] * yc;
+	coefs[0] = coefs[25] * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] + 3 * coefs[25] * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] + 3 * coefs[25] * coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] + coefs[20] * coefs[20] * coefs[20] * coefs[27] * coefs[24] * coefs[24] * coefs[24];
 
 	bad = 1;
 	dzmax = 1.0e-12;
@@ -9786,7 +10225,7 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 		inc += tim1 - tim0;
 #endif
 		// apply lens equation to check if it is really solved
-		for (int i = 0; i<9; i++) {
+		for (int i = 0; i < 9; i++) {
 			z = zr[i];
 			zc = conj(z);
 			good[i] = abs(_LL_shear); // Lens equation check
@@ -9795,45 +10234,45 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 				worst1 = i;
 				break;
 			case 1:
-				if (good[i]>good[worst1]) {
+				if (good[i] > good[worst1]) {
 					worst2 = worst1;
 					worst1 = i;
 				}
 				else worst2 = i;
 				break;
 			case 2:
-				if (good[i]>good[worst1]) {
+				if (good[i] > good[worst1]) {
 					worst3 = worst2;
 					worst2 = worst1;
 					worst1 = i;
 				}
-				else if (good[i]>good[worst2]) {
+				else if (good[i] > good[worst2]) {
 					worst3 = worst2;
 					worst2 = i;
 				}
 				else worst3 = i;
 				break;
 			default:
-				if (good[i]>good[worst1]) {
+				if (good[i] > good[worst1]) {
 					worst3 = worst2;
 					worst2 = worst1;
 					worst1 = i;
 				}
-				else if (good[i]>good[worst2]) {
+				else if (good[i] > good[worst2]) {
 					worst3 = worst2;
 					worst2 = i;
 				}
-				else if (good[i]>good[worst3]) {
+				else if (good[i] > good[worst3]) {
 					worst3 = i;
 				}
 			}
 		}
-		if ((good[worst3]<dlmax) && ((good[worst1]<dlmax) || (good[worst2]>1.e2*good[worst3]))) {
+		if ((good[worst3] < dlmax) && ((good[worst1] < dlmax) || (good[worst2] > 1.e2 * good[worst3]))) {
 			bad = 0;
 		}
 		else {
-			if ((disim>0) && (good[worst3] / disim>0.99)) {
-				if (f1>1) {
+			if ((disim > 0) && (good[worst3] / disim > 0.99)) {
+				if (f1 > 1) {
 					bad = 0;
 				}
 				else {
@@ -9849,21 +10288,22 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 	}
 	Prov = new _curve;
 	f1 = 0;
-	for (int i = 0; i<9; i++) {
-		if ( (good[i] < dlmax) && ((fabs(zr[i].re) > dlmax) || (fabs(zr[i].im) > dlmax)) && ((fabs(zr[i].re - coefs[20].re) > dlmax) || (fabs(zr[i].im) > dlmax)) ) {
+	for (int i = 0; i < 9; i++) {
+		if ((good[i] < dlmax) && ((fabs(zr[i].re) > dlmax) || (fabs(zr[i].im) > dlmax)) && ((fabs(zr[i].re - coefs[20].re) > dlmax) || (fabs(zr[i].im) > dlmax))) {
 			Prov->append(zr[i].re, zr[i].im);
 
 			_Jacobians1_shear
 			if (theta->th >= 0) {
 				_Jacobians2
-			}else {
+				}
+				else {
 				_Jacobians3
 				corrquad += cq;
 			}
 
 			Prov->last->theta = theta;
 
-			if (fabs(dJ.re)<1.e-5) f1 = 1;
+			if (fabs(dJ.re) < 1.e-5) f1 = 1;
 		}
 	}
 	theta->errworst = -1.e100;
@@ -9877,7 +10317,7 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 			}
 			else {
 				dz.re = fabs(scan->dJ);
-				if (dz.re>dJ.re) {
+				if (dz.re > dJ.re) {
 					fifth = scan;
 					dJ.re = dz.re;
 				}
@@ -9886,14 +10326,14 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 		for (scan = Prov->first; scan; scan = scan->next) {
 			if ((scan != prin) && (scan != fifth)) {
 				if (left) {
-					if (scan->x1<left->x1) {
+					if (scan->x1 < left->x1) {
 						if (left != right) {
 							center = left;
 						}
 						left = scan;
 					}
 					else {
-						if (scan->x1>right->x1) {
+						if (scan->x1 > right->x1) {
 							if (left != right) {
 								center = right;
 							}
@@ -9909,9 +10349,9 @@ _curve *VBMicrolensing::NewImages_shear(VBcomplex yi, VBcomplex  *coefs, _theta 
 				}
 			}
 		}
-		if (left->dJ>0) left->dJ = -left->dJ;
-		if (center->dJ<0) center->dJ = -center->dJ;
-		if (right->dJ>0) right->dJ = -right->dJ;
+		if (left->dJ > 0) left->dJ = -left->dJ;
+		if (center->dJ < 0) center->dJ = -center->dJ;
+		if (right->dJ > 0) right->dJ = -right->dJ;
 	}
 	// }
 	return Prov;
@@ -10624,6 +11064,7 @@ _theta::_theta(double th1) {
 }
 
 _thetas::_thetas(void) {
+	first = last = nullptr;
 	length = 0;
 }
 
@@ -10705,8 +11146,12 @@ void _thetas::remove(_theta* stheta) {
 	scan = first;
 	while (scan != 0) {
 		if (scan == stheta) {
+			// gulls: keep first/last valid when removing an end element; gulls'
+			// thetas_owner destructor walks first (upstream doesn't free Thetas here).
 			if (scan != first) scan->prev->next = stheta->next;
+			else first = stheta->next;
 			if (scan != last) scan->next->prev = stheta->prev;
+			else last = stheta->prev;
 			delete stheta;
 			length--;
 			break;
@@ -10718,4 +11163,3 @@ void _thetas::remove(_theta* stheta) {
 
 
 #pragma endregion
-

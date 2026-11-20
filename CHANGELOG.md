@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Changed
+- Updated the vendored VBMicrolensing library to upstream v5.6.1 (from a v5.3.5-era base with partial v5.4/v5.5 backports). This adds the 5.6 `cmplx_roots_multigen` restructuring, safer nopoly failure handling, the MultiMag retry/`flagbad` logic, the BinaryMag2 large-source fix, and `t0_from_t0_par`. The new public functions (`TripleLightCurveOrbital`, `TripleAstroLightCurveOrbital`, `t0_from_t0_par`) get the same opt-in timeout wrappers as the existing entry points. The gulls customizations (timeouts and ErrorPolicy, RAII ownership, `VBcomplex` rename, `max_num_images`) are kept. See `documentation/development/VBM_upgrade.md` for the procedure for future upgrades.
+- **Fixed the Nopoly error estimate in `OrderMultipleImages` ([VBMicrolensing #88](https://github.com/valboz/VBMicrolensing/issues/88)).** Both parabolic-correction error terms were missing the `cmp2 * 0.1` term that `OrderImages` has, so for three or more lenses the error could be underestimated and the contour integration stopped early. Upstream 5.5 and 5.6.1 have the same omission; whether it shows up depends on the geometry and its orientation. In RMDC26 event 1267 (a planetary system with a stellar companion about 5,660 θE away), Nopoly at `Tol=1e-4` was off by up to 4.98e-3 in magnification at 42 of 441 epochs; with the fix it is within 1.3e-6 of a `Tol=1e-7` reference at every rotation tested.
+
+### Fixed
+- VBM timeouts no longer crash gulls. A timeout inside `BinaryMag2` or `MultiMag2` (gulls' per-epoch magnification calls) could segfault: the limb-darkening annulus list was freed through an uninitialized `next` pointer, and `MultiMag2` dereferenced the null image list that `MultiMag0` returns after a timeout. Annuli are now value-initialized, and both functions return NaN with `LastError` set.
+- Under `ErrorPolicy::ReturnNaN`, a timeout inside a nested VBM call could be swallowed and its `LastError` cleared by the next inner call, so the outer call returned a value with no error set. Only the outermost call now applies the policy, so a timeout aborts the whole call and `LastError.api` names the function that was called.
+- Multipoly `MultiMag` could free its theta list twice. When the first contour point found no images ten times, it returned -1, and the gulls RAII owner then destroyed a list whose `first` pointer upstream leaves dangling after removing the only element. `_thetas` now initializes `first`/`last` and keeps them valid in `remove`. In a fuzz of 60,000 realistic triple-lens geometries per method, this branch now has no crashes in Nopoly or Multipoly. Before this fix, Multipoly crashed in 4 of 20,000.
+- VBM no longer leaks memory when a timeout fires in `PlotCrit`, `BinaryMag0` or `MultiMag0`; `PlotCrit` also no longer leaks a sample curve on every successful call. `BinaryMag0_shear` now has its own timeout wrapper: under `ReturnNaN` it previously returned a magnification computed from incomplete roots, and now returns NaN with `LastError` set.
+
 ## [3.1.0] - 2026-01-25
 
 ### Added

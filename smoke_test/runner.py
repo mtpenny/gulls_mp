@@ -158,7 +158,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help=(
             "With --bagle-joint-fit-sanity, force BAGLE fit to use this EventID "
-            "(default: auto-select using single-lens chi2)."
+            "(default: among single-lens candidates whose t0 is at least 2 tE from "
+            "the light-curve edges, the one with the largest |piE|*tE)."
         ),
     )
     parser.add_argument(
