@@ -312,7 +312,12 @@ void writeEventParams(struct filekeywords* Paramfile, struct obsfilekeywords Wor
 	}
     }
   ofile << Event->nimageflag[0] << " ";
-  if(Paramfile->multiple_sources) ofile << Event->nimageflag[1] << " ";
+  if(Paramfile->multiple_sources)
+    {
+      //nimageflag has one entry per source, so single-source events have no second entry
+      if(Event->nimageflag.size()>1) ofile << Event->nimageflag[1] << " ";
+      else ofile << "NaN ";
+    }
 
   //lens data - +10+1 = 15
   int ln = Event->lens;

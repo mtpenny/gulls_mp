@@ -357,6 +357,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     
     # Validate catalogs: columns, compatibility, and binary-specific requirements
+    planet_rows: Dict[str, int | None] = {}
     for case in prepared_cases:
         try:
             verify_input_files_exist(case.params)
@@ -368,7 +369,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             verify_weather_coverage(case.params)
             verify_rates_file(case.params)
             verify_sequence_has_observations(case.params)
-            verify_planet_file_schema(case.params, args.field if args.field is not None else -1, args.instance)
+            planet_rows[case.label] = verify_planet_file_schema(
+                case.params,
+                args.field if args.field is not None else -1,
+                args.instance,
+                case.exe_name,
+            )
         except SmokeTestError as err:
             print(f"Validation failed for {case.label}:")
             print(f" - {err}")
@@ -400,7 +406,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             cmd.extend(["-d"])
 
         print(f"\n=== Running {case.exe_name} ({case.label}) with {case.param_path.name} ===")
-        result = run_command(cmd, env, args.exec_timeout, cwd=REPO_ROOT)
+        try:
+            result = run_command(cmd, env, args.exec_timeout, cwd=REPO_ROOT)
+        except subprocess.TimeoutExpired:
+            # Gulls simulates one event per planet-file row, and SUBRUNSIZE does
+            # not cap that, so a long planet file can exceed the timeout.
+            rows = planet_rows.get(case.label)
+            hint = (
+                f" The planet file has {rows} rows, and Gulls simulates one event per row;"
+                " raise --exec-timeout or use a shorter planet file."
+                if rows is not None
+                else " Raise --exec-timeout if the case is expected to be slow."
+            )
+            failures.append(
+                f"{case.label} timed out after {args.exec_timeout:g} s.{hint}"
+            )
+            continue
 
         print(result.stdout)
         if result.returncode != 0:

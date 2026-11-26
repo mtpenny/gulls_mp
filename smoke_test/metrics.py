@@ -39,6 +39,10 @@ SUMMARY_COLUMN_MAP = {
     "pm_source_ref_delta": "mu_source_ref_delta",
     "pm_lens_ref_alpha": "mu_lens_ref_alpha",
     "pm_lens_ref_delta": "mu_lens_ref_delta",
+    "pm_source_helio_alpha": "mu_source_helio_alpha",
+    "pm_source_helio_delta": "mu_source_helio_delta",
+    "pm_lens_helio_alpha": "mu_lens_helio_alpha",
+    "pm_lens_helio_delta": "mu_lens_helio_delta",
 }
 
 EVENT_ID_COLUMNS = ("EventID", "SubRun", "Field")

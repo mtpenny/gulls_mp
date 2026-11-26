@@ -919,26 +919,44 @@ def verify_input_files_exist(params: Dict[str, str]) -> None:
         )
 
 
+# Executables whose planet module (generalPlanet.cpp) reads 7 columns per object.
+GENERAL_PLANET_EXECUTABLES = {"gulls_general.x", "gullsFish.x"}
+
+
 def verify_planet_file_schema(
     params: Dict[str, str],
     field: int,
     instance: str,
-) -> None:
-    """Validate selected planet file has consistent column counts across all data rows."""
+    exe_name: str | None = None,
+) -> int | None:
+    """Validate the selected planet file and return its number of data rows.
+
+    Gulls simulates one event per data row. The file is looked up the way
+    readPlanets2.cpp does: first PLANET_DIR/PLANET_ROOT<field>.<instance>,
+    then the per-SubRun layout PLANET_DIR/<instance>/PLANET_ROOT<field>.<instance>.
+    For the general-planet executables, rows must have 7 columns per object.
+    Returns None when the file cannot be determined before the run.
+    """
     planet_dir_str = params.get("PLANET_DIR")
     planet_root = params.get("PLANET_ROOT", "").strip()
     if not planet_dir_str or not planet_root:
-        return
+        return None
 
     if field < 0:
         # Cannot determine filename when field is auto-selected at runtime.
-        return
+        return None
 
     planet_dir = _resolve_param_path(planet_dir_str, "planet directory")
-    planet_file = (planet_dir / f"{planet_root}{field}.{instance}").resolve()
-    if not planet_file.exists():
+    file_name = f"{planet_root}{field}.{instance}"
+    candidates = [
+        (planet_dir / file_name).resolve(),
+        (planet_dir / instance / file_name).resolve(),
+    ]
+    planet_file = next((c for c in candidates if c.exists()), None)
+    if planet_file is None:
+        tried = "\n".join(f"  - {c}" for c in candidates)
         raise SmokeTestError(
-            f"Planet file not found for selected field/subrun: {planet_file}"
+            f"Planet file not found for selected field/subrun. Tried:\n{tried}"
         )
 
     lines = planet_file.read_text(encoding="utf-8").splitlines()
@@ -982,6 +1000,15 @@ def verify_planet_file_schema(
         raise SmokeTestError(
             f"Planet file {planet_file} header has {len(header_cols)} columns but data rows have {data_width}"
         )
+
+    if exe_name in GENERAL_PLANET_EXECUTABLES and data_width is not None and data_width % 7 != 0:
+        raise SmokeTestError(
+            f"Planet file {planet_file} has {data_width} columns per row; {exe_name} "
+            "needs 7 per object (Mass, SemimajorAxis, Eccentricity, Inclination, "
+            "LongitudePerihelion, LongitudeAscNode, OrbitType)"
+        )
+
+    return data_rows
 
 
 def verify_psf_files(params: Dict[str, str]) -> None:
