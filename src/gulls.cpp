@@ -100,6 +100,32 @@ static bool has_vbm_event_error(const struct event& event) {
   return !event.vbm_error_message.empty();
 }
 
+// EXIT_ON_VBM_ERROR=1: report the event's VBM error and return the exit code.
+static int fatal_vbm_event_error(int event_idx, const struct event& Event) {
+  const VBMTimeoutError::TimeoutCategory timeout_category =
+    timeout_category_from_code(Event.vbm_error_category);
+  const int exit_code = timeout_exit_code(timeout_category);
+  cerr << "FATAL: Event " << event_idx << " encountered VBM error and EXIT_ON_VBM_ERROR=1" << endl;
+  cerr << "VBM error message: " << Event.vbm_error_message << endl;
+  cerr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category) << endl;
+  if(!Event.vbm_error_source.empty())
+    {
+      cerr << "Timeout source: " << Event.vbm_error_source << endl;
+    }
+  if(logfile_ptr.is_open())
+    {
+      logfile_ptr << "FATAL: Event " << event_idx << " encountered VBM error and EXIT_ON_VBM_ERROR=1" << endl;
+      logfile_ptr << "VBM error message: " << Event.vbm_error_message << endl;
+      logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category) << endl;
+      if(!Event.vbm_error_source.empty())
+        {
+          logfile_ptr << "Timeout source: " << Event.vbm_error_source << endl;
+        }
+      logfile_ptr.flush();
+    }
+  return exit_code;
+}
+
 int main(int argc, char *argv[]){                   /* BEGIN MAIN */
   try {
 
@@ -440,30 +466,7 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
       if(Paramfile.verbosity) {printf("lightcurve generated\n"); fflush(stdout);}
 
       if(Paramfile.exit_on_vbm_error && has_vbm_event_error(Event))
-        {
-          const VBMTimeoutError::TimeoutCategory timeout_category =
-            timeout_category_from_code(Event.vbm_error_category);
-          const int exit_code = timeout_exit_code(timeout_category);
-          cerr << "FATAL: Event " << idx << " encountered VBM error and EXIT_ON_VBM_ERROR=1" << endl;
-          cerr << "VBM error message: " << Event.vbm_error_message << endl;
-          cerr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category) << endl;
-          if(!Event.vbm_error_source.empty())
-            {
-              cerr << "Timeout source: " << Event.vbm_error_source << endl;
-            }
-          if(logfile_ptr.is_open())
-            {
-              logfile_ptr << "FATAL: Event " << idx << " encountered VBM error and EXIT_ON_VBM_ERROR=1" << endl;
-              logfile_ptr << "VBM error message: " << Event.vbm_error_message << endl;
-              logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category) << endl;
-              if(!Event.vbm_error_source.empty())
-                {
-                  logfile_ptr << "Timeout source: " << Event.vbm_error_source << endl;
-                }
-              logfile_ptr.flush();
-            }
-          return exit_code;
-        }
+        return fatal_vbm_event_error(idx, Event);
 
       // Any non-zero lcerror means downstream photometry/output should not run.
       // These stages assume valid magnification vectors.
@@ -489,6 +492,23 @@ int main(int argc, char *argv[]){                   /* BEGIN MAIN */
           tdetcuts += double((tend.tv_sec - tstart.tv_sec) - (nsec<0?1:0))
             + double(nsec<0?nsec+1000000000:nsec)*1.0e-9; 
           if(Paramfile.verbosity) {printf("detection criteria applied\n"); fflush(stdout);}
+
+          // gullsFish calls VBM again in detectionCuts (Fisher derivatives).
+          // detectionCuts only runs when the lightcurve succeeded, so any VBM
+          // error here is new: log why the event is discarded, or stop.
+          if(has_vbm_event_error(Event))
+            {
+              if(Paramfile.exit_on_vbm_error)
+                return fatal_vbm_event_error(idx, Event);
+              if(logfile_ptr.is_open())
+                {
+                  logfile_ptr << "VBM error in detection cuts: " << Event.vbm_error_message << endl;
+                  logfile_ptr << "Timeout category: " << VBMTimeoutError::CategoryName(timeout_category_from_code(Event.vbm_error_category)) << endl;
+                  if(!Event.vbm_error_source.empty())
+                    logfile_ptr << "Timeout source: " << Event.vbm_error_source << endl;
+                  logfile_ptr.flush();
+                }
+            }
 
           clock_gettime(CLOCK_REALTIME,&tstart);
         

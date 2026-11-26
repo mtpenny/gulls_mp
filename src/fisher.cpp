@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include <limits>
 #include <gsl/gsl_deriv.h>
 
 #include "lightcurveGenerator.h"
@@ -28,6 +29,37 @@ struct DerivContext {
     event* Event;
     obsfilekeywords* World;
 };
+
+// Flag the event as failed when VBM recorded an error (timeout or failed
+// calculation), using the same fields and codes as handle_vbm_api_error in the
+// lightcurve generators, so gulls discards and logs it instead of writing NaN
+// derivatives. Only the first error per event is kept.
+static bool record_vbm_error(event* Event, filekeywords* Paramfile)
+{
+  VBMicrolensing* vbm = Event->vbm;
+  if (!vbm->HasLastError())
+    return false;
+
+  if (!Event->lcerror)
+    {
+      const VBMicrolensing::LastError& err = vbm->GetLastError();
+      Event->vbm_error_category = static_cast<int>(err.category);
+      Event->vbm_error_source = err.where;
+      Event->vbm_error_message = err.message;
+      Event->lcerror = (err.category == VBMTimeoutError::TimeoutCategory::Unknown) ? LCGEN_VBM_ERR : LCGEN_TIMEOUT_ERR;
+      Event->detected = 0;
+      Event->deterror = 0;
+      Event->outputthis = 0;
+      if (Paramfile->verbosity >= 1)
+        {
+          cout << "VBM error in BinaryMag2 (fisher): " << err.message << endl;
+          cout << "Timeout category: " << VBMTimeoutError::CategoryName(err.category) << endl;
+          if (!err.where.empty()) cout << "Timeout source: " << err.where << endl;
+        }
+    }
+  vbm->ClearLastError();
+  return true;
+}
 
 // GSL derivative wrapper using context struct
 static double deriv_wrapper(double x, void* p)
@@ -119,6 +151,8 @@ static double deriv_wrapper(double x, void* p)
   Event->vbm->a1=limb_gamma;
 
   double amp=Event->vbm->BinaryMag2(s, q, xsi, ysi, rs);
+  if (record_vbm_error(Event, Paramfile))
+    return std::numeric_limits<double>::quiet_NaN();
 
   // Flux-only evaluations use param=-1 and do not need per-call debug output.
   if (param >= 0)
@@ -179,6 +213,7 @@ void fisherMatrix(filekeywords* Paramfile, event* Event,
 	  ctx.idx = idx;
 	  double result = 0.0, abserr = 0.0;
 	  gsl_deriv_central(&F, 0.0, step[param], &result, &abserr);
+	  if (Event->lcerror) return;  // VBM error: the caller discards the event
 	  int obsidx = Event->obsidx[idx];
 	  double fs = Event->fs[obsidx];
 	  double snr = fabs(result) / (abserr + 1e-12);
@@ -245,6 +280,7 @@ void fisherMatrix(filekeywords* Paramfile, event* Event,
       // Fisher flux terms use its fixed projected lens geometry. Event->Atrue
       // may instead contain the general generator's live orbital motion.
       const double amp = deriv_wrapper(0.0, &ctx);
+      if (Event->lcerror) return;  // VBM error: the caller discards the event
       Event->dF[base] = 1.0 + Event->fs[obsidx] * (amp - 1.0);
       Event->dF[base + Event->nepochs] = amp - 1.0;
     }
