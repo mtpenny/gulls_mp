@@ -1849,6 +1849,8 @@ def plot_lightcurves(
         pm_ref_alpha_float, pm_ref_delta_float = _summary_pm_pair("pm_ref")
         pm_source_ref_alpha_float, pm_source_ref_delta_float = _summary_pm_pair("pm_source_ref")
         pm_lens_ref_alpha_float, pm_lens_ref_delta_float = _summary_pm_pair("pm_lens_ref")
+        source_pm_helio = _summary_pm_pair("pm_source_helio")
+        lens_pm_helio = _summary_pm_pair("pm_lens_helio")
 
         span_years = None
         if len(time):
@@ -1955,8 +1957,8 @@ def plot_lightcurves(
                 summary,
                 planet_vals,
                 event_vals,
-                None,
-                None,
+                source_pm_helio if None not in source_pm_helio else None,
+                lens_pm_helio if None not in lens_pm_helio else None,
                 theta_e_float,
                 source_dist_float,
                 event_ra_float,

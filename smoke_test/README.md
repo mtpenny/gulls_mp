@@ -310,9 +310,14 @@ The smoke test passes when:
 - Copy the VBMicrolensing ESPL table: `cp VBMicrolensing/ESPL.tbl src/`
 
 ### Timeout errors
-- Increase timeout: `--exec-timeout 300`
+- Gulls simulates one event per data row of the planet file, and `SUBRUNSIZE` does not cap that. A Fisher (`gullsFish`) event can take minutes, so a planet file with many rows can exceed the timeout without anything being wrong. The timeout message reports the row count.
+- Increase timeout: `--exec-timeout 300`, or use a shorter planet file
 - Check for infinite loops in lightcurve generation
 - Verify VBMicrolensing `LC_TIMEOUT` is enforced (see `src/pllxLightcurveGenerator.cpp`)
+
+### "Planet file not found" error
+- The input checker looks for the planet file where Gulls does: first `PLANET_DIR/PLANET_ROOT<field>.<instance>`, then the per-SubRun layout `PLANET_DIR/<instance>/PLANET_ROOT<field>.<instance>`. The error lists both paths it tried.
+- For `gulls_general` and `gullsFish`, each row must have 7 columns per object (Mass, SemimajorAxis, Eccentricity, Inclination, LongitudePerihelion, LongitudeAscNode, OrbitType).
 
 ### Plotting errors
 - Install required packages: `pip install numpy pandas matplotlib`

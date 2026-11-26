@@ -334,9 +334,25 @@ void outputLightcurve(struct event *Event, struct obsfilekeywords World[], struc
   //data.str("");
   lcfile << "#Planet: ";
   //for(int i=0;i<NPLANETINPUT+NPLANETDERIV;i++)
-  for(auto param : Event->params)
+  if(!Event->params.empty())
     {
-      lcfile << param << " ";
+      for(auto param : Event->params)
+	{
+	  lcfile << param << " ";
+	}
+    }
+  else if(Event->nplanets>0 && !Event->p_q.empty() && !Event->p_s0.empty())
+    {
+      //generalPlanet.cpp keeps planets in the p_* vectors and leaves
+      //Event->params empty. Write the first planet in the same
+      //PMASS..TT layout the other planet modules use (mass, a, orbital
+      //phase, inclination, q, s, period). s is p_s0, set by the light
+      //curve generator, so it is valid here but not at planet setup.
+      //Only the first planet is written; the .out file has all of them.
+      lcfile << Event->p_mass[0] << " " << Event->p_a[0] << " "
+	     << Event->p_L0[0] << " " << Event->p_I[0] << " "
+	     << Event->p_q[0] << " " << Event->p_s0[0] << " "
+	     << Event->p_period[0] << " ";
     }
   lcfile << endl;
   //fprintf(lcfile_ptr,"%s\n",data.str().c_str());
