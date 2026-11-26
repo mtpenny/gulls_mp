@@ -153,6 +153,10 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 	  Event->pllx[obsidx].compute_tushifts();
 	}
 
+      // fisherMatrix stops at the first VBM error and sets lcerror; gulls then
+      // discards the event, as for a VBM error in the lightcurve generator.
+      if(Event->lcerror) return;
+
       
 
       for(obsgroup=0; obsgroup<int(Event->obsgroups.size()); obsgroup++)

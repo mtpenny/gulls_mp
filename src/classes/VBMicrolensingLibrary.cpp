@@ -50,6 +50,16 @@ char systemslash = '/';
 namespace {
 constexpr int kDefaultTimeoutCheckInterval = 256;
 
+// A nested magnification call came back without an image list and without a
+// timeout, i.e. VBM's own retries gave up (upstream's internal `return -1`).
+// Raise it through the timeout machinery as an Unknown-category error so the
+// outermost API call records LastError and applies the ErrorPolicy, instead of
+// returning a NaN that callers cannot tell apart from a valid result.
+[[noreturn]] void ThrowMissingImages(const char* where) {
+	throw VBMTimeoutError(VBMTimeoutError::TimeoutCategory::Unknown,
+		std::string(where) + ": no image list returned (VBM calculation failed; not a timeout)");
+}
+
 class TimeBudget {
 public:
 	TimeBudget() : enabled_(false), budget_(0.0), start_() {}
@@ -1439,7 +1449,7 @@ double VBMicrolensing::BinaryMag2(double s, double q, double y1v, double y2v, do
 
 		Mag0 = BinaryMag0(s, q, y1v, y2a, &Images);
 		if (Images == nullptr) {
-			return std::numeric_limits<double>::quiet_NaN();
+			ThrowMissingImages("BinaryMag2/BinaryMag0");
 		}
 		delete Images;
 		rho2 = rho * rho;
@@ -1518,7 +1528,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		else {
 			first->Mag = BinaryMag0(a, q, y_1, y_2, &Images);
 			if (Images == nullptr) {
-				return std::numeric_limits<double>::quiet_NaN();
+				ThrowMissingImages("BinaryMagDark/BinaryMag0");
 			}
 			first->nim = Images->length;
 			delete Images;
@@ -1542,7 +1552,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 		scan->cum = 1.;
 		scan->Mag = BinaryMagSafe(a, q, y_1, y_2, RSv, &Images);
 		if (Images == nullptr) {
-			return std::numeric_limits<double>::quiet_NaN();
+			ThrowMissingImages("BinaryMagDark/BinaryMagSafe");
 		}
 		if (astrometry) {
 			scan->LDastrox1 = astrox1 * scan->Mag;
@@ -1606,7 +1616,7 @@ double VBMicrolensing::BinaryMagDark(double a, double q, double y1, double y2, d
 			scan->prev->f = LDprofile(cb);
 			scan->prev->Mag = BinaryMagSafe(a, q, y_1, y_2, RSv * cb, &Images);
 			if (Images == nullptr) {
-				return std::numeric_limits<double>::quiet_NaN();
+				ThrowMissingImages("BinaryMagDark/BinaryMagSafe");
 			}
 			if (astrometry) {
 				scan->prev->LDastrox1 = astrox1 * scan->prev->Mag;
@@ -3510,7 +3520,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		else {
 			first->Mag = MultiMag0(y1s, y2s, &Images);
 			if (Images == nullptr) {
-				return std::numeric_limits<double>::quiet_NaN();
+				ThrowMissingImages("MultiMagDark/MultiMag0");
 			}
 			first->nim = Images->length;
 			if(Images->length>max_num_images) max_num_images=Images->length;
@@ -3535,7 +3545,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 		scan->cum = 1.;
 		scan->Mag = MultiMagSafe(y1s, y2s, RSv, &Images);
 		if (Images == nullptr) {
-			return std::numeric_limits<double>::quiet_NaN();
+			ThrowMissingImages("MultiMagDark/MultiMagSafe");
 		}
 		if (astrometry) {
 			scan->LDastrox1 = astrox1 * scan->Mag;
@@ -3600,7 +3610,7 @@ double VBMicrolensing::MultiMagDark(double y1s, double y2s, double RSv, double T
 			scan->prev->f = LDprofile(cb);
 			scan->prev->Mag = MultiMagSafe(y1s, y2s, RSv * cb, &Images);
 			if (Images == nullptr) {
-				return std::numeric_limits<double>::quiet_NaN();
+				ThrowMissingImages("MultiMagDark/MultiMagSafe");
 			}
 			if (astrometry) {
 				scan->prev->LDastrox1 = astrox1 * scan->prev->Mag;
@@ -3698,7 +3708,7 @@ double VBMicrolensing::MultiMag2(double y1s, double y2s, double rho) {
 
 		Mag0 = MultiMag0(y1s, y2s, &Images);
 		if (Images == nullptr) {
-			return std::numeric_limits<double>::quiet_NaN();
+			ThrowMissingImages("MultiMag2/MultiMag0");
 		}
 		max_num_images = Images->length;
 		delete Images;

@@ -47,13 +47,23 @@ silently drop the gulls changes listed below.
    `new`/`delete`, so a timeout that exits early frees what was built so far. Upstream
    `PlotCrit` also leaks its per-step sample curve on every successful call; the
    `samples` owner fixes that too. `Prov` lists are
-   drained with `while (Prov->first) { …; Prov->drop(scan1); }`. Callers check
-   `Images == nullptr` and return NaN after a timeout. On upstream's own `return -1`
-   paths, `MultiMag` still hands back the image list (`images_owner.release()`), which
-   preserves upstream's contract with `MultiMagSafe`. Every `annulus` is allocated
+   drained with `while (Prov->first) { …; Prov->drop(scan1); }`. On upstream's own
+   `return -1` paths, `MultiMag` still hands back the image list
+   (`images_owner.release()`), which preserves upstream's contract with `MultiMagSafe`.
+   `BinaryMag` does not: its `return -1` paths (no images found on the contour) leave
+   `*Images == nullptr`. A timeout never reaches the callers' null checks (nested calls
+   rethrow), so a null list there means VBM's own calculation failed, for example
+   `BinaryMagSafe`'s last retry for a wide planet whose source covers the host. The
+   callers (`BinaryMag2`, `BinaryMagDark`, `MultiMag2`, `MultiMagDark`) raise it with
+   `ThrowMissingImages`, an `Unknown`-category `VBMTimeoutError`, so the outermost call
+   sets `LastError` and returns NaN (Gulls maps `Unknown` to `LCGEN_VBM_ERR` and
+   discards the event). Before this, they returned NaN with no error set and Gulls wrote
+   all-NaN lightcurves. Restoring upstream's behaviour instead would return a finite
+   magnification there, but upstream is inaccurate in that regime and its
+   `BinaryMagSafe` leaves the centroid from its last, failed retry. Every `annulus` is allocated
    value-initialized (`new annulus()`), so the `AnnulusChainPtr` deleter never follows an
    uninitialized `next` when a timeout exits early. `BinaryMag2` and `MultiMag2` likewise
-   return NaN if `BinaryMag0`/`MultiMag0` hand back `Images == nullptr`. Upstream uses
+   raise the same error if `BinaryMag0`/`MultiMag0` hand back `Images == nullptr`. Upstream uses
    `new annulus;` and does not need the null checks, so re-check both after a merge.
 4. **`max_num_images`**, a public counter updated in `MultiMag2`/`MultiMagDark` and used
    by gulls diagnostics.
