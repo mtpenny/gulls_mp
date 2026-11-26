@@ -303,10 +303,14 @@ void detectionCuts(struct filekeywords* Paramfile, struct event *Event, struct o
 		  
 	  for(int param=0;param<nparams;param++)
 	    {
-	      int parobsidx = Event->obsgroups[obsgroup][(param-nfixpar)/2];
-	      int ofallparams = (param<nfixpar ? 
-				 param : 
-				 nfixpar + 2*parobsidx + (param-nfixpar)%2);
+	      //Only flux parameters (param>=nfixpar) belong to an observatory;
+	      //for the fixed parameters (param-nfixpar)/2 is a negative index.
+	      int ofallparams = param;
+	      if(param>=nfixpar)
+		{
+		  int parobsidx = Event->obsgroups[obsgroup][(param-nfixpar)/2];
+		  ofallparams = nfixpar + 2*parobsidx + (param-nfixpar)%2;
+		}
 	      int allshift = Event->nepochs*ofallparams;
 			  
 	      for(grpidx=0;grpidx<nobs;grpidx++)
